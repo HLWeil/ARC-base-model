@@ -7,7 +7,7 @@ index: 6
 
 # FormalParameter
 
-Specializations of [FormalParameter](../../process_core/FormalParameter.md) used in the Workflow Run decoration.
+Specializations of [FormalParameter](../../process_provenance/FormalParameter.md) used in the Workflow Run decoration.
 
 Workflow Run-specific entity (no direct ProcessCore equivalent). Describes the shape and type of workflow inputs/outputs, providing prospective provenance.
 

@@ -7,7 +7,7 @@ index: 2
 
 # Datamap
 
-Datamap profile content on [Dataset](../process_core/Dataset.md). Represents a dataset that groups data files and fragment-level data contexts.
+Datamap profile content on [Dataset](../process_provenance/Dataset.md). Represents a dataset that groups data files and fragment-level data contexts.
 
 **Schema.org type**: `schema.org/Dataset`
 

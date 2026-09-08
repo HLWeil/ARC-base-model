@@ -11,7 +11,7 @@ The ARC Data Model specification defines three peer profiles that together form 
 
 ## Reading Order
 
-1. [ARC Core](process_core/overview.md)
+1. [ARC Core](process_provenance/overview.md)
 2. [Datamap](datamap/overview.md)
 3. [Administrative](administrative/overview.md)
 4. [ARC Workspace Project File](project_file.md)
@@ -28,7 +28,7 @@ The ARC Data Model specification defines three peer profiles that together form 
 
 | Area | Description |
 |------|-------------|
-| [ARC Core](process_core/overview.md) | Provenance model: Dataset, Process, Recipe, Sample, Data, Annotation, FormalParameter, and DefinedTerm |
+| [ARC Core](process_provenance/overview.md) | Provenance model: Dataset, Process, Recipe, Sample, Data, Annotation, FormalParameter, and DefinedTerm |
 | [Datamap](datamap/overview.md) | Data files, selected fragments, fragment descriptors, and dataset-level data contexts |
 | [Administrative](administrative/overview.md) | Dataset agents, affiliations, citations, licenses, dates, and administrative metadata |
 | [Decorations](decorations/overview.md) | ISA and Workflow Run mappings layered onto the unified model |

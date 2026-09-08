@@ -7,7 +7,7 @@ index: 4
 
 # Assay
 
-ISA specialization of [Dataset](../../process_core/Dataset.md). Represents a specific analytical measurement or experimental assay.
+ISA specialization of [Dataset](../../process_provenance/Dataset.md). Represents a specific analytical measurement or experimental assay.
 
 **`additionalType`**: `Assay`
 
@@ -18,7 +18,7 @@ Reference: [ISA RO-Crate Profile — Assay](../../../../references/isa_ro_crate.
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `additionalType` | string | MUST | `Assay` |
-| `processes` | [Process](../../process_core/Process.md) | SHOULD | Experimental processes in this assay |
+| `processes` | [Process](../../process_provenance/Process.md) | SHOULD | Experimental processes in this assay |
 | `performers` | [Agent](../../administrative/Agent.md) | COULD | Assay performers and contributors |
 
 ## Relationships

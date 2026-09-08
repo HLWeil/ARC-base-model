@@ -34,15 +34,15 @@ Shared model entities:
 
 | Entity | Source |
 |--------|--------|
-| Dataset | [Dataset](../spec/process_core/Dataset.md) |
-| Process | [Process](../spec/process_core/Process.md) |
-| Recipe | [Recipe](../spec/process_core/Recipe.md) |
-| Sample | [Sample](../spec/process_core/Sample.md) |
-| Data | [Data](../spec/process_core/Data.md) |
+| Dataset | [Dataset](../spec/process_provenance/Dataset.md) |
+| Process | [Process](../spec/process_provenance/Process.md) |
+| Recipe | [Recipe](../spec/process_provenance/Recipe.md) |
+| Sample | [Sample](../spec/process_provenance/Sample.md) |
+| Data | [Data](../spec/process_provenance/Data.md) |
 | DataContext | [DataContext](../spec/datamap/DataContext.md) |
-| Annotation | [Annotation](../spec/process_core/Annotation.md) |
-| FormalParameter | [FormalParameter](../spec/process_core/FormalParameter.md) |
-| DefinedTerm | [DefinedTerm](../spec/process_core/DefinedTerm.md) |
+| Annotation | [Annotation](../spec/process_provenance/Annotation.md) |
+| FormalParameter | [FormalParameter](../spec/process_provenance/FormalParameter.md) |
+| DefinedTerm | [DefinedTerm](../spec/process_provenance/DefinedTerm.md) |
 | Agent | [Agent](../spec/administrative/Agent.md) |
 | Organization | [Organization](../spec/administrative/Organization.md) |
 | ScholarlyArticle | [ScholarlyArticle](../spec/administrative/ScholarlyArticle.md) |
@@ -51,7 +51,7 @@ Profile entry points:
 
 | Profile | Purpose | Source |
 |---------|---------|--------|
-| ARC Core | Provenance through datasets, processes, protocols, samples, data, and annotations | [ARC Core](../spec/process_core/overview.md) |
+| ARC Core | Provenance through datasets, processes, protocols, samples, data, and annotations | [ARC Core](../spec/process_provenance/overview.md) |
 | Datamap | Data files, data fragments, fragment descriptors, and dataset data contexts | [Datamap](../spec/datamap/overview.md) |
 | Administrative | Dataset metadata, agents, affiliations, citations, licenses, and dates | [Administrative](../spec/administrative/overview.md) |
 

@@ -23,7 +23,7 @@ Data files contextualized within the datamap. A Data object may represent either
 | `selectorFormat` | URL | COULD | Formal description of the selector syntax, e.g. RFC 7111 |
 | `encodingFormat` | Text | COULD | MIME type of the target data object or fragment |
 | `hasPart` | [Data](Data.md) | COULD | Nested data fragments |
-| `additionalProperty` | [Annotation](../process_core/Annotation.md) | COULD | Extensible file-, fragment-, or content-level metadata |
+| `additionalProperty` | [Annotation](../process_provenance/Annotation.md) | COULD | Extensible file-, fragment-, or content-level metadata |
 
 ## Relationships
 

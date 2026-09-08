@@ -1,6 +1,6 @@
 ---
 title: Recipe
-category: Process Core Profile
+category: Process Provenance Profile
 categoryindex: 4
 index: 4
 ---

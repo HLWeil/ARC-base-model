@@ -7,7 +7,7 @@ index: 3
 
 # Run
 
-Workflow Run specialization of [Dataset](../../process_core/Dataset.md). Container describing a run folder in an ARC, documenting the execution of workflows.
+Workflow Run specialization of [Dataset](../../process_provenance/Dataset.md). Container describing a run folder in an ARC, documenting the execution of workflows.
 
 **`additionalType`**: `Run`
 

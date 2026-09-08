@@ -16,7 +16,7 @@ F# scripts so snippets can be compiled and evaluated during `BuildDocs`.
   `.fsx` files are literate fsdocs pages and should keep setup code hidden,
   examples small, and evaluated output focused.
 - `spec/` contains the normative specification. The three sibling ARC RDM
-  profiles live under `spec/process_core/`, `spec/datamap/`, and
+  profiles live under `spec/process_provenance/`, `spec/datamap/`, and
   `spec/administrative/`; legacy decoration pages remain under
   `spec/decorations/`.
 - `_head.html` is injected into every generated page and is the place for small
