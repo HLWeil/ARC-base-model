@@ -14,7 +14,7 @@ Schemas are derived representations of the markdown specification. The markdown 
 | Location | Status |
 |----------|--------|
 | `schemas/sql/` | SQLite-oriented SQL profile with executable DDL and seed data |
-| `schemas/yml/` | JSON Schema draft 2020-12 expressed in YAML for the unified ARC Process Core, datamap, and administrative model |
+| `schemas/yml/` | JSON Schema draft 2020-12 expressed in YAML for the unified ProcessCore model |
 | `schemas/document-db/` | Placeholder for a future document database representation |
 
 The YAML schemas describe the current unified vocabulary. In particular, `Process.yml` expects `inputs`, `outputs`, and `executesRecipe`; dataset metadata uses repo-native fields such as `agents`, `citations`, `dataFiles`, and `dataContexts`.
@@ -23,7 +23,7 @@ The YAML schemas describe the current unified vocabulary. In particular, `Proces
 
 | Location | Status |
 |----------|--------|
-| `examples/process_core/minimal.yml` | Schema-shaped ARC Core example intended to match the current YAML schema vocabulary |
+| `examples/process_core/minimal.yml` | Schema-shaped Process Provenance example intended to match the current YAML schema vocabulary |
 | `examples/datamap/proteomics_data.yml` | Data file, data fragment, and data context example using repo-native YAML names |
 | `examples/datamap/metadata_powered_analysis.yml` | Combined process and Datamap example for metadata-powered fragment selection |
 | `examples/administrative/dataset_administration.yml` | Agent, organization, citation, license, and date example |

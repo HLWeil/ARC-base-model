@@ -1,19 +1,19 @@
 ---
 title: Dataset
-category: Datamap Profile
-categoryindex: 5
+category: Datamap Decoration
+categoryindex: 7
 index: 2
 ---
 
 # Datamap
 
-Datamap profile content on [Dataset](../process_provenance/Dataset.md). Represents a dataset that groups data files and fragment-level data contexts.
+Datamap decoration profile content on [Dataset](../../process_provenance/Dataset.md). Represents a dataset that groups data files and fragment-level data contexts.
 
 **Schema.org type**: `schema.org/Dataset`
 
 **`additionalType`**: `Datamap`
 
-Reference: [Datamap RO-Crate Profile](../../../references/arc_datamap_ro_crate.md)
+Reference: [Datamap RO-Crate Profile](../../../../references/arc_datamap_ro_crate.md)
 
 ## Additional Properties (beyond Dataset)
 
