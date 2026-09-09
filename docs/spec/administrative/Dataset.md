@@ -33,9 +33,9 @@ Decorations specialize Dataset via `additionalTypes`:
 | `dateModified` | Text | `0..1` | MAY | Modification date | [`dateModified`](https://schema.org/dateModified) |
 | `hasParts` | [Dataset](Dataset.md) | `0..*` | SHOULD | Sub-datasets | [`hasPart`](https://schema.org/hasPart) |
 | `dataFiles` | [Data](../process_provenance/Data.md) | `0..*` | MAY | Data files that belong to this dataset | [`hasPart`](https://schema.org/hasPart) |
-| `agents` | [Agent](../administrative/Agent.md) | `0..*` | MAY | Dataset agents | [`creator`](https://schema.org/creator) <br> more specific mappings may depend on the agents’ roles and the target profile.|
+| `agents` | [Agent](../administrative/Agent.md) | `0..*` | MAY | Dataset agents | [`creator`](https://schema.org/creator) for people; specific mappings may depend on the agent's kind, role, and target profile. |
 | `citations` | [ScholarlyArticle](../administrative/ScholarlyArticle.md) | `0..*` | MAY | Publications cited by or associated with the dataset | [`citation`](https://schema.org/citation) |
-| `additionalProperties` | [Annotation](../process_provenance/Annotation.md) | `0..*` | MAY | Extensible metadata | [`additionalProperty`](https://schema.org/additionalProperty) |
+| `additionalProperties` | [Annotation](../process_provenance/Annotation.md) | `0..*` | MAY | Extensible metadata | [`additionalProperty`](https://schema.org/additionalProperty) as a profile convention; specific mappings may depend on the target profile. |
 
 ## Relationships
 
@@ -47,14 +47,14 @@ flowchart TD
     de@{ shape: stadium, label: "string" }
 
     d[Dataset]
-    d --hasParts--> Dataset
+    d --hasParts--> part["Dataset (part)"]
     d --dataFiles--> Data
     d --agents--> Agent
     d --citations--> ScholarlyArticle
-    Dataset --additionalProperties--> Annotation
-    Dataset --identifiers--> id
-    Dataset --title--> na
-    Dataset --description--> de
+    d --additionalProperties--> Annotation
+    d --identifiers--> id
+    d --title--> na
+    d --description--> de
 ```
 
 
