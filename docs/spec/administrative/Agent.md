@@ -7,42 +7,45 @@ index: 3
 
 # Agent
 
-Individual contributor, agent, author, or contact associated with a dataset or citation.
+A person or agentic software system associated with a dataset or citation, for example as a contributor, author, or contact.
 
-**Schema.org type**: `schema.org/Agent`
+**Recommended Schema.org type mapping**: [`schema.org/Person`](https://schema.org/Person) for people; [`schema.org/SoftwareApplication`](https://schema.org/SoftwareApplication) for software agents.
+
+A related provenance concept is [`prov:Agent`](https://www.w3.org/TR/prov-o/#Agent), with [`prov:Person`](https://www.w3.org/TR/prov-o/#Person) and [`prov:SoftwareAgent`](https://www.w3.org/TR/prov-o/#SoftwareAgent) specializations. The domain discriminator remains `type: Agent` regardless of the kind of agent represented.
 
 ## Properties
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `id` | Text | COULD | Unique identifier |
-| `type` | Text | MUST | `Agent` |
-| `givenName` | Text | MUST | Given name |
-| `familyName` | Text | SHOULD | Family name |
-| `email` | Text | SHOULD | Email address |
-| `affiliation` | [Organization](Organization.md) | SHOULD | Affiliated organization |
-| `identifier` | Text | SHOULD | ORCID or other identifier |
-| `additionalProperty` | [Annotation](../process_provenance/Annotation.md) | COULD | Extensible agent metadata not covered by the base properties |
-| `jobTitle` | [DefinedTerm](../process_provenance/DefinedTerm.md) | COULD | Job title |
+| Property | Type | Cardinality | Required | Description | Recommended Schema.org mapping |
+|----------|------|-------------|----------|-------------|--------------------------------|
+| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. | None |
+| `type` | Text | `1` | MUST | `Agent` | None |
+| `name` | Text | `1` | MUST | Human-readable name of the agent. For a real person, this SHOULD combine the available `givenName` and `familyName` components where possible. For a software agent, this is the name by which the software system is known. | [`name`](https://schema.org/name) |
+| `givenName` | Text | `0..1` | MAY | Given name of a person, where applicable. | [`givenName`](https://schema.org/givenName) for people. |
+| `familyName` | Text | `0..1` | MAY | Family name of a person, where applicable. | [`familyName`](https://schema.org/familyName) for people. |
+| `emails` | Text | `0..*` | SHOULD | Email addresses through which the person or software agent can be contacted. This field SHOULD be provided where applicable. | [`email`](https://schema.org/email) for people; software-agent mappings depend on the target profile. |
+| `affiliations` | [Organization](Organization.md) | `0..*` | SHOULD | Organizations with which the agent is affiliated, where applicable. For a person, these may include employers or research institutions. A software agent's creator, provider, or operator does not automatically constitute an affiliation. This field SHOULD be provided where an affiliation applies. | [`affiliation`](https://schema.org/affiliation) for people; software-agent mappings depend on the relationship and target profile. |
+| `identifiers` | Text | `0..*` | SHOULD | Identifiers by which the agent is known or referenced, such as an ORCID for a person or an identifier assigned to a software agent by a registry or application. Identifiers may be globally scoped or scoped to a particular system or context. | [`identifier`](https://schema.org/identifier) |
+| `additionalProperties` | [Annotation](../process_provenance/Annotation.md) | `0..*` | MAY | Extensible metadata about the person or software agent that is not covered by the base properties. | [`additionalProperty`](https://schema.org/additionalProperty) as a profile convention; specific mappings may depend on the target profile. |
+| `jobTitles` | [DefinedTerm](../process_provenance/DefinedTerm.md) | `0..*` | MAY | Titles describing the agent's occupation, role, or function. For a person, these may be professional titles such as researcher or data steward. For a software agent, these may describe its function, such as automated annotator or data analysis assistant. | [`jobTitle`](https://schema.org/jobTitle) for people; software-agent mappings depend on the target profile. |
 
 ## Relationships
 
 ```mermaid
 flowchart TD
 
+    n@{ shape: stadium, label: "string" }
     gn@{ shape: stadium, label: "string" }
     fn@{ shape: stadium, label: "string" }
     e@{ shape: stadium, label: "E-MAIL" }
-    i@{ shape: stadium, label: "ORCID" }
+    i@{ shape: stadium, label: "string" }
 
     Dataset --agents--> Agent
-    Agent --affiliation--> Organization
-    Agent --jobTitle--> DefinedTerm
+    Agent --affiliations--> Organization
+    Agent --jobTitles--> DefinedTerm
+    Agent --name--> n
     Agent --givenName--> gn
     Agent --familyName--> fn
-    Agent --email--> e
-    Agent --identifier--> i
-    Agent --additionalProperty--> Annotation
+    Agent --emails--> e
+    Agent --identifiers--> i
+    Agent --additionalProperties--> Annotation
 ```
-
-
