@@ -14,7 +14,7 @@ ARC Data Model is the workspace for the unified ARC RDM data model. It contains 
 ```text
 ARC-Data-Model/
 |-- docs/                 fsdocs documentation pages
-|   `-- spec/             ARC Process Core, datamap, and administrative specs
+|   `-- spec/             base profiles and domain-specific decoration profiles
 |-- schemas/              derived SQL and YAML schema representations
 |-- examples/             concrete YAML examples
 |-- references/           upstream and prior implementation reference material
@@ -25,7 +25,7 @@ ARC-Data-Model/
 
 ## Main Areas
 
-- [Specification](specification.md) describes the three unified ARC RDM profiles and decoration pages.
+- [Specification](specification.md) describes the three ARC RDM base profiles and their decoration profiles.
 - [Examples and schemas](examples-and-schemas.md) explains the current schema drafts and example status.
 - [Implementation](implementation.md) explains the F# projects, SQL profile, runtime adapters, and build commands.
 - [Reference material](references.md) lists upstream profiles and preserved implementation notes.

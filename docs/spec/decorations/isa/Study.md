@@ -7,7 +7,7 @@ index: 3
 
 # Study
 
-ISA specialization of [Dataset](../../process_core/Dataset.md). Represents a unit of research with associated experimental processes at the study level.
+ISA specialization of [Dataset](../../process_provenance/Dataset.md). Represents a unit of research with associated experimental processes at the study level.
 
 **`additionalType`**: `Study`
 

@@ -7,7 +7,7 @@ index: 10
 
 # ISA Annotation Subtypes
 
-Specializations of [Annotation](../../process_core/Annotation.md) used in the ISA decoration. All share the same base structure and differ by `additionalType`.
+Specializations of [Annotation](../../process_provenance/Annotation.md) used in the ISA decoration. All share the same base structure and differ by `additionalType`.
 
 Reference: [ISA RO-Crate Profile — Annotation](../../../../references/isa_ro_crate.md)
 

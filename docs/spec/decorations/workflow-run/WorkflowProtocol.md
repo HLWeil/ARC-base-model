@@ -7,7 +7,7 @@ index: 4
 
 # Workflow Protocol
 
-Workflow Run specialization of [Recipe](../../process_core/Recipe.md). Describes the prospective metadata of a computational workflow, combining computational and laboratory workflow descriptions.
+Workflow Run specialization of [Recipe](../../process_provenance/Recipe.md). Describes the prospective metadata of a computational workflow, combining computational and laboratory workflow descriptions.
 
 **`additionalType`**: `Workflow Protocol`
 

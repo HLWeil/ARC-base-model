@@ -7,7 +7,7 @@ index: 2
 
 # Investigation
 
-ISA specialization of [Dataset](../../process_core/Dataset.md). Represents the root container of an ISA-structured experiment, grouping studies and assays.
+ISA specialization of [Dataset](../../process_provenance/Dataset.md). Represents the root container of an ISA-structured experiment, grouping studies and assays.
 
 **`additionalType`**: `Investigation`
 

@@ -20,8 +20,8 @@ A scholarly publication associated with a Dataset. This can be used to link to p
 | `headline` | Text | MUST | Headline of the article |
 | `identifier` | Text | SHOULD | Identifier for this article, such as a DOI or PubMedID |
 | `authors` | [Agent](Agent.md) | SHOULD | Authors of the article |
-| `creativeWorkStatus` | [DefinedTerm](../process_core/DefinedTerm.md) | COULD | The status of the publication in terms of its stage in a lifecycle. |
-| `additionalProperty` | [Annotation](../process_core/Annotation.md) | COULD | Extensible article metadata not covered by the base properties. |
+| `creativeWorkStatus` | [DefinedTerm](../process_provenance/DefinedTerm.md) | COULD | The status of the publication in terms of its stage in a lifecycle. |
+| `additionalProperty` | [Annotation](../process_provenance/Annotation.md) | COULD | Extensible article metadata not covered by the base properties. |
 
 ## Relationships
 

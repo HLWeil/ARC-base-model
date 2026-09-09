@@ -7,7 +7,7 @@ index: 2
 
 # Workflow
 
-Workflow Run specialization of [Dataset](../../process_core/Dataset.md). Container describing a workflow folder in an ARC with ISA-compliant metadata.
+Workflow Run specialization of [Dataset](../../process_provenance/Dataset.md). Container describing a workflow folder in an ARC with ISA-compliant metadata.
 
 **`additionalType`**: `Workflow`
 

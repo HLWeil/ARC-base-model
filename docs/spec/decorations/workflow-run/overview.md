@@ -7,7 +7,7 @@ index: 1
 
 # Workflow Run Decoration
 
-The Workflow Run decoration maps computational workflow descriptions and executions onto ARC Core prospective and retrospective provenance.
+The Workflow Run decoration maps computational workflow descriptions and executions onto Process Provenance prospective and retrospective provenance.
 
 Reference: [ARC Workflow Run RO-Crate Profile](../../../../references/arc_wr_ro_crate.md)
 

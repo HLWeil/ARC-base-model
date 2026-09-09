@@ -7,9 +7,9 @@ index: 2
 
 # Specification Guide
 
-The normative specification lives in [docs/spec](../spec/index.md). The repository now organizes the ARC RDM model as three sibling profiles: ARC Core, datamap, and administrative. The implementation remains one shared model; profile boundaries are documentation and mapping boundaries, not runtime type boundaries.
+The normative specification lives in [docs/spec](../spec/index.md). The repository organizes the ARC RDM model into three base profiles: Process Provenance, Semantic Designation, and Administrative. Decoration profiles, including Datamap, add domain-specific refinements. The implementation remains one shared model; profile boundaries are documentation and mapping boundaries, not runtime type boundaries.
 
-## Unified Profiles
+## Base Profiles
 
 ```mermaid
 flowchart LR
@@ -17,7 +17,7 @@ flowchart LR
     Dataset --dataFiles--> Data
     Dataset --agents--> Agent
     Dataset --citations--> ScholarlyArticle
-    Dataset --dataContexts--> DataContext
+    Dataset --descriptors--> Descriptor
     Dataset --hasPart--> Dataset
     Process --inputs--> Sample
     Process --"outputs"--> Data
@@ -26,6 +26,9 @@ flowchart LR
     Recipe --parameters--> FormalParameter
     Recipe --components--> Annotation
     Annotation --instanceOf--> FormalParameter
+    Descriptor --describes--> Sample
+    Descriptor --describes--> Data
+    Descriptor --annotations--> Annotation
     Agent --affiliation--> Organization
     ScholarlyArticle --authors--> Agent
 ```
@@ -34,25 +37,25 @@ Shared model entities:
 
 | Entity | Source |
 |--------|--------|
-| Dataset | [Dataset](../spec/process_core/Dataset.md) |
-| Process | [Process](../spec/process_core/Process.md) |
-| Recipe | [Recipe](../spec/process_core/Recipe.md) |
-| Sample | [Sample](../spec/process_core/Sample.md) |
-| Data | [Data](../spec/process_core/Data.md) |
-| DataContext | [DataContext](../spec/datamap/DataContext.md) |
-| Annotation | [Annotation](../spec/process_core/Annotation.md) |
-| FormalParameter | [FormalParameter](../spec/process_core/FormalParameter.md) |
-| DefinedTerm | [DefinedTerm](../spec/process_core/DefinedTerm.md) |
+| Dataset | [Process Provenance](../spec/process_provenance/Dataset.md), [Semantic Designation](../spec/semantic_designation/Dataset.md), [Administrative](../spec/administrative/Dataset.md) |
+| Process | [Process](../spec/process_provenance/Process.md) |
+| Recipe | [Recipe](../spec/process_provenance/Recipe.md) |
+| Sample | [Sample](../spec/process_provenance/Sample.md) |
+| Data | [Data](../spec/process_provenance/Data.md) |
+| Descriptor | [Descriptor](../spec/semantic_designation/Descriptor.md) |
+| Annotation | [Process Provenance](../spec/process_provenance/Annotation.md), [Semantic Designation](../spec/semantic_designation/Annotation.md) |
+| FormalParameter | [FormalParameter](../spec/process_provenance/FormalParameter.md) |
+| DefinedTerm | [DefinedTerm](../spec/process_provenance/DefinedTerm.md) |
 | Agent | [Agent](../spec/administrative/Agent.md) |
 | Organization | [Organization](../spec/administrative/Organization.md) |
 | ScholarlyArticle | [ScholarlyArticle](../spec/administrative/ScholarlyArticle.md) |
 
-Profile entry points:
+Base profile entry points:
 
-| Profile | Purpose | Source |
-|---------|---------|--------|
-| ARC Core | Provenance through datasets, processes, protocols, samples, data, and annotations | [ARC Core](../spec/process_core/overview.md) |
-| Datamap | Data files, data fragments, fragment descriptors, and dataset data contexts | [Datamap](../spec/datamap/overview.md) |
+| Base Profile | Purpose | Source |
+|--------------|---------|--------|
+| Process Provenance | Provenance through datasets, processes, protocols, samples, data, and annotations | [Process Provenance](../spec/process_provenance/overview.md) |
+| Semantic Designation | Semantic descriptions that connect datasets, samples, and data with bundled annotations | [Semantic Designation](../spec/semantic_designation/overview.md) |
 | Administrative | Dataset metadata, agents, affiliations, citations, licenses, and dates | [Administrative](../spec/administrative/overview.md) |
 
 ## Decorations
@@ -63,11 +66,11 @@ Decorations add domain-specific meaning through `additionalType`, specialized pr
 |------------|---------|--------|
 | ISA | Investigation, Study, Assay, Source, Sample, and ISA property value roles | [ISA](../spec/decorations/isa/overview.md) |
 | Workflow Run | Workflow and Run datasets, workflow protocols, and workflow invocations | [Workflow Run](../spec/decorations/workflow-run/overview.md) |
-| Datamap | Promoted to a sibling profile | [Datamap](../spec/datamap/overview.md) |
+| Datamap | Data files, selected fragments, and DataContext descriptors | [Datamap](../spec/decorations/datamap/overview.md) |
 
 ## Naming Notes
 
-The current core vocabulary uses `Process` and `Recipe`, not the older placeholder names `Process` and `Protocol`.
+The Process Provenance vocabulary uses `Process` and `Recipe`, not the older placeholder names `Process` and `Protocol`.
 
 For process I/O, the current core and YAML schema names are:
 

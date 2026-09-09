@@ -7,7 +7,7 @@ index: 5
 
 # Workflow Invocation
 
-Workflow Run specialization of [Process](../../process_core/Process.md). Represents the execution of a Workflow Protocol, combining computational and laboratory workflow execution.
+Workflow Run specialization of [Process](../../process_provenance/Process.md). Represents the execution of a Workflow Protocol, combining computational and laboratory workflow execution.
 
 **`additionalType`**: `Workflow Invocation`
 
@@ -17,7 +17,7 @@ Reference: [ARC WR RO-Crate Profile — Workflow Invocation](../../../../referen
 
 ## Properties
 
-Inherits all properties from [Process](../../process_core/Process.md). WR-specific refinements:
+Inherits all properties from [Process](../../process_provenance/Process.md). WR-specific refinements:
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|

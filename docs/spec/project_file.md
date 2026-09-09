@@ -49,7 +49,7 @@ children of the root codec invocation. The root codec receives their identifiers
 in its codec context and MUST NOT serialize complete inline copies of those
 children. Each child binding remains a complete Dataset invocation.
 
-Scientific payloads referenced by [`Data`](process_core/Data.md), such as CSV,
+Scientific payloads referenced by [`Data`](process_provenance/Data.md), such as CSV,
 Parquet, images, or instrument files, are not managed resources under this
 specification.
 

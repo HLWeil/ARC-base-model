@@ -16,9 +16,9 @@ The repository now includes F# implementation projects in addition to the markdo
 | `src/ProcessCore` | In-memory unified ARC RDM model, YAML codecs, SQL profile, graph traversal, and table projection helpers | .NET, JavaScript, Python |
 | `tests/ProcessCore.Tests` | Shared Pyxpecto tests for core, YAML, and SQL behavior | .NET, JavaScript, Python |
 
-## ARC Core User Documentation
+## ProcessCore User Documentation
 
-The F# object model, YAML codec, graph traversal helpers, fragment selector providers, and table views are documented in the [ARC Core user guide](../core-implementation/overview.md). The public model is unified: `Dataset` carries ARC Core, datamap, and administrative properties rather than splitting them into separate runtime profile models.
+The F# object model, YAML codec, graph traversal helpers, fragment selector providers, and table views are documented in the [ProcessCore user guide](../core-implementation/overview.md). The public model is unified rather than split into separate runtime models for each base or decoration profile.
 
 ## SQL Profile
 

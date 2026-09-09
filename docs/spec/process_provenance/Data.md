@@ -1,13 +1,13 @@
 ---
 title: Data
-category: Datamap Profile
-categoryindex: 5
-index: 4
+category: Process Provenance Profile
+categoryindex: 4
+index: 6
 ---
 
 # Data
 
-Data files contextualized within the datamap. A Data object may represent either a whole file or, when its identifier includes a selector, a specific fragment within a file.
+Data files produced or consumed by processes. A Data object may represent either a whole file or, when its identifier includes a selector, a specific fragment within a file.
 
 **Schema.org type**: `schema.org/MediaObject` or `File`
 
@@ -23,7 +23,7 @@ Data files contextualized within the datamap. A Data object may represent either
 | `selectorFormat` | URL | COULD | Formal description of the selector syntax, e.g. RFC 7111 |
 | `encodingFormat` | Text | COULD | MIME type of the target data object or fragment |
 | `hasPart` | [Data](Data.md) | COULD | Nested data fragments |
-| `additionalProperty` | [Annotation](../process_core/Annotation.md) | COULD | Extensible file-, fragment-, or content-level metadata |
+| `additionalProperty` | [Annotation](Annotation.md) | COULD | Extensible file-, fragment-, or content-level metadata |
 
 ## Relationships
 
@@ -35,6 +35,8 @@ flowchart TD
     sf@{ shape: stadium, label: "URL" }
     ef@{ shape: stadium, label: "string" }
 
+    Process --inputs--> Data
+    Process --"outputs"--> Data
     Data --path--> pa
     Data --selector--> se
     Data --selectorFormat--> sf

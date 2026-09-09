@@ -22,8 +22,8 @@ Individual contributor, agent, author, or contact associated with a dataset or c
 | `email` | Text | SHOULD | Email address |
 | `affiliation` | [Organization](Organization.md) | SHOULD | Affiliated organization |
 | `identifier` | Text | SHOULD | ORCID or other identifier |
-| `additionalProperty` | [Annotation](../process_core/Annotation.md) | COULD | Extensible agent metadata not covered by the base properties |
-| `jobTitle` | [DefinedTerm](../process_core/DefinedTerm.md) | COULD | Job title |
+| `additionalProperty` | [Annotation](../process_provenance/Annotation.md) | COULD | Extensible agent metadata not covered by the base properties |
+| `jobTitle` | [DefinedTerm](../process_provenance/DefinedTerm.md) | COULD | Job title |
 
 ## Relationships
 
