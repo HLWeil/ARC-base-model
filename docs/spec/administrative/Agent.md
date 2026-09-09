@@ -40,6 +40,7 @@ flowchart TD
     i@{ shape: stadium, label: "string" }
 
     Dataset --agents--> Agent
+    ScholarlyArticle --authors--> Agent
     Agent --affiliations--> Organization
     Agent --jobTitles--> DefinedTerm
     Agent --name--> n
