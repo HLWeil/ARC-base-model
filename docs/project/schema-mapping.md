@@ -48,16 +48,18 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
-| `Recipe` | bioschemas:LabProtocol | - |
-| `additionalType` | [`additionalType`](https://schema.org/additionalType) | - |
+| `Recipe` | [`LabProtocol`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
 | `description` | [`description`](https://schema.org/description) | - |
-| `parameters` | `bioschemas:input` (?) | Renaming |
-| `intendedUse` | `bioschemas:intendedUse` | - |
-| `components` | `bioschemas:labEquipment`; `bioschemas:computationalTool`; `bioschemas:reagent` | Unified Process Core property for protocol components |
+| `parameters` | [`input`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#input) | For consumed-input slots; specific mappings may depend on the parameter's role and target profile. |
+| `intendedUse` | [`intendedUse`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#intendedUse) | - |
+| `components` | [`labEquipment`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#labEquipment); [`computationalTool`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#computationalTool); [`reagent`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#reagent) | Specific mappings depend on the component's kind and target profile. |
 | `version` | [`version`](https://schema.org/version) | - |
 | `url` | [`url`](https://schema.org/url) | - |
-| `additionalProperty` | [`additionalProperty`](https://schema.org/additionalProperty) | Added Property |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
 
 ### Sample
 
