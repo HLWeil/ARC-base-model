@@ -92,14 +92,16 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
 | `Annotation` | [`PropertyValue`](https://schema.org/PropertyValue) | - |
-| `additionalType` | [`additionalType`](https://schema.org/additionalType) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
 | `value` | [`value`](https://schema.org/value) | - |
 | `unit` | [`unitText`](https://schema.org/unitText) | Renaming |
 | `nameTAN` | [`propertyID`](https://schema.org/propertyID) | Renaming |
 | `valueTAN` | [`valueReference`](https://schema.org/valueReference) | Renaming |
 | `unitTAN` | [`unitCode`](https://schema.org/unitCode) | Renaming |
-| `instanceOf` | [`exampleOfWork`](https://schema.org/exampleOfWork) | Renaming |
+| `instanceOf` | [`exampleOfWork`](https://schema.org/exampleOfWork) | As a profile convention; specific mappings may depend on the target profile. |
 
 ### FormalParameter
 
