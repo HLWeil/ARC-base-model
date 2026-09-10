@@ -76,14 +76,16 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
-| `Data` | [`MediaObject`](https://schema.org/MediaObject) | Renaming |
-| `additionalType` | [`additionalType`](https://schema.org/additionalType) | - |
+| `Data` | [`MediaObject`](https://schema.org/MediaObject) | `File` is the RO-Crate alias for MediaObject. |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `path` | `@id` | Renaming and String conversion |
 | `selector` | `@id` | Renaming and String conversion |
 | `selectorFormat` | [`usageInfo`](https://schema.org/usageInfo) | Renaming |
 | `encodingFormat` | [`encodingFormat`](https://schema.org/encodingFormat) | - |
-| `hasPart` | [`hasPart`](https://schema.org/hasPart) | Data fragments |
-| `additionalProperty` | [`additionalProperty`](https://schema.org/additionalProperty) | Added Property |
+| `hasParts` | [`hasPart`](https://schema.org/hasPart) | Data fragments |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
 
 ### Annotation
 
