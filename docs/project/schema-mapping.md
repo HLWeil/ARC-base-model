@@ -34,13 +34,15 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
-| `Process` | bioschemas:LabProcess | - |
-| `additionalType` | [`additionalType`](https://schema.org/additionalType) | - |
+| `Process` | [`LabProcess`](https://bioschemas.org/types/LabProcess/0.1-DRAFT) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
-| `inputs` | [`object`](https://schema.org/object) | Renaming |
-| `outputs` | [`result`](https://schema.org/result) | Renaming |
-| `executesRecipe` | `bioschemas:executesRecipe` | - |
-| `parameterValue` | `bioschemas:parameterValue` | - |
+| `input` | [`object`](https://schema.org/object) | Renaming |
+| `output` | [`result`](https://schema.org/result) | Renaming |
+| `executesRecipe` | [`executesLabProtocol`](https://bioschemas.org/types/LabProcess/0.1-DRAFT#executesLabProtocol) | Renaming |
+| `parameterValues` | [`parameterValue`](https://bioschemas.org/types/LabProcess/0.1-DRAFT) | Renaming |
 
 ### Recipe
 

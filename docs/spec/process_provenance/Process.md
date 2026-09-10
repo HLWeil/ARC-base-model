@@ -7,26 +7,28 @@ index: 3
 
 # Process
 
-Core transformation node in the process graph. A Process connects inputs to outputs and references the Recipe that was executed.
+Core transformation in the process graph. A Process connects an optional input to an optional output and can reference the Recipe that was executed.
 
-**Schema.org type**: `bioschemas.org/LabProcess`
+**Bioschemas type**: [`LabProcess`](https://bioschemas.org/types/LabProcess/0.1-DRAFT)
 
-Decorations specialize Process:
+Decorations specialize Process via `additionalTypes`:
 - ISA: Process
 - Workflow Run: Workflow Invocation (CreateAction + Process)
 
 ## Properties
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `id` | Text | COULD | Unique process identifier |
-| `type` | Text | MUST | `Process` |
-| `additionalType` | Text | COULD | Decoration discriminator, e.g. `Process` |
-| `name` | Text | MUST | Name of the process |
-| `inputs` | [Sample](Sample.md), [Data](Data.md) | SHOULD | Input(s) of the process |
-| `outputs` | [Sample](Sample.md), [Data](Data.md) | SHOULD | Output(s) of the process |
-| `executesRecipe` | [Recipe](Recipe.md) | SHOULD | Recipe that was executed |
-| `parameterValue` | [Annotation](Annotation.md) | SHOULD | Parameter key-value pairs |
+Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#process-provenance).
+
+| Property | Type | Cardinality | Required | Description |
+|----------|------|-------------|----------|-------------|
+| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
+| `type` | Text | `1` | MUST | `Process` |
+| `additionalTypes` | Text | `0..*` | MAY | Additional classifications or specializations of the process. Discriminator used for decoration types. |
+| `name` | Text | `1` | MUST | Human-readable name of the process |
+| `input` | [Sample](Sample.md), [Data](Data.md) | `0..1` | SHOULD | Sample or data object used as the input of this process |
+| `output` | [Sample](Sample.md), [Data](Data.md) | `0..1` | SHOULD | Sample or data object produced as the output of this process |
+| `executesRecipe` | [Recipe](Recipe.md) | `0..1` | SHOULD | Recipe executed by this process |
+| `parameterValues` | [Annotation](Annotation.md) | `0..*` | SHOULD | Parameter annotations describing values used in this process |
 
 ## Relationships
 
@@ -34,20 +36,26 @@ Decorations specialize Process:
 flowchart TD
 
     na@{ shape: stadium, label: "string" }
+    i["Sample or Data (input)"]
+    o["Sample or Data (output)"]
 
     Dataset --processes--> Process
-    Process --inputs--> Sample/Data
-    Process --"outputs"--> Sample/Data
+    Process --input--> i
+    Process --"output"--> o
     Process --executesRecipe--> Recipe
-    Process --parameterValue--> Annotation
+    Process --parameterValues--> Annotation
     Process --name--> na
 ```
 
 ## Inputs and Outputs
 
-The core mechanism of a process is one directed graph edge with an optional singular input and optional singular output. Fan-in, fan-out, and parallel lanes are represented by multiple processes, which makes each table row and each traversable edge unambiguous.
+Each Process represents one directed graph edge with at most one input and at most one output. Either endpoint MAY be absent. Fan-in, fan-out, and parallel lanes are represented by multiple Process instances.
+
+### YAML Representation
 
 The YAML profile retains `inputs` and `outputs` arrays as a compact wire representation. Readers expand the Nth input/output pair into a singular process and pad an unequal shorter side with an absent endpoint. Writers group processes with equal non-I/O state back into these arrays.
+
+The following diagram shows the compact YAML representation of two Process instances.
 
 ```mermaid
 flowchart TD
@@ -62,8 +70,9 @@ flowchart TD
         r2[result 2]
     end
 
-    Process --inputs--> inputs
-    Process --"outputs"--> outputs
+    group["YAML group of processes"]
+    group --inputs--> inputs
+    group --"outputs"--> outputs
 
     o1 -.correspondsTo.-> r1
     o2 -.correspondsTo.-> r2
