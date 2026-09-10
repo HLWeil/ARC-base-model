@@ -65,10 +65,12 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
-| `Sample` | bioschemas:Sample | Renaming |
-| `additionalType` | [`additionalType`](https://schema.org/additionalType) | - |
+| `Sample` | [`Sample`](https://bioschemas.org/types/Sample/0.3-DRAFT) | For material samples; digital-sample mappings depend on the target profile. |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
-| `additionalProperty` | [`additionalProperty`](https://schema.org/additionalProperty) | - |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | Renaming |
 
 ### Data
 
