@@ -107,10 +107,12 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
-| `FormalParameter` | bioschemas:FormalParameter | - |
+| `FormalParameter` | [`FormalParameter`](https://bioschemas.org/types/FormalParameter/1.0-RELEASE) | - |
+| `id` | None | - |
+| `type` | None | - |
 | `name` | [`name`](https://schema.org/name) | - |
 | `nameTAN` | [`url`](https://schema.org/url) | Renaming |
-| `defaultValue` | `bioschemas:defaultValue` | - |
+| `defaultValue` | [`defaultValue`](https://schema.org/defaultValue) | - |
 
 ### DefinedTerm
 
