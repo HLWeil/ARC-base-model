@@ -13,12 +13,14 @@ Entity representing an organization involved in creating, curating, hosting, or 
 
 ## Properties
 
-| Property | Type | Cardinality | Required | Description | Recommended Schema.org mapping |
-|----------|------|-------------|----------|-------------|--------------------------------|
-| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. | None |
-| `type` | Text | `1` | MUST | `Organization` | None |
-| `name` | Text | `1` | MUST | Human-readable name of the organization | [`name`](https://schema.org/name) |
-| `url` | URL | `0..1` | MAY | Organization website or identifier URL | [`url`](https://schema.org/url) |
+Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#administrative).
+
+| Property | Type | Cardinality | Required | Description |
+|----------|------|-------------|----------|-------------|
+| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
+| `type` | Text | `1` | MUST | `Organization` |
+| `name` | Text | `1` | MUST | Human-readable name of the organization |
+| `url` | URL | `0..1` | MAY | Organization website or identifier URL |
 
 ## Relationships
 

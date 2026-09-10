@@ -18,17 +18,19 @@ Decorations specialize Dataset via `additionalTypes`:
 
 ## Properties
 
-| Property | Type | Cardinality | Required | Description | Recommended Schema.org mapping |
-|----------|------|-------------|----------|-------------|--------------------------------|
-| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. | None |
-| `type` | Text | `1` | MUST | `Dataset` | None |
-| `additionalTypes` | Text | `0..*` | MAY | Additional classifications or specializations of the dataset. Discriminator used for decoration types. | [`additionalType`](https://schema.org/additionalType) |
-| `identifiers` | Text | `1..*` | MUST | Identifiers by which the dataset is known or referenced, such as a DOI, accession number, repository name, or other identifying string. Identifiers may be globally scoped or scoped to a particular system or context. | [`identifier`](https://schema.org/identifier) |
-| `title` | Text | `0..1` | SHOULD | Human-readable dataset title | [`name`](https://schema.org/name) |
-| `description` | Text | `0..1` | SHOULD | Short description or abstract | [`description`](https://schema.org/description) |
-| `processes` | [Process](Process.md) | `0..*` | SHOULD | Processes contained in this dataset | [`about`](https://schema.org/about) |
-| `hasParts` | [Dataset](Dataset.md) | `0..*` | SHOULD | Sub-datasets | [`hasPart`](https://schema.org/hasPart) |
-| `additionalProperties` | [Annotation](Annotation.md) | `0..*` | MAY | Extensible metadata | [`additionalProperty`](https://schema.org/additionalProperty) as a profile convention; specific mappings may depend on the target profile. |
+Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#process-provenance).
+
+| Property | Type | Cardinality | Required | Description |
+|----------|------|-------------|----------|-------------|
+| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
+| `type` | Text | `1` | MUST | `Dataset` |
+| `additionalTypes` | Text | `0..*` | MAY | Additional classifications or specializations of the dataset. Discriminator used for decoration types. |
+| `identifiers` | Text | `1..*` | MUST | Identifiers by which the dataset is known or referenced, such as a DOI, accession number, repository name, or other identifying string. Identifiers may be globally scoped or scoped to a particular system or context. |
+| `title` | Text | `0..1` | SHOULD | Human-readable dataset title |
+| `description` | Text | `0..1` | SHOULD | Short description or abstract |
+| `processes` | [Process](Process.md) | `0..*` | SHOULD | Processes contained in this dataset |
+| `hasParts` | [Dataset](Dataset.md) | `0..*` | SHOULD | Sub-datasets |
+| `additionalProperties` | [Annotation](Annotation.md) | `0..*` | MAY | Extensible metadata |
 
 ## Relationships
 
