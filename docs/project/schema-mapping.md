@@ -118,10 +118,23 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
-| `DefinedTerm` | bioschemas:DefinedTerm | - |
+| `DefinedTerm` | [`DefinedTerm`](https://schema.org/DefinedTerm) | - |
+| `id` | None | - |
+| `type` | None | - |
 | `name` | [`name`](https://schema.org/name) | - |
+| `identifier` | [`identifier`](https://schema.org/identifier) | - |
 | `TAN` | [`termCode`](https://schema.org/termCode) | Renaming |
 | `inDefinedTermSet` | [`inDefinedTermSet`](https://schema.org/inDefinedTermSet) | - |
+
+### DefinedTermSet
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `DefinedTermSet` | [`DefinedTermSet`](https://schema.org/DefinedTermSet) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `name` | [`name`](https://schema.org/name) | - |
+| `identifier` | [`identifier`](https://schema.org/identifier) | - |
 
 ## Semantic Designation
 

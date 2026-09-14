@@ -29,7 +29,7 @@ The ARC Data Model specification defines three base profiles that together form 
 
 | Area | Description |
 |------|-------------|
-| [Process Provenance](process_provenance/overview.md) | Provenance model: Dataset, Process, Recipe, Sample, Data, Annotation, FormalParameter, and DefinedTerm |
+| [Process Provenance](process_provenance/overview.md) | Provenance model: Dataset, Process, Recipe, Sample, Data, Annotation, FormalParameter, DefinedTerm, and DefinedTermSet |
 | [Semantic Designation](semantic_designation/overview.md) | Semantic descriptions that connect datasets, samples, and data with bundled annotations |
 | [Administrative](administrative/overview.md) | Dataset agents, affiliations, citations, licenses, dates, and administrative metadata |
 | [Decorations](decorations/overview.md) | ISA, Workflow Run, and Datamap decoration profiles layered onto the base profiles |

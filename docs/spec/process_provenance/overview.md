@@ -21,6 +21,7 @@ The Process Provenance Profile describes the fundamental entities and relationsh
 | [Annotation](Annotation.md) | Extensible key-value-unit triple |
 | [FormalParameter](FormalParameter.md) | Prospective parameter slot for recipes |
 | [DefinedTerm](DefinedTerm.md) | Ontology annotation or controlled vocabulary term |
+| [DefinedTermSet](DefinedTermSet.md) | Named ontology or controlled vocabulary with an optional identifier |
 
 ## Process Graph
 
