@@ -53,6 +53,7 @@ flowchart TD
     Data --additionalProperties--> Annotation
     Recipe --additionalProperties--> Annotation
     Recipe --components--> Annotation
+    FormalParameter --defaultValue--> Annotation
 
     Annotation --name--> na
     Annotation --value--> va

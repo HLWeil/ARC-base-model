@@ -50,32 +50,3 @@ flowchart TD
 ## Inputs and Outputs
 
 Each Process represents one directed graph edge with at most one input and at most one output. Either endpoint MAY be absent. Fan-in, fan-out, and parallel lanes are represented by multiple Process instances.
-
-### YAML Representation
-
-The YAML profile retains `inputs` and `outputs` arrays as a compact wire representation. Readers expand the Nth input/output pair into a singular process and pad an unequal shorter side with an absent endpoint. Writers group processes with equal non-I/O state back into these arrays.
-
-The following diagram shows the compact YAML representation of two Process instances.
-
-```mermaid
-flowchart TD
-
-    subgraph inputs
-        o1[input 1]
-        o2[input 2]
-    end
-
-    subgraph outputs
-        r1[result 1]
-        r2[result 2]
-    end
-
-    group["YAML group of processes"]
-    group --inputs--> inputs
-    group --"outputs"--> outputs
-
-    o1 -.correspondsTo.-> r1
-    o2 -.correspondsTo.-> r2
-
-```
-
