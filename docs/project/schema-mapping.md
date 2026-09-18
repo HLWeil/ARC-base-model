@@ -155,6 +155,17 @@ Profile: [Semantic Designation](../spec/semantic_designation/overview.md). Share
 | `hasParts` | [`hasPart`](https://schema.org/hasPart) | Sub-datasets |
 | `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
 
+### Descriptor
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Descriptor` | | |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `describes` | | |
+| `annotations` | | |
+
 ### Annotation
 
 | ARC Base Model Property | Schema.org Property | Mapping |
