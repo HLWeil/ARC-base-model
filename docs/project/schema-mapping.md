@@ -139,7 +139,7 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
 ## Semantic Designation
 
-Profile: [Semantic Designation](../spec/semantic_designation/overview.md). Shared Dataset and Annotation mappings are repeated here for the fields exposed by this profile.
+Profile: [Semantic Designation](../spec/semantic_designation/overview.md). Common Dataset mappings and the complete shared Annotation mappings are repeated here.
 
 ### Dataset
 
@@ -181,6 +181,7 @@ Profile: [Semantic Designation](../spec/semantic_designation/overview.md). Share
 | `nameTAN` | [`propertyID`](https://schema.org/propertyID) | Renaming |
 | `valueTAN` | [`valueReference`](https://schema.org/valueReference) | Renaming |
 | `unitTAN` | [`unitCode`](https://schema.org/unitCode) | Renaming |
+| `instanceOf` | [`exampleOfWork`](https://schema.org/exampleOfWork) | As a profile convention; specific mappings may depend on the target profile. |
 
 ## Administrative
 

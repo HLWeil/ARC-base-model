@@ -37,7 +37,7 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 | `dataFiles` | [Data](../shared/Data.md) | `0..*` | MAY | Data files that belong to this dataset |
 | `agents` | [Agent](../administrative/Agent.md) | `0..*` | MAY | Dataset agents |
 | `citations` | [ScholarlyArticle](../administrative/ScholarlyArticle.md) | `0..*` | MAY | Publications cited by or associated with the dataset |
-| `additionalProperties` | [Annotation](../process_provenance/Annotation.md) | `0..*` | MAY | Extensible metadata |
+| `additionalProperties` | [Annotation](../shared/Annotation.md) | `0..*` | MAY | Extensible metadata |
 
 ## Relationships
 

@@ -43,7 +43,7 @@ Shared model entities:
 | Sample | [Sample](../spec/shared/Sample.md) |
 | Data | [Data](../spec/shared/Data.md) |
 | Descriptor | [Descriptor](../spec/semantic_designation/Descriptor.md) |
-| Annotation | [Process Provenance](../spec/process_provenance/Annotation.md), [Semantic Designation](../spec/semantic_designation/Annotation.md) |
+| Annotation | [Annotation](../spec/shared/Annotation.md) |
 | FormalParameter | [FormalParameter](../spec/process_provenance/FormalParameter.md) |
 | DefinedTerm | [DefinedTerm](../spec/shared/DefinedTerm.md) |
 | DefinedTermSet | [DefinedTermSet](../spec/shared/DefinedTermSet.md) |

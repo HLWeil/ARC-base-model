@@ -28,7 +28,7 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 | `description` | Text | `0..1` | SHOULD | Short description or abstract |
 | `descriptors` | [Descriptor](Descriptor.md) | `0..*` | SHOULD | Semantic descriptions associated with the dataset |
 | `hasParts` | [Dataset](../index.md#dataset-nesting) | `0..*` | SHOULD | Contained datasets from any base profile. Each child declares its own profile, independently of its parent and siblings; the same nesting options apply at every depth. |
-| `additionalProperties` | [Annotation](Annotation.md) | `0..*` | MAY | Extensible metadata |
+| `additionalProperties` | [Annotation](../shared/Annotation.md) | `0..*` | MAY | Extensible metadata |
 
 ## Relationships
 

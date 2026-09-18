@@ -17,7 +17,7 @@ This profile defines a consistent approach for describing semantic metadata asso
 | [Descriptor](Descriptor.md) | Bundles multiple assertions into a single semantic description |
 | [Sample](../shared/Sample.md) | Biological, chemical, or digital sample used as input or output |
 | [Data](../shared/Data.md) | Data file or selected file fragment |
-| [Annotation](Annotation.md) | Extensible key-value-unit triple |
+| [Annotation](../shared/Annotation.md) | Extensible key-value-unit triple |
 
 ## Process Graph
 

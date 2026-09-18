@@ -7,7 +7,7 @@ index: 3
 
 # DataContext
 
-A DataContext carries additional information about the shape, content, and identity of a [Data](../../shared/Data.md) object or a selected fragment within one. It is specific to the Datamap decoration profile and keeps the Datamap vocabulary instead of reusing [Annotation](../../process_provenance/Annotation.md) fields.
+A DataContext carries additional information about the shape, content, and identity of a [Data](../../shared/Data.md) object or a selected fragment within one. It is specific to the Datamap decoration profile and keeps the Datamap vocabulary instead of reusing [Annotation](../../shared/Annotation.md) fields.
 
 Reference: [ARC Datamap RO-Crate Profile](../../../../references/arc_datamap_ro_crate.md)
 

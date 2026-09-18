@@ -28,7 +28,7 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 | `input` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `0..1` | SHOULD | Sample or data object used as the input of this process |
 | `output` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `0..1` | SHOULD | Sample or data object produced as the output of this process |
 | `executesRecipe` | [Recipe](Recipe.md) | `0..1` | SHOULD | Recipe executed by this process |
-| `parameterValues` | [Annotation](Annotation.md) | `0..*` | SHOULD | Parameter annotations describing values used in this process |
+| `parameterValues` | [Annotation](../shared/Annotation.md) | `0..*` | SHOULD | Parameter annotations describing values used in this process |
 
 ## Relationships
 

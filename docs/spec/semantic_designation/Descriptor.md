@@ -21,7 +21,7 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 | `type` | Text | `1` | MUST | `Descriptor` |
 | `additionalTypes` | Text | `1..*` | MUST | MUST include `semantic-designation` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications and decoration types MAY also be included. |
 | `describes` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `1` | MUST | Sample or data object described by this descriptor |
-| `annotations` | [Annotation](Annotation.md) | `0..*` | SHOULD | Semantic assertions bundled by this descriptor |
+| `annotations` | [Annotation](../shared/Annotation.md) | `0..*` | SHOULD | Semantic assertions bundled by this descriptor |
 
 ## Relationships
 
