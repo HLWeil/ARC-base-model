@@ -17,7 +17,7 @@ Description of a planned procedure. Recipes define what a Process executes, incl
 | `type` | Text | `1` | MUST | `Recipe` |
 | `additionalTypes` | Text | `1..*` | MUST | MUST include `process-provenance` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
 | `name` | Text | `0..1` | SHOULD | Human-readable title of the recipe |
-| `parameters` | [FormalParameter](FormalParameter.md) | `0..*` | MAY | Prospective parameter slots for values supplied when executing the recipe |
+| `parameters` | [FormalParameter](../shared/FormalParameter.md) | `0..*` | MAY | Prospective parameter slots for values supplied when executing the recipe |
 | `description` | Text | `0..1` | SHOULD | Short description or abstract of the planned procedure |
 | `intendedUse` | [DefinedTerm](../shared/DefinedTerm.md), Text | `0..1` | SHOULD | Recipe classification, expressed as a controlled vocabulary term or plain text |
 | `additionalProperties` | [Annotation](../shared/Annotation.md) | `0..*` | MAY | Extensible recipe metadata not covered by the base properties |

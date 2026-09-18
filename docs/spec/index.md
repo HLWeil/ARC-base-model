@@ -9,7 +9,7 @@ index: 1
 
 The ARC Data Model specification defines three base profiles that together form the general ARC RDM model: Process Provenance, Semantic Designation, and Administrative. The implementation uses one unified object model; the base profiles describe coherent subsets of the same model surface.
 
-Entity specifications shared unchanged between base profiles live in `shared/`: [Data](shared/Data.md), [Sample](shared/Sample.md), [Annotation](shared/Annotation.md), [DefinedTerm](shared/DefinedTerm.md), and [DefinedTermSet](shared/DefinedTermSet.md). Entities whose fields differ between profiles retain their full tables in each profile folder.
+Entity specifications shared unchanged between base profiles live in `shared/`: [Data](shared/Data.md), [Sample](shared/Sample.md), [Annotation](shared/Annotation.md), [FormalParameter](shared/FormalParameter.md), [DefinedTerm](shared/DefinedTerm.md), and [DefinedTermSet](shared/DefinedTermSet.md). Entities whose fields differ between profiles retain their full tables in each profile folder.
 
 ## Reading Order
 

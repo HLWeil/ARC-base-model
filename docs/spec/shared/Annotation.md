@@ -26,7 +26,7 @@ TAN stands for **term accession number**. The `nameTAN`, `valueTAN`, and `unitTA
 | `nameTAN` | URL | `0..1` | SHOULD | URL of the ontology term used for the annotation's key |
 | `valueTAN` | URL | `0..1` | MAY | URL of the ontology term used for the annotation's value |
 | `unitTAN` | URL | `0..1` | MAY | URL of the ontology term used for the annotation's unit |
-| `instanceOf` | [FormalParameter](../process_provenance/FormalParameter.md) | `0..1` | MAY | Links a parameter value to its formal parameter definition |
+| `instanceOf` | [FormalParameter](FormalParameter.md) | `0..1` | MAY | Links a parameter value to its formal parameter definition |
 
 ## Relationships
 
