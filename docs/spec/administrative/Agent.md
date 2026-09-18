@@ -21,6 +21,7 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Agent` |
+| `additionalTypes` | Text | `1..*` | MUST | MUST include `administrative` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications and decoration types MAY also be included. |
 | `name` | Text | `1` | MUST | Human-readable name of the agent. For a real person, this SHOULD combine the available `givenName` and `familyName` components where possible. For a software agent, this is the name by which the software system is known. |
 | `givenName` | Text | `0..1` | MAY | Given name of a person, where applicable. |
 | `familyName` | Text | `0..1` | MAY | Family name of a person, where applicable. |
@@ -28,12 +29,14 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 | `affiliations` | [Organization](Organization.md) | `0..*` | SHOULD | Organizations with which the agent is affiliated, where applicable. For a person, these may include employers or research institutions. A software agent's creator, provider, or operator does not automatically constitute an affiliation. This field SHOULD be provided where an affiliation applies. |
 | `identifiers` | Text | `0..*` | SHOULD | Identifiers by which the agent is known or referenced, such as an ORCID for a person or an identifier assigned to a software agent by a registry or application. Identifiers may be globally scoped or scoped to a particular system or context. |
 | `additionalProperties` | [Annotation](../process_provenance/Annotation.md) | `0..*` | MAY | Extensible metadata about the person or software agent that is not covered by the base properties. |
-| `jobTitles` | [DefinedTerm](../process_provenance/DefinedTerm.md) | `0..*` | MAY | Titles describing the agent's occupation, role, or function. For a person, these may be professional titles such as researcher or data steward. For a software agent, these may describe its function, such as automated annotator or data analysis assistant. |
+| `jobTitles` | [DefinedTerm](../shared/DefinedTerm.md) | `0..*` | MAY | Titles describing the agent's occupation, role, or function. For a person, these may be professional titles such as researcher or data steward. For a software agent, these may describe its function, such as automated annotator or data analysis assistant. |
 
 ## Relationships
 
 ```mermaid
 flowchart TD
+
+    additionalTypes@{ shape: stadium, label: "string" }
 
     n@{ shape: stadium, label: "string" }
     gn@{ shape: stadium, label: "string" }
@@ -44,6 +47,7 @@ flowchart TD
     Dataset --agents--> Agent
     ScholarlyArticle --authors--> Agent
     Agent --affiliations--> Organization
+    Agent --additionalTypes--> additionalTypes
     Agent --jobTitles--> DefinedTerm
     Agent --name--> n
     Agent --givenName--> gn

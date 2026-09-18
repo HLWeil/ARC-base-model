@@ -9,6 +9,8 @@ index: 1
 
 The ARC Data Model specification defines three base profiles that together form the general ARC RDM model: Process Provenance, Semantic Designation, and Administrative. The implementation uses one unified object model; the base profiles describe coherent subsets of the same model surface. Decoration profiles add domain-specific refinements on top of them.
 
+Entity specifications shared unchanged between base profiles live in `shared/`: [Data](shared/Data.md), [Sample](shared/Sample.md), [DefinedTerm](shared/DefinedTerm.md), and [DefinedTermSet](shared/DefinedTermSet.md). Entities whose fields differ between profiles retain their full tables in each profile folder.
+
 ## Reading Order
 
 1. [Process Provenance](process_provenance/overview.md)
@@ -17,6 +19,24 @@ The ARC Data Model specification defines three base profiles that together form 
 4. [Decorations](decorations/overview.md)
 5. [ARC Workspace Project File](project_file.md)
 6. [Querying](../project/querying.md)
+
+## Profile Discriminators
+
+Every profile-specific entity MUST declare its base profile in `additionalTypes` using the corresponding case-sensitive discriminator:
+
+| Base profile | Discriminator |
+|--------------|---------------|
+| [Administrative](administrative/overview.md) | `administrative` |
+| [Semantic Designation](semantic_designation/overview.md) | `semantic-designation` |
+| [Process Provenance](process_provenance/overview.md) | `process-provenance` |
+
+A profile-specific entity MUST include its profile's discriminator and MUST NOT include either of the other two base-profile discriminators. Other classifications and decoration types MAY also be present in `additionalTypes`. The `type` field identifies the entity type; the base-profile discriminator identifies the applicable profile-specific specification.
+
+Shared entity definitions are profile-neutral and do not require a base-profile discriminator. Referencing a shared entity from a profile does not assign that profile's discriminator to it. Profile discriminators are declared by each profile-specific entity and are not inherited through references.
+
+### Dataset Nesting
+
+A Dataset's `hasParts` collection MAY contain Datasets from any base profile, including different profiles within the same collection. Each child MUST declare its own discriminator and follow the corresponding [Administrative Dataset](administrative/Dataset.md), [Process Provenance Dataset](process_provenance/Dataset.md), or [Semantic Designation Dataset](semantic_designation/Dataset.md) specification. A child's profile is independent of its parent's and siblings' profiles. These nesting options apply recursively to every child's `hasParts`.
 
 ## Principles
 

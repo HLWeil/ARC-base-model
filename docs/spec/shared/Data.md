@@ -1,8 +1,8 @@
 ---
 title: Data
-category: Process Provenance Profile
-categoryindex: 4
-index: 6
+category: Shared Entity Specifications
+categoryindex: 9
+index: 1
 ---
 
 # Data
@@ -25,7 +25,7 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 | `selectorFormat` | URL | `0..1` | MAY | URL describing the selector syntax, e.g. RFC 7111 |
 | `encodingFormat` | Text | `0..1` | MAY | MIME type of the target data object or fragment |
 | `hasParts` | [Data](Data.md) | `0..*` | MAY | Nested fragments of this data object |
-| `additionalProperties` | [Annotation](Annotation.md) | `0..*` | MAY | Extensible file-, fragment-, or content-level metadata |
+| `additionalProperties` | [Annotation](../process_provenance/Annotation.md) | `0..*` | MAY | Extensible file-, fragment-, or content-level metadata |
 
 ## Relationships
 

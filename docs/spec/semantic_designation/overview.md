@@ -15,8 +15,8 @@ This profile defines a consistent approach for describing semantic metadata asso
 |------|-------------|
 | [Dataset](Dataset.md) | Container and context for processes, nested datasets, data files, and metadata |
 | [Descriptor](Descriptor.md) | Bundles multiple assertions into a single semantic description |
-| [Sample](../process_provenance/Sample.md) | Biological, chemical, or digital sample used as input or output |
-| [Data](../process_provenance/Data.md) | Data file or selected file fragment |
+| [Sample](../shared/Sample.md) | Biological, chemical, or digital sample used as input or output |
+| [Data](../shared/Data.md) | Data file or selected file fragment |
 | [Annotation](Annotation.md) | Extensible key-value-unit triple |
 
 ## Process Graph

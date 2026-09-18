@@ -40,12 +40,13 @@ Shared model entities:
 | Dataset | [Process Provenance](../spec/process_provenance/Dataset.md), [Semantic Designation](../spec/semantic_designation/Dataset.md), [Administrative](../spec/administrative/Dataset.md) |
 | Process | [Process](../spec/process_provenance/Process.md) |
 | Recipe | [Recipe](../spec/process_provenance/Recipe.md) |
-| Sample | [Sample](../spec/process_provenance/Sample.md) |
-| Data | [Data](../spec/process_provenance/Data.md) |
+| Sample | [Sample](../spec/shared/Sample.md) |
+| Data | [Data](../spec/shared/Data.md) |
 | Descriptor | [Descriptor](../spec/semantic_designation/Descriptor.md) |
 | Annotation | [Process Provenance](../spec/process_provenance/Annotation.md), [Semantic Designation](../spec/semantic_designation/Annotation.md) |
 | FormalParameter | [FormalParameter](../spec/process_provenance/FormalParameter.md) |
-| DefinedTerm | [DefinedTerm](../spec/process_provenance/DefinedTerm.md) |
+| DefinedTerm | [DefinedTerm](../spec/shared/DefinedTerm.md) |
+| DefinedTermSet | [DefinedTermSet](../spec/shared/DefinedTermSet.md) |
 | Agent | [Agent](../spec/administrative/Agent.md) |
 | Organization | [Organization](../spec/administrative/Organization.md) |
 | ScholarlyArticle | [ScholarlyArticle](../spec/administrative/ScholarlyArticle.md) |

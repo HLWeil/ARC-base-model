@@ -1,8 +1,8 @@
 ---
 title: Sample
-category: Process Provenance Profile
-categoryindex: 4
-index: 5
+category: Shared Entity Specifications
+categoryindex: 9
+index: 2
 ---
 
 # Sample
@@ -24,7 +24,7 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 | `type` | Text | `1` | MUST | `Sample` |
 | `additionalTypes` | Text | `0..*` | MAY | Additional classifications or specializations of the sample. Discriminator used for decoration types. |
 | `name` | Text | `1` | MUST | Human-readable name of the sample |
-| `additionalProperties` | [Annotation](Annotation.md) | `0..*` | SHOULD | Characteristics, factors, or other metadata describing the sample |
+| `additionalProperties` | [Annotation](../process_provenance/Annotation.md) | `0..*` | SHOULD | Characteristics, factors, or other metadata describing the sample |
 
 ## Relationships
 

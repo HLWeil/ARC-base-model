@@ -1,8 +1,8 @@
 ---
 title: DefinedTermSet
-category: Process Provenance Profile
-categoryindex: 4
-index: 10
+category: Shared Entity Specifications
+categoryindex: 9
+index: 4
 ---
 
 # DefinedTermSet

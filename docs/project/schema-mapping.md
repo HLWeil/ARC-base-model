@@ -110,6 +110,7 @@ Profile: [Process Provenance](../spec/process_provenance/overview.md).
 | `FormalParameter` | [`FormalParameter`](https://bioschemas.org/types/FormalParameter/1.0-RELEASE) | - |
 | `id` | None | - |
 | `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
 | `nameTAN` | [`url`](https://schema.org/url) | Renaming |
 | `defaultValue` | [`defaultValue`](https://schema.org/defaultValue) | - |
@@ -171,10 +172,15 @@ Profile: [Semantic Designation](../spec/semantic_designation/overview.md). Share
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
 | `Annotation` | [`PropertyValue`](https://schema.org/PropertyValue) | - |
-| `additionalType` | [`additionalType`](https://schema.org/additionalType) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
 | `value` | [`value`](https://schema.org/value) | - |
 | `unit` | [`unitText`](https://schema.org/unitText) | Renaming |
+| `nameTAN` | [`propertyID`](https://schema.org/propertyID) | Renaming |
+| `valueTAN` | [`valueReference`](https://schema.org/valueReference) | Renaming |
+| `unitTAN` | [`unitCode`](https://schema.org/unitCode) | Renaming |
 
 ## Administrative
 
@@ -208,6 +214,7 @@ Profile: [Administrative](../spec/administrative/overview.md).
 | `Agent` | [`Person`](https://schema.org/Person); [`SoftwareApplication`](https://schema.org/SoftwareApplication) | Person for people; SoftwareApplication for software agents. The local discriminator remains `Agent`. |
 | `id` | None | - |
 | `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
 | `givenName` | [`givenName`](https://schema.org/givenName) | For people. |
 | `familyName` | [`familyName`](https://schema.org/familyName) | For people. |
@@ -224,6 +231,7 @@ Profile: [Administrative](../spec/administrative/overview.md).
 | `Organization` | [`Organization`](https://schema.org/Organization) | - |
 | `id` | None | - |
 | `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `name` | [`name`](https://schema.org/name) | - |
 | `url` | [`url`](https://schema.org/url) | - |
 
@@ -234,6 +242,7 @@ Profile: [Administrative](../spec/administrative/overview.md).
 | `ScholarlyArticle` | [`ScholarlyArticle`](https://schema.org/ScholarlyArticle) | - |
 | `id` | None | - |
 | `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
 | `headline` | [`headline`](https://schema.org/headline) | - |
 | `identifiers` | [`identifier`](https://schema.org/identifier) | Renaming |
 | `authors` | [`author`](https://schema.org/author) | For people; software-agent mappings depend on the target profile. |

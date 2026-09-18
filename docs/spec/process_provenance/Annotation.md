@@ -26,7 +26,7 @@ TAN stands for **term accession number**. The `nameTAN`, `valueTAN`, and `unitTA
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Annotation` |
-| `additionalTypes` | Text | `0..*` | SHOULD | Additional classifications or specializations of the annotation. Discriminator used for decoration types. |
+| `additionalTypes` | Text | `1..*` | MUST | MUST include `process-provenance` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications and decoration types MAY also be included. |
 | `name` | Text | `1` | MUST | Human-readable name of the annotation's key |
 | `value` | Text, Number | `0..1` | SHOULD | Textual or numeric value of the annotation |
 | `unit` | Text | `0..1` | MAY | Human-readable name of the unit associated with the annotation's value |
@@ -39,6 +39,8 @@ TAN stands for **term accession number**. The `nameTAN`, `valueTAN`, and `unitTA
 
 ```mermaid
 flowchart TD
+
+    additionalTypes@{ shape: stadium, label: "string" }
 
     na@{ shape: stadium, label: "string" }
     va@{ shape: stadium, label: "string or number" }
@@ -56,6 +58,7 @@ flowchart TD
     FormalParameter --defaultValue--> Annotation
 
     Annotation --name--> na
+    Annotation --additionalTypes--> additionalTypes
     Annotation --value--> va
     Annotation --unit--> un
     Annotation --nameTAN--> nt

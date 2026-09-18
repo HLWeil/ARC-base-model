@@ -7,7 +7,7 @@ index: 5
 
 # Source
 
-ISA specialization of [Sample](../../process_provenance/Sample.md). Represents biological or chemical source samples — i.e. starting samples of a process graph to which no ancestor can be named.
+ISA specialization of [Sample](../../shared/Sample.md). Represents biological or chemical source samples — i.e. starting samples of a process graph to which no ancestor can be named.
 
 **Schema.org type**: `bioschemas.org/Sample`
 
@@ -15,7 +15,7 @@ Reference: [ISA RO-Crate Profile — Source](../../../../references/isa_ro_crate
 
 ## Properties
 
-Inherits all properties from [Sample](../../process_provenance/Sample.md). ISA-specific refinements:
+Inherits all properties from [Sample](../../shared/Sample.md). ISA-specific refinements:
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|

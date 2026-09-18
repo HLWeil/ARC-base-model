@@ -23,10 +23,10 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Process` |
-| `additionalTypes` | Text | `0..*` | MAY | Additional classifications or specializations of the process. Discriminator used for decoration types. |
+| `additionalTypes` | Text | `1..*` | MUST | MUST include `process-provenance` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications and decoration types MAY also be included. |
 | `name` | Text | `1` | MUST | Human-readable name of the process |
-| `input` | [Sample](Sample.md), [Data](Data.md) | `0..1` | SHOULD | Sample or data object used as the input of this process |
-| `output` | [Sample](Sample.md), [Data](Data.md) | `0..1` | SHOULD | Sample or data object produced as the output of this process |
+| `input` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `0..1` | SHOULD | Sample or data object used as the input of this process |
+| `output` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `0..1` | SHOULD | Sample or data object produced as the output of this process |
 | `executesRecipe` | [Recipe](Recipe.md) | `0..1` | SHOULD | Recipe executed by this process |
 | `parameterValues` | [Annotation](Annotation.md) | `0..*` | SHOULD | Parameter annotations describing values used in this process |
 
@@ -35,12 +35,15 @@ Recommended property mappings are documented in the [schema mapping guide](../..
 ```mermaid
 flowchart TD
 
+    additionalTypes@{ shape: stadium, label: "string" }
+
     na@{ shape: stadium, label: "string" }
     i["Sample or Data (input)"]
     o["Sample or Data (output)"]
 
     Dataset --processes--> Process
     Process --input--> i
+    Process --additionalTypes--> additionalTypes
     Process --"output"--> o
     Process --executesRecipe--> Recipe
     Process --parameterValues--> Annotation

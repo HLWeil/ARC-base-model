@@ -7,7 +7,7 @@ index: 3
 
 # DataContext
 
-A DataContext carries additional information about the shape, content, and identity of a [Data](../../process_provenance/Data.md) object or a selected fragment within one. It is specific to the Datamap decoration profile and keeps the Datamap vocabulary instead of reusing [Annotation](../../process_provenance/Annotation.md) fields.
+A DataContext carries additional information about the shape, content, and identity of a [Data](../../shared/Data.md) object or a selected fragment within one. It is specific to the Datamap decoration profile and keeps the Datamap vocabulary instead of reusing [Annotation](../../process_provenance/Annotation.md) fields.
 
 Reference: [ARC Datamap RO-Crate Profile](../../../../references/arc_datamap_ro_crate.md)
 
@@ -17,9 +17,9 @@ Reference: [ARC Datamap RO-Crate Profile](../../../../references/arc_datamap_ro_
 |----------|------|----------|-------------|
 | `type` | Text | MUST | `DataContext` in the current YAML authoring examples |
 | `data` | [Data](./Data.md) | MUST | Target data object or selected data fragment |
-| `explication` | [DefinedTerm](../../process_provenance/DefinedTerm.md) | SHOULD | Ontological annotation of the fragment contents |
-| `objectType` | [DefinedTerm](../../process_provenance/DefinedTerm.md) | COULD | Expected value shape or entry type of the described fragment, e.g. `String`, `Integer` |
-| `unit` | [DefinedTerm](../../process_provenance/DefinedTerm.md) | COULD | Unit of measurement of the values stored in the fragment, preferably taken from Unit Ontology |
+| `explication` | [DefinedTerm](../../shared/DefinedTerm.md) | SHOULD | Ontological annotation of the fragment contents |
+| `objectType` | [DefinedTerm](../../shared/DefinedTerm.md) | COULD | Expected value shape or entry type of the described fragment, e.g. `String`, `Integer` |
+| `unit` | [DefinedTerm](../../shared/DefinedTerm.md) | COULD | Unit of measurement of the values stored in the fragment, preferably taken from Unit Ontology |
 | `label` | Text | COULD | Short label such as a column header |
 | `description` | Text | COULD | Additional free-text details |
 | `generatedBy` | Text | COULD | Tool, assay, or method that produced the described data |

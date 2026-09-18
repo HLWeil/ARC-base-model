@@ -1,8 +1,8 @@
 ---
 title: DefinedTerm
-category: Process Provenance Profile
-categoryindex: 4
-index: 9
+category: Shared Entity Specifications
+categoryindex: 9
+index: 3
 ---
 
 # DefinedTerm

@@ -16,12 +16,12 @@ The Process Provenance Profile describes the fundamental entities and relationsh
 | [Dataset](Dataset.md) | Container and context for processes, nested datasets, and metadata |
 | [Process](Process.md) | Transformation with an optional input and an optional output |
 | [Recipe](Recipe.md) | Planned procedure that a process executes |
-| [Sample](Sample.md) | Biological, chemical, or digital sample used as input or output |
-| [Data](Data.md) | Data file or selected file fragment |
+| [Sample](../shared/Sample.md) | Biological, chemical, or digital sample used as input or output |
+| [Data](../shared/Data.md) | Data file or selected file fragment |
 | [Annotation](Annotation.md) | Extensible key-value-unit triple |
 | [FormalParameter](FormalParameter.md) | Prospective parameter slot for recipes |
-| [DefinedTerm](DefinedTerm.md) | Ontology annotation or controlled vocabulary term |
-| [DefinedTermSet](DefinedTermSet.md) | Named ontology or controlled vocabulary with an optional identifier |
+| [DefinedTerm](../shared/DefinedTerm.md) | Ontology annotation or controlled vocabulary term |
+| [DefinedTermSet](../shared/DefinedTermSet.md) | Named ontology or controlled vocabulary with an optional identifier |
 
 ## Process Graph
 
