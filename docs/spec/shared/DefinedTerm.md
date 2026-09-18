@@ -9,11 +9,7 @@ index: 3
 
 Ontology annotation referencing a term in a controlled vocabulary or ontology.
 
-**Schema.org type**: [`DefinedTerm`](https://schema.org/DefinedTerm)
-
 ## Properties
-
-Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#process-provenance).
 
 | Property | Type | Cardinality | Required | Description |
 |----------|------|-------------|----------|-------------|

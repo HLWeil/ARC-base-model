@@ -11,16 +11,7 @@ An annotation is a key, value, unit triple, represented by `name`, `value`, and 
 
 Annotations can be attached through `additionalProperties` for cross-cutting metadata, bundled in a [Descriptor](../semantic_designation/Descriptor.md) through `annotations`, or used through dedicated relationships such as `parameterValues`, `components`, and `defaultValue`. A parameter-value annotation can optionally link to its formal parameter definition through `instanceOf`.
 
-**Schema.org type**: [`PropertyValue`](https://schema.org/PropertyValue)
-
-Decoration subtypes:
-
-- ISA: ParameterValue, CharacteristicValue, FactorValue, Component
-- Workflow Run: Workflow Input, Prefix, Position
-
 ## Properties
-
-Recommended property mappings are documented in the schema mapping guide under [Process Provenance](../../project/schema-mapping.md#process-provenance) and [Semantic Designation](../../project/schema-mapping.md#semantic-designation).
 
 TAN stands for **term accession number**. The `nameTAN`, `valueTAN`, and `unitTAN` fields contain the URLs of the ontology terms used for the key, value, and unit. The `name` and `unit` fields hold human-readable names.
 
@@ -28,7 +19,7 @@ TAN stands for **term accession number**. The `nameTAN`, `valueTAN`, and `unitTA
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Annotation` |
-| `additionalTypes` | Text | `0..*` | SHOULD | Additional classifications or specializations of the annotation. Discriminator used for decoration types. |
+| `additionalTypes` | Text | `0..*` | SHOULD | Additional classifications or specializations of the annotation. |
 | `name` | Text | `1` | MUST | Human-readable name of the annotation's key |
 | `value` | Text, Number | `0..1` | SHOULD | Textual or numeric value of the annotation |
 | `unit` | Text | `0..1` | MAY | Human-readable name of the unit associated with the annotation's value |

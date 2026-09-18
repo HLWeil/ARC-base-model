@@ -9,19 +9,15 @@ index: 3
 
 A person or agentic software system associated with a dataset or citation, for example as a contributor, author, or contact.
 
-**Recommended Schema.org type mapping**: [`schema.org/Person`](https://schema.org/Person) for people; [`schema.org/SoftwareApplication`](https://schema.org/SoftwareApplication) for software agents.
-
-A related provenance concept is [`prov:Agent`](https://www.w3.org/TR/prov-o/#Agent), with [`prov:Person`](https://www.w3.org/TR/prov-o/#Person) and [`prov:SoftwareAgent`](https://www.w3.org/TR/prov-o/#SoftwareAgent) specializations. The domain discriminator remains `type: Agent` regardless of the kind of agent represented.
+The domain discriminator remains `type: Agent` regardless of the kind of agent represented.
 
 ## Properties
-
-Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#administrative).
 
 | Property | Type | Cardinality | Required | Description |
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Agent` |
-| `additionalTypes` | Text | `1..*` | MUST | MUST include `administrative` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications and decoration types MAY also be included. |
+| `additionalTypes` | Text | `1..*` | MUST | MUST include `administrative` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
 | `name` | Text | `1` | MUST | Human-readable name of the agent. For a real person, this SHOULD combine the available `givenName` and `familyName` components where possible. For a software agent, this is the name by which the software system is known. |
 | `givenName` | Text | `0..1` | MAY | Given name of a person, where applicable. |
 | `familyName` | Text | `0..1` | MAY | Family name of a person, where applicable. |

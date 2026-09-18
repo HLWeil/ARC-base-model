@@ -9,17 +9,13 @@ index: 1
 
 A data file or a selected fragment of a file. Data objects can be used as process inputs or outputs.
 
-**Schema.org type**: [`MediaObject`](https://schema.org/MediaObject) (`File` in RO-Crate).
-
 ## Properties
-
-Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#process-provenance).
 
 | Property | Type | Cardinality | Required | Description |
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Data` |
-| `additionalTypes` | Text | `0..*` | MAY | Additional classifications or specializations of the data object. Discriminator used for decoration types. |
+| `additionalTypes` | Text | `0..*` | MAY | Additional classifications or specializations of the data object. |
 | `path` | Text | `1` | MUST | Path to the target file. Required on every Data object, including nested fragments; an optional `selector` narrows the target to a fragment of that file. |
 | `selector` | Text | `0..1` | MAY | Fragment selector that narrows the target to a subset of the data object |
 | `selectorFormat` | URL | `0..1` | MAY | URL describing the selector syntax, e.g. RFC 7111 |

@@ -9,21 +9,13 @@ index: 4
 
 Description of a planned procedure. Recipes define what a Process executes, including intended use, equipment, reagents, and software.
 
-**Bioschemas type**: [`LabProtocol`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT)
-
-Decorations specialize Recipe via `additionalTypes`:
-- ISA: Recipe
-- Workflow Run: Workflow Protocol (SoftwareSourceCode + ComputationalWorkflow + Recipe)
-
 ## Properties
-
-Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#process-provenance).
 
 | Property | Type | Cardinality | Required | Description |
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Recipe` |
-| `additionalTypes` | Text | `1..*` | MUST | MUST include `process-provenance` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications and decoration types MAY also be included. |
+| `additionalTypes` | Text | `1..*` | MUST | MUST include `process-provenance` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
 | `name` | Text | `0..1` | SHOULD | Human-readable title of the recipe |
 | `parameters` | [FormalParameter](FormalParameter.md) | `0..*` | MAY | Prospective parameter slots for values supplied when executing the recipe |
 | `description` | Text | `0..1` | SHOULD | Short description or abstract of the planned procedure |

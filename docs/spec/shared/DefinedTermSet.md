@@ -9,11 +9,7 @@ index: 4
 
 A named ontology, controlled vocabulary, classification scheme, or other set of defined terms. A DefinedTerm can describe its containing term set through `inDefinedTermSet`.
 
-**Schema.org type**: [`DefinedTermSet`](https://schema.org/DefinedTermSet)
-
 ## Properties
-
-Recommended property mappings are documented in the [schema mapping guide](../../project/schema-mapping.md#process-provenance).
 
 | Property | Type | Cardinality | Required | Description |
 |----------|------|-------------|----------|-------------|

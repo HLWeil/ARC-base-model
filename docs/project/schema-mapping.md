@@ -210,6 +210,8 @@ Profile: [Administrative](../spec/administrative/overview.md).
 
 ### Agent
 
+A related provenance concept is [`prov:Agent`](https://www.w3.org/TR/prov-o/#Agent), with [`prov:Person`](https://www.w3.org/TR/prov-o/#Person) and [`prov:SoftwareAgent`](https://www.w3.org/TR/prov-o/#SoftwareAgent) specializations.
+
 | ARC Base Model Property | Schema.org Property | Mapping |
 |---|---|---|
 | `Agent` | [`Person`](https://schema.org/Person); [`SoftwareApplication`](https://schema.org/SoftwareApplication) | Person for people; SoftwareApplication for software agents. The local discriminator remains `Agent`. |
