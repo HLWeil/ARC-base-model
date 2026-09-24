@@ -17,7 +17,7 @@ that express semantic assertions about that entity.
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Descriptor` |
-| `additionalTypes` | Text | `1..*` | MUST | MUST include `semantic-designation` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
+| `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
 | `describes` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `1` | MUST | Sample or data object described by this descriptor |
 | `annotations` | [Annotation](../shared/Annotation.md) | `0..*` | SHOULD | Semantic assertions bundled by this descriptor |
 

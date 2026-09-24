@@ -25,7 +25,7 @@ Administrative properties such as `license`, `datePublished`, `dateCreated`, `da
 The diagram shows the administrative entities and their main relationships.
 
 ```mermaid
-flowchart LR
+flowchart TD
     Dataset --hasParts--> Dataset
     Dataset --agents--> Agent
     Dataset --citations--> ScholarlyArticle

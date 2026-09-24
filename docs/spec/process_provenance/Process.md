@@ -15,7 +15,7 @@ Core transformation in the process graph. A Process connects an optional input t
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Process` |
-| `additionalTypes` | Text | `1..*` | MUST | MUST include `process-provenance` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
+| `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
 | `name` | Text | `1` | MUST | Human-readable name of the process |
 | `input` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `0..1` | SHOULD | Sample or data object used as the input of this process |
 | `output` | [Sample](../shared/Sample.md), [Data](../shared/Data.md) | `0..1` | SHOULD | Sample or data object produced as the output of this process |

@@ -17,7 +17,7 @@ The domain discriminator remains `type: Agent` regardless of the kind of agent r
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Agent` |
-| `additionalTypes` | Text | `1..*` | MUST | MUST include `administrative` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
+| `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
 | `name` | Text | `1` | MUST | Human-readable name of the agent. For a real person, this SHOULD combine the available `givenName` and `familyName` components where possible. For a software agent, this is the name by which the software system is known. |
 | `givenName` | Text | `0..1` | MAY | Given name of a person, where applicable. |
 | `familyName` | Text | `0..1` | MAY | Family name of a person, where applicable. |

@@ -15,6 +15,7 @@ Ontology annotation referencing a term in a controlled vocabulary or ontology.
 |----------|------|-------------|----------|-------------|
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `DefinedTerm` |
+| `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
 | `name` | Text | `1` | MUST | Human-readable name of the term |
 | `identifier` | Text, URL | `0..1` | MAY | Identifier of the term, expressed as text or a URL |
 | `TAN` | Text | `0..1` | SHOULD | Term accession number identifying the term within the ontology |
