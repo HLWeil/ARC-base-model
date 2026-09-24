@@ -21,8 +21,6 @@ This is the same Dataset type described by the [Administrative](../administrativ
 | `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
 | `conformsTos` | Text | `1..*` | MUST | MUST include `semantic-designation` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
 | `identifiers` | Text | `1..*` | MUST | Identifiers by which the dataset is known or referenced, such as a DOI, accession number, repository name, or other identifying string. Identifiers may be globally scoped or scoped to a particular system or context. |
-| `title` | Text | `0..1` | SHOULD | Human-readable dataset title |
-| `description` | Text | `0..1` | SHOULD | Short description or abstract |
 | `descriptors` | [Descriptor](Descriptor.md) | `0..*` | SHOULD | Semantic descriptions associated with the dataset |
 | `hasParts` | [Dataset](../index.md#dataset-nesting) | `0..*` | SHOULD | Contained datasets from any base profile. Each child declares its own profile, independently of its parent and siblings; the same nesting options apply at every depth. |
 | `additionalProperties` | [Annotation](../shared/Annotation.md) | `0..*` | MAY | Extensible metadata |
@@ -33,14 +31,12 @@ This is the same Dataset type described by the [Administrative](../administrativ
 flowchart TD
     additionalTypes@{ shape: stadium, label: "string" }
     identifiers@{ shape: stadium, label: "string" }
-    title@{ shape: stadium, label: "string" }
-    description@{ shape: stadium, label: "string" }
+    ct@{ shape: stadium, label: "string" }
 
     Dataset --descriptors--> Descriptor
     Dataset --hasParts--> NestedDataset["Dataset (part)"]
     Dataset --additionalTypes--> additionalTypes
     Dataset --identifiers--> identifiers
-    Dataset --title--> title
-    Dataset --description--> description
     Dataset --additionalProperties--> Annotation
+    Dataset --conformsTos--> ct
 ```

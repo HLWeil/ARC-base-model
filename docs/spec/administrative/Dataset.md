@@ -41,6 +41,7 @@ flowchart TD
     id@{ shape: stadium, label: "string" }
     na@{ shape: stadium, label: "string" }
     de@{ shape: stadium, label: "string" }
+    ct@{ shape: stadium, label: "string" }
 
     d[Dataset]
     d --additionalTypes--> additionalTypes
@@ -52,6 +53,7 @@ flowchart TD
     d --identifiers--> id
     d --title--> na
     d --description--> de
+    d --conformsTos--> ct
 ```
 
 
