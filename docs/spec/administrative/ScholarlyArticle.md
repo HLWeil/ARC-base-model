@@ -9,24 +9,25 @@ index: 5
 
 A scholarly publication associated with a Dataset. This can be used to link to publications describing the experiment, method, or results.
 
-**Schema.org type**: `schema.org/ScholarlyArticle`
-
 ## Properties
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `id` | Text | COULD | Unique identifier |
-| `type` | Text | MUST | `ScholarlyArticle` |
-| `headline` | Text | MUST | Headline of the article |
-| `identifier` | Text | SHOULD | Identifier for this article, such as a DOI or PubMedID |
-| `authors` | [Agent](Agent.md) | SHOULD | Authors of the article |
-| `creativeWorkStatus` | [DefinedTerm](../process_provenance/DefinedTerm.md) | COULD | The status of the publication in terms of its stage in a lifecycle. |
-| `additionalProperty` | [Annotation](../process_provenance/Annotation.md) | COULD | Extensible article metadata not covered by the base properties. |
+| Property | Type | Cardinality | Required | Description |
+|----------|------|-------------|----------|-------------|
+| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
+| `type` | Text | `1` | MUST | `ScholarlyArticle` |
+| `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
+| `headline` | Text | `1` | MUST | Human-readable title of the article |
+| `identifiers` | Text | `0..*` | SHOULD | Identifiers by which the article is known or referenced, such as a DOI, PubMed ID, or repository identifier. Identifiers may be globally scoped or scoped to a particular system or context. |
+| `authors` | [Agent](Agent.md) | `0..*` | SHOULD | Agents credited as authors of the article. These may be people or agentic software systems. |
+| `creativeWorkStatus` | [DefinedTerm](../shared/DefinedTerm.md) | `0..1` | MAY | Stage of the article in its publication lifecycle, such as Draft or Published. |
+| `additionalProperties` | [Annotation](../shared/Annotation.md) | `0..*` | MAY | Extensible article metadata not covered by the base properties. |
 
 ## Relationships
 
 ```mermaid
 flowchart TD
+
+    additionalTypes@{ shape: stadium, label: "string" }
 
     hl@{ shape: stadium, label: "string" }
 
@@ -35,10 +36,11 @@ flowchart TD
 
     Dataset --citations--> ScholarlyArticle
     ScholarlyArticle --authors--> Agent
+    ScholarlyArticle --additionalTypes--> additionalTypes
     ScholarlyArticle --creativeWorkStatus--> DefinedTerm
     ScholarlyArticle --headline--> hl
-    ScholarlyArticle --identifier--> p1
-    ScholarlyArticle --additionalProperty--> p2
+    ScholarlyArticle --identifiers--> p1
+    ScholarlyArticle --additionalProperties--> p2
 
 ```
 

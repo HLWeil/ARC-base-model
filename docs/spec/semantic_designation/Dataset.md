@@ -10,25 +10,33 @@ index: 2
 Container for semantic descriptions and nested datasets. A Dataset groups the
 descriptors that designate entities represented in an ARC.
 
-**Schema.org type**: `schema.org/Dataset`
+This is the same Dataset type described by the [Administrative](../administrative/Dataset.md) and [Process Provenance](../process_provenance/Dataset.md) profiles.
 
 ## Properties
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `id` | Text | MUST | Unique identifier for the dataset |
-| `type` | Text | MUST | `Dataset` |
-| `additionalType` | Text | COULD | Additional semantic type or subtype discriminator |
-| `descriptors` | [Descriptor](Descriptor.md) | SHOULD | Semantic descriptions associated with the dataset |
-| `hasPart` | [Dataset](Dataset.md) | COULD | Nested datasets that belong to this dataset |
+| Property | Type | Cardinality | Required | Description |
+|----------|------|-------------|----------|-------------|
+| `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
+| `type` | Text | `1` | MUST | `Dataset` |
+| `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
+| `conformsTos` | Text | `1..*` | MUST | MUST include `semantic-designation` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
+| `identifiers` | Text | `1..*` | MUST | Identifiers by which the dataset is known or referenced, such as a DOI, accession number, repository name, or other identifying string. Identifiers may be globally scoped or scoped to a particular system or context. |
+| `descriptors` | [Descriptor](Descriptor.md) | `0..*` | SHOULD | Semantic descriptions associated with the dataset |
+| `hasParts` | [Dataset](../index.md#dataset-nesting) | `0..*` | SHOULD | Contained datasets from any base profile. Each child declares its own profile, independently of its parent and siblings; the same nesting options apply at every depth. |
+| `additionalProperties` | [Annotation](../shared/Annotation.md) | `0..*` | MAY | Extensible metadata |
 
 ## Relationships
 
 ```mermaid
 flowchart TD
-    additionalType@{ shape: stadium, label: "string" }
+    additionalTypes@{ shape: stadium, label: "string" }
+    identifiers@{ shape: stadium, label: "string" }
+    ct@{ shape: stadium, label: "string" }
 
     Dataset --descriptors--> Descriptor
-    Dataset --hasPart--> NestedDataset[Dataset]
-    Dataset --additionalType--> additionalType
+    Dataset --hasParts--> NestedDataset["Dataset (part)"]
+    Dataset --additionalTypes--> additionalTypes
+    Dataset --identifiers--> identifiers
+    Dataset --additionalProperties--> Annotation
+    Dataset --conformsTos--> ct
 ```

@@ -7,7 +7,7 @@ index: 6
 
 # Sample
 
-ISA specialization of [Sample](../../process_provenance/Sample.md). Represents derived subparts of biological or chemical samples, often the main interest of an experiment.
+ISA specialization of [Sample](../../shared/Sample.md). Represents derived subparts of biological or chemical samples, often the main interest of an experiment.
 
 **Schema.org type**: `bioschemas.org/Sample`
 
@@ -15,7 +15,7 @@ Reference: [ISA RO-Crate Profile — Sample](../../../../references/isa_ro_crate
 
 ## Properties
 
-Inherits all properties from [Sample](../../process_provenance/Sample.md). ISA-specific refinements:
+Inherits all properties from [Sample](../../shared/Sample.md). ISA-specific refinements:
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|

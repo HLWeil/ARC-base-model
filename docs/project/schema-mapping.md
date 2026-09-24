@@ -7,166 +7,276 @@ index: 6
 
 # Schema.org mapping
 
-The ARC Core data model is designed to be compatible with RO-Crate, and therefore its model structure closely follows Schema.org. Here we track the mapping between ARC Core and Schema.org, and note any deviations or extensions.
+The ARC Base Model closely follows Schema.org to support RO-Crate interoperability. This page collects recommended mappings by profile and entity, including profile conventions and mappings that depend on the target profile. The mappings are recommendations rather than strict equivalences.
 
-## Dataset
+Rows named after an entity describe its external type mapping. The local `type` discriminator is a separate property. Shared entities can appear in more than one profile table.
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Dataset` | Core | schema:Dataset | - |
-|---|---|---|---|
-| `additionalType` | Core | `schema:additionalType` | - |
-| `identifier` | Core | `schema:identifier` | - |
-| `title` | Administrative | `schema:name` | Renaming |
-| `description` | Administrative | `schema:description` | - |
-| `license` | Administrative | `schema:license` | Added Property |
-| `datePublished` | Administrative | `schema:datePublished` | Added Property |
-| `dateCreated` | Administrative | `schema:dateCreated` | Added Property |
-| `dateModified` | Administrative | `schema:dateModified` | Added Property |
-| `processes` | Process Core | `schema:about` | Renaming |
-| `hasPart` | Process Core / Datamap | `schema:hasPart` | Sub-datasets and data-file membership |
-| `dataFiles` | Datamap | `schema:hasPart` | Added Property |
-| `agents` | Administrative | `schema:creator`; `schema:contributor`; `schema:maintainer` | Complex mapping (Schema.org property is chosen based on role metadata inside Agent) |
-| `citations` | Administrative | `schema:citation` | Added Property |
-| `dataContexts` | Datamap | `schema:variableMeasured` | Renaming |
-| `additionalProperty` | Core | `schema:additionalProperty` | Added Property |
+## Process Provenance
 
-## Process
+Profile: [Process Provenance](../spec/process_provenance/overview.md).
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Process` | Process Core | bioschemas:LabProcess | - |
-|---|---|---|---|
-| `additionalType` | Process Core | `schema:additionalType` | - |
-| `name` | Process Core | `schema:name` | - |
-| `inputs` | Process Core | `schema:object` | Renaming |
-| `outputs` | Process Core | `schema:result` | Renaming |
-| `executesRecipe` | Process Core | `bioschemas:executesRecipe` | - |
-| `parameterValue` | Process Core | `bioschemas:parameterValue` | - |
+### Dataset
 
-## Recipe
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Dataset` | [`Dataset`](https://schema.org/Dataset) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `identifiers` | [`identifier`](https://schema.org/identifier) | Renaming |
+| `title` | [`name`](https://schema.org/name) | Renaming |
+| `description` | [`description`](https://schema.org/description) | - |
+| `processes` | [`about`](https://schema.org/about) | Renaming |
+| `hasParts` | [`hasPart`](https://schema.org/hasPart) | Sub-datasets |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Recipe` | Process Core | bioschemas:LabProtocol | - |
-|---|---|---|---|
-| `additionalType` | Process Core | `schema:additionalType` | - |
-| `name` | Process Core | `schema:name` | - |
-| `description` | Process Core | `schema:description` | - |
-| `parameters` | Process Core | `bioschemas:input` (?) | Renaming |
-| `intendedUse` | Process Core | `bioschemas:intendedUse` | - |
-| `components` | Process Core | `bioschemas:labEquipment`; `bioschemas:computationalTool`; `bioschemas:reagent` | Unified Process Core property for protocol components |
-| `version` | Process Core | `schema:version` | - |
-| `url` | Process Core | `schema:url` | - |
-| `additionalProperty` | Process Core | `schema:additionalProperty` | Added Property |
+### Process
 
-## Sample
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Process` | [`LabProcess`](https://bioschemas.org/types/LabProcess/0.1-DRAFT) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `input` | [`object`](https://schema.org/object) | Renaming |
+| `output` | [`result`](https://schema.org/result) | Renaming |
+| `executesRecipe` | [`executesLabProtocol`](https://bioschemas.org/types/LabProcess/0.1-DRAFT#executesLabProtocol) | Renaming |
+| `parameterValues` | [`parameterValue`](https://bioschemas.org/types/LabProcess/0.1-DRAFT) | Renaming |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Sample` | Process Core | bioschemas:Sample | Renaming |
-|---|---|---|---|
-| `additionalType` | Process Core | `schema:additionalType` | - |
-| `name` | Process Core | `schema:name` | - |
-| `additionalProperty` | Process Core | `schema:additionalProperty` | - |
+### Recipe
 
-## Data
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Recipe` | [`LabProtocol`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `description` | [`description`](https://schema.org/description) | - |
+| `parameters` | [`input`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#input) | For consumed-input slots; specific mappings may depend on the parameter's role and target profile. |
+| `intendedUse` | [`intendedUse`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#intendedUse) | - |
+| `components` | [`labEquipment`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#labEquipment); [`computationalTool`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#computationalTool); [`reagent`](https://bioschemas.org/types/LabProtocol/0.6-DRAFT#reagent) | Specific mappings depend on the component's kind and target profile. |
+| `version` | [`version`](https://schema.org/version) | - |
+| `url` | [`url`](https://schema.org/url) | - |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Data` | Core | schema:MediaObject | Renaming |
-|---|---|---|---|
-| `additionalType` | Core | `schema:additionalType` | - |
-| `path` | Core | `@id` | Renaming and String conversion |
-| `selector` | Core | `@id` | Renaming and String conversion |
-| `selectorFormat` | Core | `schema:usageInfo` | Renaming |
-| `encodingFormat` | Core | `schema:encodingFormat` | - |
-| `hasPart` | Core | `schema:hasPart` | Data fragments |
-| `additionalProperty` | Core | `schema:additionalProperty` | Added Property |
+### Sample
 
-## Annotation
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Sample` | [`Sample`](https://bioschemas.org/types/Sample/0.3-DRAFT) | For material samples; digital-sample mappings depend on the target profile. |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | Renaming |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Annotation` | Core | schema:PropertyValue | - |
-|---|---|---|---|
-| `additionalType` | Core | `schema:additionalType` | - |
-| `name` | Core | `schema:name` | - |
-| `value` | Core | `schema:value` | - |
-| `unit` | Core | `schema:unitText` | Renaming |
-| `nameTAN` | Core | `schema:propertyID` | Renaming |
-| `valueTAN` | Core | `schema:valueReference` | Renaming |
-| `unitTAN` | Core | `schema:unitCode` | Renaming |
-| `instanceOf` | Core | `schema:exampleOfWork` | Renaming |
+### Data
 
-## FormalParameter
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Data` | [`MediaObject`](https://schema.org/MediaObject) | `File` is the RO-Crate alias for MediaObject. |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `path` | `@id` | Renaming and String conversion |
+| `selector` | `@id` | Renaming and String conversion |
+| `selectorFormat` | [`usageInfo`](https://schema.org/usageInfo) | Renaming |
+| `encodingFormat` | [`encodingFormat`](https://schema.org/encodingFormat) | - |
+| `hasParts` | [`hasPart`](https://schema.org/hasPart) | Data fragments |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `FormalParameter` | Process Core | bioschemas:FormalParameter | - |
-|---|---|---|---|
-| `name` | Process Core | `schema:name` | - |
-| `nameTAN` | Process Core | `schema:url` | Renaming |
-| `defaultValue` | Process Core | `bioschemas:defaultValue` | - |
+### Annotation
 
-## DefinedTerm
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Annotation` | [`PropertyValue`](https://schema.org/PropertyValue) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `value` | [`value`](https://schema.org/value) | - |
+| `unit` | [`unitText`](https://schema.org/unitText) | Renaming |
+| `nameTAN` | [`propertyID`](https://schema.org/propertyID) | Renaming |
+| `valueTAN` | [`valueReference`](https://schema.org/valueReference) | Renaming |
+| `unitTAN` | [`unitCode`](https://schema.org/unitCode) | Renaming |
+| `instanceOf` | [`exampleOfWork`](https://schema.org/exampleOfWork) | As a profile convention; specific mappings may depend on the target profile. |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `DefinedTerm` | Core | bioschemas:DefinedTerm | - |
-|---|---|---|---|
-| `name` | Core | `schema:name` | - |
-| `TAN` | Core | `schema:termCode` | Renaming |
-| `inDefinedTermSet` | Core | `schema:inDefinedTermSet` | - |
+### FormalParameter
 
-## Agent
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `FormalParameter` | [`FormalParameter`](https://bioschemas.org/types/FormalParameter/1.0-RELEASE) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `nameTAN` | [`url`](https://schema.org/url) | Renaming |
+| `defaultValue` | [`defaultValue`](https://schema.org/defaultValue) | - |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Agent` | Administrative | schema:Agent | Renaming from Person |
-|---|---|---|---|
-| `givenName` | Administrative | schema:givenName | - |
-| `familyName` | Administrative | schema:familyName | - |
-| `email` | Administrative | schema:email | - |
-| `affiliation` | Administrative | schema:affiliation | - |
-| `identifier` | Administrative | schema:identifier | - |
-| `additionalProperty` | Administrative | schema:additionalProperty | - |
-| `jobTitle` | Administrative | schema:jobTitle | - |
+### DefinedTerm
 
-## Organization
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `DefinedTerm` | [`DefinedTerm`](https://schema.org/DefinedTerm) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `name` | [`name`](https://schema.org/name) | - |
+| `identifier` | [`identifier`](https://schema.org/identifier) | - |
+| `TAN` | [`termCode`](https://schema.org/termCode) | Renaming |
+| `inDefinedTermSet` | [`inDefinedTermSet`](https://schema.org/inDefinedTermSet) | - |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `Organization` | Administrative | schema:Organization | - |
-|---|---|---|---|
-| `name` | Administrative | schema:name | - |
-| `url` | Administrative | schema:url | - |
+### DefinedTermSet
 
-## ScholarlyArticle
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `DefinedTermSet` | [`DefinedTermSet`](https://schema.org/DefinedTermSet) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `name` | [`name`](https://schema.org/name) | - |
+| `identifier` | [`identifier`](https://schema.org/identifier) | - |
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `ScholarlyArticle` | Administrative | schema:ScholarlyArticle | - |
-|---|---|---|---|
-| `headline` | Administrative | schema:headline | - |
-| `identifier` | Administrative | schema:identifier | - |
-| `authors` | Administrative | schema:author | Renaming |
-| `creativeWorkStatus` | Administrative | schema:creativeWorkStatus | - |
-| `additionalProperty` | Administrative | schema:additionalProperty | - |
+## Semantic Designation
 
-## DataContext
+Profile: [Semantic Designation](../spec/semantic_designation/overview.md). Common Dataset mappings and the complete shared Annotation mappings are repeated here.
 
-| ARC property | Location | Schema.org Property | Mapping |
-|---|---|---|---|
-| `DataContext` | Datamap | schema:PropertyValue | - |
-|---|---|---|---|
-| `data` | Datamap | schema:subjectOf | Renaming |
-| `explication` | Datamap | schema:value | Renaming |
-| `explicationTAN` | Datamap | schema:valueReference | Renaming |
-| `objectType` | Datamap | schema:pattern | Renaming |
-| `objectTypeTAN` | Datamap | schema:valueReference | Renaming |
-| `unit` | Datamap | schema:unitText | Renaming |
-| `unitTAN` | Datamap | schema:unitCode | Renaming |
-| `label` | Datamap | schema:alternateName | Renaming |
-| `description` | Datamap | schema:description | - |
-| `generatedBy` | Datamap | schema:measurementMethod | Renaming |
+### Dataset
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Dataset` | [`Dataset`](https://schema.org/Dataset) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `identifiers` | [`identifier`](https://schema.org/identifier) | Renaming |
+| `title` | [`name`](https://schema.org/name) | Renaming |
+| `description` | [`description`](https://schema.org/description) | - |
+| `descriptors` | | |
+| `hasParts` | [`hasPart`](https://schema.org/hasPart) | Sub-datasets |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
+
+### Descriptor
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Descriptor` | | |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `describes` | | |
+| `annotations` | | |
+
+### Annotation
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Annotation` | [`PropertyValue`](https://schema.org/PropertyValue) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `value` | [`value`](https://schema.org/value) | - |
+| `unit` | [`unitText`](https://schema.org/unitText) | Renaming |
+| `nameTAN` | [`propertyID`](https://schema.org/propertyID) | Renaming |
+| `valueTAN` | [`valueReference`](https://schema.org/valueReference) | Renaming |
+| `unitTAN` | [`unitCode`](https://schema.org/unitCode) | Renaming |
+| `instanceOf` | [`exampleOfWork`](https://schema.org/exampleOfWork) | As a profile convention; specific mappings may depend on the target profile. |
+
+## Administrative
+
+Profile: [Administrative](../spec/administrative/overview.md).
+
+### Dataset
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Dataset` | [`Dataset`](https://schema.org/Dataset) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `identifiers` | [`identifier`](https://schema.org/identifier) | Renaming |
+| `title` | [`name`](https://schema.org/name) | Renaming |
+| `description` | [`description`](https://schema.org/description) | - |
+| `license` | [`license`](https://schema.org/license) | - |
+| `datePublished` | [`datePublished`](https://schema.org/datePublished) | - |
+| `dateCreated` | [`dateCreated`](https://schema.org/dateCreated) | - |
+| `dateModified` | [`dateModified`](https://schema.org/dateModified) | - |
+| `hasParts` | [`hasPart`](https://schema.org/hasPart) | Sub-datasets |
+| `dataFiles` | [`hasPart`](https://schema.org/hasPart) | Data-file membership |
+| `agents` | [`creator`](https://schema.org/creator) | For people; specific mappings may depend on the agent's kind, role, and target profile. |
+| `citations` | [`citation`](https://schema.org/citation) | Renaming |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
+
+### Agent
+
+A related provenance concept is [`prov:Agent`](https://www.w3.org/TR/prov-o/#Agent), with [`prov:Person`](https://www.w3.org/TR/prov-o/#Person) and [`prov:SoftwareAgent`](https://www.w3.org/TR/prov-o/#SoftwareAgent) specializations.
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Agent` | [`Person`](https://schema.org/Person); [`SoftwareApplication`](https://schema.org/SoftwareApplication) | Person for people; SoftwareApplication for software agents. The local discriminator remains `Agent`. |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `givenName` | [`givenName`](https://schema.org/givenName) | For people. |
+| `familyName` | [`familyName`](https://schema.org/familyName) | For people. |
+| `emails` | [`email`](https://schema.org/email) | For people; software-agent mappings depend on the target profile. |
+| `affiliations` | [`affiliation`](https://schema.org/affiliation) | For people; software-agent mappings depend on the relationship and target profile. |
+| `identifiers` | [`identifier`](https://schema.org/identifier) | Renaming |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
+| `jobTitles` | [`jobTitle`](https://schema.org/jobTitle) | For professional titles of people; mappings for other roles or software agents depend on the target profile. |
+
+### Organization
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Organization` | [`Organization`](https://schema.org/Organization) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `name` | [`name`](https://schema.org/name) | - |
+| `url` | [`url`](https://schema.org/url) | - |
+
+### ScholarlyArticle
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `ScholarlyArticle` | [`ScholarlyArticle`](https://schema.org/ScholarlyArticle) | - |
+| `id` | None | - |
+| `type` | None | - |
+| `additionalTypes` | [`additionalType`](https://schema.org/additionalType) | Renaming |
+| `headline` | [`headline`](https://schema.org/headline) | - |
+| `identifiers` | [`identifier`](https://schema.org/identifier) | Renaming |
+| `authors` | [`author`](https://schema.org/author) | For people; software-agent mappings depend on the target profile. |
+| `creativeWorkStatus` | [`creativeWorkStatus`](https://schema.org/creativeWorkStatus) | - |
+| `additionalProperties` | [`additionalProperty`](https://schema.org/additionalProperty) | As a profile convention; specific mappings may depend on the target profile. |
+
+## Datamap
+
+Decoration profile: [Datamap](../spec/decorations/datamap/overview.md).
+
+### Dataset
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `Dataset` | [`Dataset`](https://schema.org/Dataset) | - |
+| `additionalType` | [`additionalType`](https://schema.org/additionalType) | - |
+| `dataFiles` | [`hasPart`](https://schema.org/hasPart) | Added Property |
+| `dataContexts` | [`variableMeasured`](https://schema.org/variableMeasured) | Renaming |
+
+### DataContext
+
+| ARC Base Model Property | Schema.org Property | Mapping |
+|---|---|---|
+| `DataContext` | [`PropertyValue`](https://schema.org/PropertyValue) | - |
+| `data` | [`subjectOf`](https://schema.org/subjectOf) | Renaming |
+| `explication` | [`value`](https://schema.org/value) | Renaming |
+| `explicationTAN` | [`valueReference`](https://schema.org/valueReference) | Renaming |
+| `objectType` | [`pattern`](https://schema.org/pattern) | Renaming |
+| `objectTypeTAN` | [`valueReference`](https://schema.org/valueReference) | Renaming |
+| `unit` | [`unitText`](https://schema.org/unitText) | Renaming |
+| `unitTAN` | [`unitCode`](https://schema.org/unitCode) | Renaming |
+| `label` | [`alternateName`](https://schema.org/alternateName) | Renaming |
+| `description` | [`description`](https://schema.org/description) | - |
+| `generatedBy` | [`measurementMethod`](https://schema.org/measurementMethod) | Renaming |
