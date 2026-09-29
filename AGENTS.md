@@ -26,8 +26,11 @@ ARC-Data-Model/
 │   └── workflow-run/              placeholder for future Workflow Run examples
 ├── references/                   upstream profiles and preserved prior implementation notes
 ├── src/                          F# implementation projects
-│   └── ProcessCore/              consolidated core, YAML, SQL, and Fable projects
+│   ├── ARCBaseModel/             portable Layer 1 domain classes
+│   └── ProcessCore/              existing core, YAML, SQL, and Fable projects
 ├── tests/                        Pyxpecto tests
+│   ├── ARCBaseModel.Tests/       shared Layer 1 behavior tests and mapping probe
+│   ├── ARCBaseModel.Native/      handwritten JavaScript, TypeScript, and Python consumers
 │   ├── ProcessCore.Tests/        consolidated core, YAML, and SQL tests
 │   └── SpeedTest/
 └── build/                        FAKE build project and task modules
@@ -45,7 +48,7 @@ ARC-Data-Model/
 
 ## Tech Stack
 
-- F# / .NET projects in `src/`, currently centered on consolidated `ProcessCore` with Fable-specific project files beside it.
+- F# / .NET projects in `src/`: independent `ARCBaseModel` targets .NET Standard 2.0; existing consolidated `ProcessCore` retains its own Fable-specific project files.
 - FAKE build project under `build/`.
 - fsdocs for generated documentation.
 - Pyxpecto tests, with Fable transpilation paths for JavaScript and Python.
@@ -71,8 +74,16 @@ Layer 1 represents the base specification as one shared F# domain model for .NET
 - Prefer `ResizeArray<T>` for mutable model collections: Fable documents JavaScript arrays and Python lists for this shape. Keep F# lists, maps, and sets internal. Accept native collections at the API boundary; consume any `seq<T>` input into stored collections without filtering or replacing its entity references. Verify F# array representations separately, especially on Python.
 - Simple F# options are acceptable when native callers can supply, read, and clear them through ordinary target-language absence values. Avoid nested options or option wrappers in the public contract. Test omission and clearing explicitly, including that `0`, `false`, and empty text are not treated as absent where applicable.
 - Preserve spec strings (including URLs, paths, dates, and open-ended profile classifications) without introducing .NET-only wrappers or closed enums. Verify native numeric inputs and outputs for Number fields; do not convert numbers into text to simplify interop.
-- Keep stable, curated exports in the TypeScript and Python entrypoints (currently `src/ProcessCore/index.ts` and `src/ProcessCore/__init__.py`). Export every intended public type with documented names. Thin native facades may adapt call syntax, but must not duplicate domain logic or require callers to import generated implementation files or Fable runtime helpers.
+- Keep stable, curated exports in the native entrypoints. For Layer 1, `build/base-model.mjs` stages `build/out/base-model/js/node_modules/arc-base-model`; `build/base-model-python.py` stages `build/out/base-model/python/arc_base_model`, including `__init__.py`, precise `.pyi` stubs, and `py.typed`. The existing ProcessCore entrypoints remain separate. Export every intended public type with documented names. Staging restores Python erased alternatives emitted as `Any` and hides implementation-only declaration details. Thin native facades may adapt call syntax, but must not duplicate domain logic or require callers to import generated implementation files or Fable runtime helpers.
 - Keep shared source and compile order aligned across target projects. Use the repository's pinned Fable toolchain; keep target-specific interop at explicit boundaries and verify behavior before adopting newer compiler features.
+
+### Pinned Python Numeric Compatibility
+
+Fable 5.6.0's [numeric type test](https://github.com/fable-compiler/Fable/blob/e504757ef7f32c6d72aedda604967343e24d24a0/src/Fable.Transforms/Python/Fable2Python.Reflection.fs#L362) checks the `float64` wrapper, so ordinary Python ints/floats can fail erased-union pattern matches. The [Python numeric compatibility documentation](https://fable.io/docs/python/compatibility.html#numeric-types) describes that wrapper representation. Successful raw transpilation is insufficient for the native numeric contract.
+
+- `build/base-model-python.py` applies a focused AST compatibility pass to generated Python modules. Numeric type checks accept native `int`/`float` and Fable `float64`, excluding `bool`. Public `Annotation.Value` and test-probe numeric return boundaries convert wrapper values to native floats; this is representation adaptation, not normalization of domain values or IDs.
+- Future transpiled F# Python consumers must apply `python build/base-model-python.py compat <generated-dir>` and import the same staged model classes. Package staging applies the pass automatically to model and test consumers. Do not rely on case reordering, replace entity classes, or monkeypatch the shared Fable runtime.
+- Keep checks for native integer/fractional/zero values, text versus numbers, wrapped F# numeric outputs, optional values, wildcard matches, and Boolean exclusion. Reassess this compatibility pass when intentionally changing the compiler; no compiler upgrade or new production dependency is part of Layer 1.
 
 ### Evidence and Examples
 
@@ -88,6 +99,8 @@ Use these as API-design references, not as substitutes for the base specificatio
 
 ```powershell
 .\build.cmd BuildSolution
+.\build.cmd BuildBaseModel
+.\build.cmd TestBaseModel
 .\build.cmd RunTests
 .\build.cmd runTestsJS
 .\build.cmd runTestsPy
@@ -114,6 +127,8 @@ npm run test:js
 
 Before marking docs plumbing work as done, run an fsdocs build or a targeted markdown/link check when practical. Before marking implementation work as done, run the relevant FAKE test target.
 
-For portable domain API changes, run the shared behavioral tests on .NET, JavaScript, and Python, then inspect the emitted classes and type declarations. The current `RunTests` aggregate omits Python; invoke `runTestsPy` explicitly until that is fixed. A skipped or failing target is not evidence of cross-target support.
+For portable domain API changes, run the shared behavioral tests on .NET, JavaScript, and Python, then inspect the emitted classes and type declarations. `TestBaseModel` covers all three runtimes and native consumers and is included in `RunTests`. The legacy ProcessCore Python suite remains separate; its skipped `runTestsPy` target is not evidence of cross-target support. A skipped or failing target is not a passing check.
+
+The [Layer 1 guide](docs/project/base-model.md) documents construction, native values, build artifacts, and Layer 2 identity policies. The FAKE targets `TestBaseModelDotNet`, `TestBaseModelJS`, `TestBaseModelPy`, and `TestBaseModelNative` can also run independently with their required build dependencies.
 
 Add handwritten JavaScript/TypeScript and Python consumer tests alongside the shared F# tests. Import through the public entrypoints and exercise construction, property reads/writes, optional values, native arrays/lists, spec alternatives, duplicate preservation, and shared entity references. Type-check TypeScript callers as well as running JavaScript and Python callers. When package artifacts are produced, run these consumers against the packed artifacts too; this catches export and dependency defects that transpiled F# tests cannot detect.
