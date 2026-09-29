@@ -27,10 +27,13 @@ ARC-Data-Model/
 ├── references/                   upstream profiles and preserved prior implementation notes
 ├── src/                          F# implementation projects
 │   ├── ARCBaseModel/             portable Layer 1 domain classes
+│   ├── PolyglotSQLite/           portable SQLite values, drivers, transactions, and CRUD
 │   └── ProcessCore/              existing core, YAML, SQL, and Fable projects
 ├── tests/                        Pyxpecto tests
 │   ├── ARCBaseModel.Tests/       shared Layer 1 behavior tests and mapping probe
 │   ├── ARCBaseModel.Native/      handwritten JavaScript, TypeScript, and Python consumers
+│   ├── PolyglotSQLite.Tests/     shared SQLite behavior and database interoperability tests
+│   ├── PolyglotSQLite.Native/    handwritten SQLite package consumers
 │   ├── ProcessCore.Tests/        consolidated core, YAML, and SQL tests
 │   └── SpeedTest/
 └── build/                        FAKE build project and task modules
@@ -48,7 +51,7 @@ ARC-Data-Model/
 
 ## Tech Stack
 
-- F# / .NET projects in `src/`: independent `ARCBaseModel` targets .NET Standard 2.0; existing consolidated `ProcessCore` retains its own Fable-specific project files.
+- F# / .NET projects in `src/`: independent `ARCBaseModel` and `PolyglotSQLite` target .NET Standard 2.0; existing consolidated `ProcessCore` retains its own Fable-specific project files.
 - FAKE build project under `build/`.
 - fsdocs for generated documentation.
 - Pyxpecto tests, with Fable transpilation paths for JavaScript and Python.
@@ -95,12 +98,24 @@ Use these as API-design references, not as substitutes for the base specificatio
 - [DataHubClient native packages and consumer checks](https://github.com/nfdi4plants/DataHubClient#package-smoke-tests): curated exports and tests using installed packages from native code.
 - Fable's [JavaScript features](https://fable.io/docs/javascript/features.html) and [Python features](https://fable.io/docs/python/features.html) describe attached members, overload limitations, and erased unions. Its [JavaScript](https://fable.io/docs/javascript/compatibility.html) and [Python compatibility](https://fable.io/docs/python/compatibility.html) pages describe collection and option representations. Check these against the pinned compiler rather than assuming identical output across versions or targets.
 
+## PolyglotSQLite: Portable SQLite Infrastructure
+
+`src/PolyglotSQLite` is an independent .NET Standard 2.0 library with native Node/TypeScript and Python entrypoints. Track milestones, repairs R01-R11, and actual verification in [the PolyglotSQLite plan](plans/polyglot-sqlite.md), updating it in every implementation commit. The [guide](docs/project/polyglot-sqlite.md) describes the supported API and ownership contract.
+
+- Reuse the pinned Microsoft.Data.Sqlite, better-sqlite3, and stdlib sqlite3 providers. Keep ProcessCore self-contained; do not add references from ProcessCore to this library. ARC schemas, entity mappings, and ID policies belong to a future Layer 2 implementation.
+- Public values, rows, parameters, transaction scopes, and table metadata are attached classes. Keep ordinary F# unions and maps internal. Preserve all five SQLite storage classes, exact signed int64 values, ordinal columns, duplicate column names, and absence versus SQL NULL.
+- Use explicit Python representation boundaries for native int/float/bytes and transpiled F# numeric/array behavior. Do not apply the ARCBaseModel AST compatibility pass to this library or patch the Fable runtime. Verify compiled output and native consumers; CompiledName behavior differs for methods and properties.
+- Ordinary statements must not commit a surrounding transaction. Validate one statement before provider preparation, generate nested savepoints internally, and keep scripts separate. Borrowed handles require exclusive use and must be idle before wrapping; borrowed Python detect_types=0 is an explicit caller precondition because sqlite3 cannot expose that flag.
+- Run `TestPolyglotSQLite` for the complete contract: shared tests on all three runtimes, handwritten native callers, declaration checks, local packed artifacts, and every cross-runtime database writer/reader combination. The independent targets are `TestPolyglotSQLiteDotNet`, `TestPolyglotSQLiteJS`, `TestPolyglotSQLitePy`, `TestPolyglotSQLiteNative`, and `TestPolyglotSQLiteInterop`.
+
 ## Commands
 
 ```powershell
 .\build.cmd BuildSolution
 .\build.cmd BuildBaseModel
 .\build.cmd TestBaseModel
+.\build.cmd BuildPolyglotSQLite
+.\build.cmd TestPolyglotSQLite
 .\build.cmd RunTests
 .\build.cmd runTestsJS
 .\build.cmd runTestsPy
