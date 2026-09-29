@@ -6,6 +6,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Values.fs" />
+    <Compile Include="Backend.fs" />
+    <Compile Include="Adapters.fs" />
+    <Compile Include="SqlText.fs" />
+    <Compile Include="Connection.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />

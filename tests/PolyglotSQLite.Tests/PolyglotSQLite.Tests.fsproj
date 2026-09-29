@@ -8,6 +8,8 @@
   <ItemGroup>
     <Compile Include="NumericProbe.fs" />
     <Compile Include="Values.fs" />
+    <Compile Include="Drivers.fs" />
+    <Compile Include="Transactions.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>
   <ItemGroup>
