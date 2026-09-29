@@ -19,7 +19,7 @@ This is the same Dataset type described by the [Administrative](../administrativ
 | `id` | Text | `0..1` | MAY | Optional identifier within an application-defined scope. Implementations that require an internal identifier SHOULD use this field. The domain model does not automatically assign identifiers. |
 | `type` | Text | `1` | MUST | `Dataset` |
 | `additionalTypes` | Text | `0..*` | MAY | Discriminator for decoration types. |
-| `conformsTos` | Text | `1..*` | MUST | MUST include `semantic-designation` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
+| `conformsTo` | Text | `1..*` | MUST | MUST include `semantic-designation` as its [base-profile discriminator](../index.md#profile-discriminators). Additional classifications or specializations MAY also be included. |
 | `identifiers` | Text | `1..*` | MUST | Identifiers by which the dataset is known or referenced, such as a DOI, accession number, repository name, or other identifying string. Identifiers may be globally scoped or scoped to a particular system or context. |
 | `descriptors` | [Descriptor](Descriptor.md) | `0..*` | SHOULD | Semantic descriptions associated with the dataset |
 | `hasParts` | [Dataset](../index.md#dataset-nesting) | `0..*` | SHOULD | Contained datasets from any base profile. Each child declares its own profile, independently of its parent and siblings; the same nesting options apply at every depth. |
@@ -38,5 +38,5 @@ flowchart TD
     Dataset --additionalTypes--> additionalTypes
     Dataset --identifiers--> identifiers
     Dataset --additionalProperties--> Annotation
-    Dataset --conformsTos--> ct
+    Dataset --conformsTo--> ct
 ```

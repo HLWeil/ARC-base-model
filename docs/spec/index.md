@@ -19,7 +19,7 @@ Entity specifications shared unchanged between base profiles live in `shared/`: 
 
 ## Profile Discriminators
 
-Datasets MUST declare their base profiles in `conformsTos` using the corresponding case-sensitive discriminator:
+Datasets MUST declare their base profiles in `conformsTo` using the corresponding case-sensitive discriminator:
 
 | Base profile | Discriminator |
 |--------------|---------------|
@@ -27,7 +27,7 @@ Datasets MUST declare their base profiles in `conformsTos` using the correspondi
 | [Semantic Designation](semantic_designation/overview.md) | `semantic-designation` |
 | [Process Provenance](process_provenance/overview.md) | `process-provenance` |
 
-Other classifications or specializations MAY also be present in `conformsTos`. The `type` field identifies the entity type; the base-profile discriminator identifies the applicable profile-specific specification.
+Other classifications or specializations MAY also be present in `conformsTo`. The `type` field identifies the entity type; the base-profile discriminator identifies the applicable profile-specific specification.
 
 ### Dataset Nesting
 
