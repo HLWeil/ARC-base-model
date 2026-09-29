@@ -28,6 +28,8 @@ let _docs = [buildDocs; watchDocs] |> ignore
 
 let _baseModel = [BaseModelTasks.buildBaseModel; BaseModelTasks.testBaseModel] |> ignore
 
+let _polyglotSQLite = [PolyglotSQLiteTasks.buildPolyglotSQLite; PolyglotSQLiteTasks.testPolyglotSQLite] |> ignore
+
 ReleaseNotesTasks.updateReleaseNotes |> ignore
 // PerformanceTasks.perforanceReport |> ignore
 

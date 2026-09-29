@@ -16,7 +16,7 @@ Update this plan in **every implementation commit**, recording changes, checks a
 | Independent library and portable value API | Complete | .NET Standard 2.0 project, immutable values/parameters/ordered rows, seven shared tests on each runtime, and native value-boundary checks pass. |
 | Runtime adapters and transactions | Complete | FAKE shared suites pass: 33 .NET tests and 29 JavaScript/Python tests, with native ownership probes; final packed-consumer checks remain in the artifact milestone. |
 | Generic table repositories | Complete | All shared suites pass (40 .NET, 36 JavaScript, 36 Python), including R10/R11 and native codec callbacks. |
-| Native artifacts and interoperability | In progress | Staging, native consumers, packed artifacts, and all nine database exchanges pass; artifact checkpoint pending. |
+| Native artifacts and interoperability | Complete | Eight public classes, checked declarations, native consumers, packed npm/Python artifacts, and all nine database exchanges pass. |
 | Build integration and documentation | In progress | Targets and documentation implemented; final RunTests integration verification is running. |
 
 ### Commit and verification log
@@ -32,6 +32,9 @@ Update this plan in **every implementation commit**, recording changes, checks a
 - Runtime verification fixes: Python rejects empty trailing SQL statements accepted by other engines, so the lexer validates the entire input then returns the one executable statement slice. It does not split on semicolons or prepare rejected SQL. Review additionally found and repaired script-owned rollback retry on Close, callback writes after a caught SQLite transaction abort, and known async callbacks escaping their scope. New shared/native regressions track these cases. Cleanup/state-inspection failures preserve the original exception. Borrowed Python converter restrictions are explicitly documented as provider preconditions.
 - Repository checkpoint (runtime commit `176e2b0`): added immutable table metadata and parameterized generic CRUD, with quoted identifiers, copied metadata, ordered composite keys, and validation before SQL. R10/R11 regressions pass. Full FAKE suites pass 40/40 on .NET and 36/36 on both JavaScript and Python, with no ignored tests; native codec callbacks also pass through the in-progress artifact infrastructure. The shared test entrypoint now includes the independent database fixture writer/reader used by the artifact milestone.
 - Repository verification fixes: Fable Python cannot implement the initially selected .NET string comparer, so identifier duplicate detection now folds ASCII letters explicitly, matching SQLite while preserving distinct non-ASCII names. Key predicates use `IS` to support nullable keys permitted by a caller's SQLite schema. Decoders must return non-null values so missing `Get` results remain ordinary native absence; false, zero, and empty text remain valid. Shared and native regressions cover these decisions, metadata mutation, invalid encoders, unusual identifiers, and ambiguous results.
+- Native artifact checkpoint (repository commit `0e1c737`): FAKE `TestPolyglotSQLite` passed in full: 40 .NET tests, 36 JavaScript tests, 36 Python tests, strict TypeScript valid/invalid calls, handwritten native consumers against staged and locally packed artifacts, and all nine combinations of three database writers/readers. No tests were ignored. Native checks cover codecs, shared class identity, borrowed handles/settings, callback failures, awaitable rejection, cleanup retry, and genuine primitive return types. All R01-R11 regressions are included in this passing aggregate.
+- Added dedicated build/staging targets, curated eight-class exports, TypeScript declarations, checked Python stubs and `py.typed`, and local npm tarball/Python wheel consumers. The pinned compiler mangles generic class names; public aliases preserve the original class definitions. Python test staging rewrites imports only, with no numeric AST pass or Fable runtime modification. Generated Python syntax requires Python 3.12+, recorded in wheel metadata and the guide; current CI already uses 3.12. TypeScript table generics are invariant and exclude nullable decoder types.
+- Registered the test aggregate in `RunTests` through its existing CI entrypoint. The legacy Python suite remains disabled independently; PolyglotSQLite's Python suite runs. Final full-repository integration and documentation evidence will be recorded in the last checkpoint. No package publication is enabled.
 
 ### Intended commits
 
@@ -146,6 +149,8 @@ Do not introduce schema generation, upsert policies, change tracking, or identit
 Create one production project with a shared compile list and conditional adapters, plus an independent net10.0 Pyxpecto test project. Register both in the solution and keep release packaging disabled initially.
 
 Stage artifacts under `build/out/polyglot-sqlite`: ESM package `polyglot-sqlite` with curated exports and precise TypeScript declarations; Python package `polyglot_sqlite` with curated exports, `.pyi` declarations, and `py.typed`.
+
+The pinned compiler's Python syntax requires Python 3.12 or later. Local wheel metadata records that minimum; existing CI's Python 3.12 satisfies it.
 
 Native and transpiled callers share class definitions. Hide internal compatibility methods from the documented surface and clean only dedicated generated outputs.
 
