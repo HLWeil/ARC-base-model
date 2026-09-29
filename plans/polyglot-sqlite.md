@@ -15,9 +15,9 @@ Update this plan in **every implementation commit**, recording changes, checks a
 | Plan baseline | Complete | Accepted plan saved before implementation; initial commit records this baseline. |
 | Independent library and portable value API | Complete | .NET Standard 2.0 project, immutable values/parameters/ordered rows, seven shared tests on each runtime, and native value-boundary checks pass. |
 | Runtime adapters and transactions | Complete | FAKE shared suites pass: 33 .NET tests and 29 JavaScript/Python tests, with native ownership probes; final packed-consumer checks remain in the artifact milestone. |
-| Generic table repositories | Not started | CRUD tests and native codec callbacks pending. |
-| Native artifacts and interoperability | Not started | Public entrypoints, declarations, consumers, and database-file exchange pending. |
-| Build integration and documentation | Not started | Aggregate targets, CI integration, documentation, and final verification pending. |
+| Generic table repositories | Complete | All shared suites pass (40 .NET, 36 JavaScript, 36 Python), including R10/R11 and native codec callbacks. |
+| Native artifacts and interoperability | In progress | Staging, native consumers, packed artifacts, and all nine database exchanges pass; artifact checkpoint pending. |
+| Build integration and documentation | In progress | Targets and documentation implemented; final RunTests integration verification is running. |
 
 ### Commit and verification log
 
@@ -30,6 +30,8 @@ Update this plan in **every implementation commit**, recording changes, checks a
 
 - Runtime checkpoint (value API `23f5433`): added .NET/Node/Python adapters, shared statement validation, connection ownership, explicit/nested transactions, callback transactions, and scripts. FAKE `TestPolyglotSQLiteDotNet` passed 33/33, while `TestPolyglotSQLiteJS` and `TestPolyglotSQLitePy` passed 29/29 shared cases with no ignored tests. R01-R09 database regressions pass; isolated native ownership probes verify borrowed handles and settings. Known .NET Task-returning callbacks are rejected before invocation, alongside native async-function detection. Later full native/packed tests remain pending.
 - Runtime verification fixes: Python rejects empty trailing SQL statements accepted by other engines, so the lexer validates the entire input then returns the one executable statement slice. It does not split on semicolons or prepare rejected SQL. Review additionally found and repaired script-owned rollback retry on Close, callback writes after a caught SQLite transaction abort, and known async callbacks escaping their scope. New shared/native regressions track these cases. Cleanup/state-inspection failures preserve the original exception. Borrowed Python converter restrictions are explicitly documented as provider preconditions.
+- Repository checkpoint (runtime commit `176e2b0`): added immutable table metadata and parameterized generic CRUD, with quoted identifiers, copied metadata, ordered composite keys, and validation before SQL. R10/R11 regressions pass. Full FAKE suites pass 40/40 on .NET and 36/36 on both JavaScript and Python, with no ignored tests; native codec callbacks also pass through the in-progress artifact infrastructure. The shared test entrypoint now includes the independent database fixture writer/reader used by the artifact milestone.
+- Repository verification fixes: Fable Python cannot implement the initially selected .NET string comparer, so identifier duplicate detection now folds ASCII letters explicitly, matching SQLite while preserving distinct non-ASCII names. Key predicates use `IS` to support nullable keys permitted by a caller's SQLite schema. Decoders must return non-null values so missing `Get` results remain ordinary native absence; false, zero, and empty text remain valid. Shared and native regressions cover these decisions, metadata mutation, invalid encoders, unusual identifiers, and ambiguous results.
 
 ### Intended commits
 
@@ -57,8 +59,8 @@ Some entries are correctness defects; others are deliberate legacy restrictions 
 | **R07 — Rows lose order and duplicate columns** | `SqlRow` is a map; driver conversions discard SELECT order and collapse duplicate names. JavaScript object rows can lose duplicate columns before map construction. | Preserve ordered names and values. `SELECT 1 AS x, 2 AS x` retains both values by ordinal; name-based lookup reports ambiguity. | Complete |
 | **R08 — Missing scalar rows are indistinguishable from NULL** | The scalar contract returns `SqlValue.Null` for both cases. This is an existing API limitation. | Return optional `SqlValue`: `SELECT NULL` yields a present NULL value; `SELECT 1 WHERE 0` yields absence. | Complete |
 | **R09 — Parameter normalization collisions** | JavaScript/Python strip parameter sigils and build objects/dictionaries, allowing normalized duplicates to overwrite each other. .NET handles supplied sigils differently. | Adopt canonical `$name` binding and reject duplicate normalized names before SQL execution. Parameters named `x` and `$x` must fail consistently on all runtimes. | Complete |
-| **R10 — CRUD assumes simple, trusted identifiers** | `Repository.Crud` interpolates unquoted table/column/key names and derives placeholders directly from column names. This is a limitation of the fixed-catalogue helpers. | Quote identifiers and generate independent placeholders. CRUD must work with reserved words, spaces, and embedded double quotes in identifiers. | Pending |
-| **R11 — Generic metadata and encoder shape are unchecked** | `Repository.Table` retains mutable metadata arrays without validation or copying. CRUD forwards encoder parameters without validating their shape against declared columns. | Copy and validate metadata; reject invalid keys, duplicate/empty columns, and incorrect encoder value counts before SQL. Mutating caller-owned metadata arrays must not change an existing table definition. | Pending |
+| **R10 — CRUD assumes simple, trusted identifiers** | `Repository.Crud` interpolates unquoted table/column/key names and derives placeholders directly from column names. This is a limitation of the fixed-catalogue helpers. | Quote identifiers and generate independent placeholders. CRUD must work with reserved words, spaces, and embedded double quotes in identifiers. | Complete |
+| **R11 — Generic metadata and encoder shape are unchecked** | `Repository.Table` retains mutable metadata arrays without validation or copying. CRUD forwards encoder parameters without validating their shape against declared columns. | Copy and validate metadata; reject invalid keys, duplicate/empty columns, and incorrect encoder value counts before SQL. Mutating caller-owned metadata arrays must not change an existing table definition. | Complete |
 
 Full storage-class support and the native class API are contract expansions. Do not describe them as accidental violations of requirements the legacy library never promised.
 
@@ -128,10 +130,13 @@ Provide immutable `Table<'T>` metadata containing the table name, ordered column
 `TableRepository<'T>` exposes `Insert`, `Update`, `Delete`, `Get`, and `List`.
 
 - Validate metadata, key membership, key argument counts, and encoded value counts.
+- Compare duplicate identifiers using SQLite's ASCII case folding; key membership requires the declared spelling.
 - Quote identifiers and generate placeholders independently.
+- Match nullable key values where the caller's schema permits them.
 - Updates exclude primary-key columns and reject tables without updatable columns.
 - Missing updates/deletes are no-ops.
 - `Get` returns absence when missing and rejects multiple rows.
+- Decoders return non-null values; false, zero, and empty text remain valid native results.
 - `List` orders by the declared primary key.
 
 Do not introduce schema generation, upsert policies, change tracking, or identity handling.

@@ -10,6 +10,7 @@
     <Compile Include="Adapters.fs" />
     <Compile Include="SqlText.fs" />
     <Compile Include="Connection.fs" />
+    <Compile Include="Repository.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
