@@ -6,15 +6,16 @@ Update this section in every implementation commit, alongside the changes it des
 
 | Milestone | State | Evidence / remaining work |
 |---|---|---|
-| Plan and contributor guidance | Ready for initial commit | Agreed scope and API decisions recorded below. |
-| Independent library and incremental interop checks | Not started | Create the .NET Standard 2.0 project and verify alternatives as their supporting types are introduced. |
-| Complete base model | Not started | Implement all 13 entities and shared behavioral tests. |
-| Native artifacts and mapping consumer | Not started | Build public JS/TS/Python entrypoints and exercise transpiled F# mapping from native callers. |
-| Build integration, documentation, regression checks | Not started | Register FAKE targets, integrate RunTests, document runnable examples, and verify. |
+| Plan and contributor guidance | Committed | `4dfdb31` records the agreed scope and API decisions. |
+| Independent library and incremental interop checks | Library complete; native checks in progress | .NET Standard 2.0 project and solution registration complete. Initial seven classes, then all 13, transpile with pinned Fable 5.6.0 to TypeScript and Python. |
+| Complete base model | Complete | All 13 normative property tables covered. The 22 shared tests pass on .NET and Python, including all four mappings; JavaScript execution is pending package staging. |
+| Native artifacts and mapping consumer | In progress | Test-only F# mapping consumer implemented; public packages, typing adaptations, and native acceptance checks follow in the next commit. |
+| Build integration, documentation, regression checks | In progress | `BuildBaseModelDotNet` and `TestBaseModelDotNet` registered and verified. Native targets, RunTests integration, guide, and regression checks remain. |
 
 ### Commit and verification log
 
 - Initial plan: implementation has not started. Existing `AGENTS.md` guidance from the planning discussion is included and refined with this plan. The earlier `conformsTo` specification rename was committed separately as `9c8a438`.
+- Domain model checkpoint: added the independent library, all 13 classes, named erased alternatives, shared behavioral tests, mapping probe, solution entries, and initial .NET FAKE targets. `dotnet run --project build/build.fsproj -- TestBaseModelDotNet` passed (22/22); production .NET build had zero warnings/errors. Full production and test sources transpiled to TypeScript and Python; direct Python execution passed 22/22. Corrected the JavaScript test runner to discard Pyxpecto's asynchronous integer result. Native entrypoint execution remains pending. Existing tooling emits dependency warnings (Pyxpecto's Fable.Python/Core version constraint and build-project NuGet audit advisories); no dependency versions changed.
 
 ## Objective and layer boundaries
 

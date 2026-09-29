@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Internal.fs" />
+    <Compile Include="DefinedTerm.fs" />
+    <Compile Include="Annotation.fs" />
+    <Compile Include="Entities.fs" />
+    <Compile Include="Recipe.fs" />
+    <Compile Include="Process.fs" />
+    <Compile Include="Descriptor.fs" />
+    <Compile Include="Administrative.fs" />
+    <Compile Include="Dataset.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" />
+  </ItemGroup>
+</Project>
