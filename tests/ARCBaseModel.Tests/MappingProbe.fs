@@ -35,6 +35,25 @@ type TermSetColumns(?url: string, ?termSet: DefinedTermSet) =
 /// Explicit mappings exercise F# pattern matching after erasure on each Fable backend.
 [<AttachMembers>]
 type MappingProbe() =
+    // Different match forms must accept native numeric inputs after transpilation.
+    static member IsNumber(value: AnnotationValue) =
+        match value with
+        | AnnotationValue.Number _ -> true
+        | _ -> false
+
+    static member IsText(value: AnnotationValue) =
+        match value with
+        | AnnotationValue.Text _ -> true
+        | _ -> false
+
+    static member ClassifyNumberFirst(value: AnnotationValue) =
+        match value with
+        | AnnotationValue.Number _ -> "number"
+        | AnnotationValue.Text _ -> "text"
+
+    static member CreateNumericAnnotation() =
+        Annotation("generated temperature", value = AnnotationValue.Number 23.5)
+
     static member WriteAnnotation(value: AnnotationValue option) =
         match value with
         | Some(AnnotationValue.Text text) -> AnnotationColumns(text = text)

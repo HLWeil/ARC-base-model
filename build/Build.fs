@@ -26,7 +26,7 @@ let _release =
 
 let _docs = [buildDocs; watchDocs] |> ignore
 
-let _baseModel = [BaseModelTasks.testBaseModelDotNet] |> ignore
+let _baseModel = [BaseModelTasks.buildBaseModel; BaseModelTasks.testBaseModel] |> ignore
 
 ReleaseNotesTasks.updateReleaseNotes |> ignore
 // PerformanceTasks.perforanceReport |> ignore

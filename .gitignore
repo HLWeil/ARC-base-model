@@ -7,6 +7,7 @@ obj/
 *.suo
 node_modules/
 .venv/
+__pycache__/
 npm-debug.log*
 build/out/
 .fsdocs/

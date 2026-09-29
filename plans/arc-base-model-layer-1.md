@@ -7,15 +7,24 @@ Update this section in every implementation commit, alongside the changes it des
 | Milestone | State | Evidence / remaining work |
 |---|---|---|
 | Plan and contributor guidance | Committed | `4dfdb31` records the agreed scope and API decisions. |
-| Independent library and incremental interop checks | Library complete; native checks in progress | .NET Standard 2.0 project and solution registration complete. Initial seven classes, then all 13, transpile with pinned Fable 5.6.0 to TypeScript and Python. |
-| Complete base model | Complete | All 13 normative property tables covered. The 22 shared tests pass on .NET and Python, including all four mappings; JavaScript execution is pending package staging. |
-| Native artifacts and mapping consumer | In progress | Test-only F# mapping consumer implemented; public packages, typing adaptations, and native acceptance checks follow in the next commit. |
-| Build integration, documentation, regression checks | In progress | `BuildBaseModelDotNet` and `TestBaseModelDotNet` registered and verified. Native targets, RunTests integration, guide, and regression checks remain. |
+| Independent library and incremental interop checks | Complete | .NET Standard 2.0 project and solution registration complete. Initial seven classes, then all 13, transpile with pinned Fable 5.6.0 to TypeScript and Python. |
+| Complete base model | Complete | All 13 normative property tables covered. The 23 shared tests pass on .NET, JavaScript, and Python, including all four mappings. |
+| Native artifacts and mapping consumer | Complete | ESM package, checked TS declarations, Python package/stubs, native consumers, and transpiled F# mapping pass `TestBaseModel`. See the pinned Python compatibility adjustment below. |
+| Build integration, documentation, regression checks | In progress | All named base-model targets registered; aggregate passes. Solution and content docs build pass. RunTests integration, final contributor/usage guide changes, and existing-suite regression checks are next. |
 
 ### Commit and verification log
 
 - Initial plan: implementation has not started. Existing `AGENTS.md` guidance from the planning discussion is included and refined with this plan. The earlier `conformsTo` specification rename was committed separately as `9c8a438`.
 - Domain model checkpoint: added the independent library, all 13 classes, named erased alternatives, shared behavioral tests, mapping probe, solution entries, and initial .NET FAKE targets. `dotnet run --project build/build.fsproj -- TestBaseModelDotNet` passed (22/22); production .NET build had zero warnings/errors. Full production and test sources transpiled to TypeScript and Python; direct Python execution passed 22/22. Corrected the JavaScript test runner to discard Pyxpecto's asynchronous integer result. Native entrypoint execution remains pending. Existing tooling emits dependency warnings (Pyxpecto's Fable.Python/Core version constraint and build-project NuGet audit advisories); no dependency versions changed.
+- Native-artifact checkpoint (after `f32d0b6`): added clean native staging, all named build/test targets, curated exports and declarations, native acceptance consumers, and numeric-regression cases. `dotnet run --project build/build.fsproj -- TestBaseModel` passed: 23/23 shared tests on each runtime, both native consumers, and strict TypeScript valid/invalid-call checks. Generated Python stubs are parsed/compiled and checked for leaked `Any`/Fable implementation types; no external Python type checker was added. The solution build also passed. Content documentation built with `dotnet fsdocs build --output docs/output --properties Configuration=Release --noapidocs` (existing literate-page evaluation warnings because this check omits `--eval`).
+
+### Verified toolchain adjustment
+
+Fable 5.6.0 emits Python erased alternatives as `Any`, and numeric union tests as `isinstance(value, float64)`. Native Python integers and floats fail that wrapper-specific test. Reordering cases or branches does not repair wildcard and other match forms. Native testing exposed this even though tests using only F#-created values passed.
+
+Keep the agreed F# types, compiler version, and production dependencies. `build/base-model-python.py` restores precise public stubs and applies an explicit AST compatibility pass: numeric type checks also recognize native `int`/`float` (excluding `bool`), and wrapped numbers returned from `Annotation.Value` and the test probe's numeric boundaries become native floats. It preserves text, absence, supplied native numbers, entity classes, and references. The pass is idempotent and does not edit the Fable runtime. Future transpiled Python consumers must run its `compat <generated-dir>` mode as part of staging; raw compiler output is not sufficient for native numeric matching with this pinned backend.
+
+Regression checks retain the originally failing match order and cover reversed branches, wildcard cases, native zero/integers/floats, F#-created numbers, absence, and shared class identity. Public JavaScript declarations are derived from generated signatures, omit backing/runtime helpers, and narrow fixed `Type` values to literals.
 
 ## Objective and layer boundaries
 

@@ -298,6 +298,18 @@ let private domain = testList "linked model" [
 ]
 
 let private mapping = testList "transpilable explicit mappings" [
+    testCase "numeric alternatives support wildcard and reversed match forms" <| fun _ ->
+        for value in [ AnnotationValue.Number 0.0; AnnotationValue.Number 23.5 ] do
+            Expect.isTrue (MappingProbe.IsNumber(value)) "Number plus wildcard selects Number"
+            Expect.isFalse (MappingProbe.IsText(value)) "Text plus wildcard rejects Number"
+            Expect.equal (MappingProbe.ClassifyNumberFirst(value)) "number" "Number-first explicit match"
+        for value in [ AnnotationValue.Text "42"; AnnotationValue.Text "" ] do
+            Expect.isFalse (MappingProbe.IsNumber(value)) "Number plus wildcard rejects Text"
+            Expect.isTrue (MappingProbe.IsText(value)) "Text plus wildcard selects Text"
+            Expect.equal (MappingProbe.ClassifyNumberFirst(value)) "text" "Number-first match preserves Text"
+        let annotation = MappingProbe.CreateNumericAnnotation()
+        Expect.equal (MappingProbe.WriteAnnotation(annotation.Value).Number) (Some 23.5) "F#-created numeric values map to numeric columns"
+
     testCase "annotation columns distinguish text numbers zero and absence" <| fun _ ->
         for value in [ AnnotationValue.Text "42"; AnnotationValue.Text ""; AnnotationValue.Number 42.0; AnnotationValue.Number 0.0 ] do
             let row = MappingProbe.WriteAnnotation(Some value)
