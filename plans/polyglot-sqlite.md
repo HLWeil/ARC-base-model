@@ -13,7 +13,7 @@ Update this plan in **every implementation commit**, recording changes, checks a
 | Milestone | State | Completion evidence |
 |---|---|---|
 | Plan baseline | Complete | Accepted plan saved before implementation; initial commit records this baseline. |
-| Independent library and portable value API | Not started | Builds and native/transpiled F# boundary checks pending. |
+| Independent library and portable value API | Complete | .NET Standard 2.0 project, immutable values/parameters/ordered rows, seven shared tests on each runtime, and native value-boundary checks pass. |
 | Runtime adapters and transactions | Not started | Driver and transaction tests on all three runtimes pending. |
 | Generic table repositories | Not started | CRUD tests and native codec callbacks pending. |
 | Native artifacts and interoperability | Not started | Public entrypoints, declarations, consumers, and database-file exchange pending. |
@@ -24,6 +24,9 @@ Update this plan in **every implementation commit**, recording changes, checks a
 - Planning checkpoint: inspected legacy implementations, dependency compatibility, and build integration. Isolated probes verified the Python representation approach. No tracked implementation changes were made during planning.
 - Repair-register revision: identified the concrete legacy behaviors below and assigned acceptance checks. These findings do not establish that repairs have been implemented.
 - Plan baseline: saved the accepted plan with all implementation milestones and repairs pending. Working tree was clean before creating this document.
+- Value API checkpoint (plan baseline `5b410eb`): added the independent library, solution registration, immutable storage values, canonical parameters, and ordered rows. `TestPolyglotSQLiteDotNet`, `TestPolyglotSQLiteJS`, and `TestPolyglotSQLitePy` pass all seven foundation tests; handwritten native consumers pass their value-only mode using the in-progress staging infrastructure. Coverage includes exact int64, strict readers, arithmetic, BLOB ownership, native primitives, ordered duplicate columns, and class identity. R05-R09 remain pending until their actual database regressions pass. The build/native scaffolding is delivered in a later checkpoint.
+- Verified Python boundary adjustments: pinned Fable ignores `CompiledName` on properties. `Count` therefore uses an emitted F# access redirected to a private typed method, plus a method decorated with Python `property` for native integer access. BLOB copying explicitly constructs wrapped bytes because the optimized Fable array constructor can return native integer elements. These adaptations are source-level, with no AST or runtime patch. Factory and reader tests caught and fixed both cases.
+- Dependency/verification environment: the library explicitly references the already centrally configured FSharp.Core package; otherwise its transitive 4.7.2 minimum lacks the interpolation support used by the source. The unchanged central range resolves 8.0.100 and reports NU1603. Existing Pyxpecto/Fable constraint and dependency audit warnings remain. Initial sandbox restore/tool lookup failed; cached restore and approved installed-toolchain execution succeeded. No production dependency versions changed.
 
 ### Intended commits
 
