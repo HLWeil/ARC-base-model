@@ -30,6 +30,8 @@ let _baseModel = [BaseModelTasks.buildBaseModel; BaseModelTasks.testBaseModel] |
 
 let _polyglotSQLite = [PolyglotSQLiteTasks.buildPolyglotSQLite; PolyglotSQLiteTasks.testPolyglotSQLite] |> ignore
 
+let _managementPrototype = ManagementPrototypeTasks.testManagementPrototype |> ignore
+
 ReleaseNotesTasks.updateReleaseNotes |> ignore
 // PerformanceTasks.perforanceReport |> ignore
 

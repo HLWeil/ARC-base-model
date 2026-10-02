@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="IO/FileSystem.fs" />
+    <Compile Include="Internal/State.fs" />
+    <Compile Include="Serialization/YamlCodec.fs" />
+    <Compile Include="Internal/Model.fs" />
+    <Compile Include="Storage/SQLiteStore.fs" />
+    <Compile Include="AppliedOperation.fs" />
+    <Compile Include="Runtime/Session.fs" />
+    <Compile Include="Runtime/Workspace.fs" />
+    <Compile Include="Operations/DatasetOperations.fs" />
+    <Compile Include="Operations/ProcessOperations.fs" />
+    <Compile Include="Operations/SampleOperations.fs" />
+    <Compile Include="Operations/HistoryOperations.fs" />
+    <Compile Include="ARC.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ARCBaseModel/ARCBaseModel.fsproj" />
+    <ProjectReference Include="../PolyglotSQLite/PolyglotSQLite.fsproj" />
+    <PackageReference Include="Fable.Core" />
+    <PackageReference Include="YAMLicious" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+</Project>

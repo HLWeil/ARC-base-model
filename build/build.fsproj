@@ -14,6 +14,7 @@
     <Compile Include="BasicTasks.fs" />
     <Compile Include="BaseModelTasks.fs" />
     <Compile Include="PolyglotSQLiteTasks.fs" />
+    <Compile Include="ManagementPrototypeTasks.fs" />
     <Compile Include="TestTasks.fs" />
     <Compile Include="PackageTasks.fs" />
     <Compile Include="DocumentationTasks.fs" />
