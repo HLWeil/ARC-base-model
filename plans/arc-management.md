@@ -420,6 +420,11 @@ management contract and include it in `RunTests` once stable.
    target-specific native async facades.
 4. The precise filesystem staging and recovery guarantees for multi-resource
    project writes.
+5. Optional shared per-user SQLite storage across ARCs, with keys, relationships,
+   history, revisions, and checkpoints isolated by session. This enables central
+   queries/backups but increases write contention and failure impact. If adopted,
+   archive individual sessions rather than the whole database; filesystem saves
+   stay ARC-local. Sharing mutable entities requires a separate decision.
 
 ## 13. Out of scope for the first implementation
 
