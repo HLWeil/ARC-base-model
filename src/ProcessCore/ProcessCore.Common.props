@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>nfdi4plants, Lukas Weil, Kevin Schneider</Authors>
-    <RepositoryUrl>https://github.com/HLWeil/ProcessCore</RepositoryUrl>
+    <RepositoryUrl>https://github.com/HLWeil/ARC-base-model</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

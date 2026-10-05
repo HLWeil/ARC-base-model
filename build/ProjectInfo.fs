@@ -2,7 +2,7 @@ module ProjectInfo
 
 open Fake.Core
 open Helpers
-let project = "ProcessCore"
+let project = "ARC-base-model"
 
 let testProject = "tests/ProcessCore.Tests"
 
