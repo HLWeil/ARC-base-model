@@ -1,90 +1,53 @@
 PRAGMA foreign_keys = ON;
-
 BEGIN;
-
-INSERT INTO defined_term (id, type, name, tan, in_defined_term_set_id, in_defined_term_set_name)
-VALUES
-  ('obo:OBI_0000070', 'schema:DefinedTerm', 'assay', 'OBI:0000070', 'http://purl.obolibrary.org/obo/obi.owl', 'Ontology for Biomedical Investigations'),
-  ('obo:NCIT_C16681', 'schema:DefinedTerm', 'temperature', 'NCIT:C16681', 'https://ncithesaurus.nci.nih.gov', 'NCI Thesaurus'),
-  ('obo:UO_0000027', 'schema:DefinedTerm', 'degree Celsius', 'UO:0000027', 'http://purl.obolibrary.org/obo/uo.owl', 'Units of measurement ontology');
-
-INSERT INTO recipe (id, type, additional_type, name, description, version, url, intended_use_id, intended_use_text)
-VALUES
-  ('protocol:growth', 'bioschemas:LabProtocol', 'Recipe', 'Plant growth', 'Grow source sample under controlled temperature.', '1.0', NULL, 'obo:OBI_0000070', NULL),
-  ('protocol:proteomics', 'bioschemas:LabProtocol', 'Recipe', 'Proteomics measurement', 'Measure protein abundance by mass spectrometry.', '1.0', NULL, NULL, 'proteomics assay');
-
-INSERT INTO formal_parameter (id, type, name, name_tan, default_value_id)
-VALUES
-  ('param:growth-temperature', 'bioschemas:FormalParameter', 'growth temperature', 'obo:NCIT_C16681', NULL);
-
-INSERT INTO protocol_parameter (protocol_id, position, formal_parameter_id)
-VALUES
-  ('protocol:growth', 0, 'param:growth-temperature');
-
-INSERT INTO dataset (id, type, additional_type, identifier, title, description)
-VALUES
-  ('dataset:proteomics-assay', 'schema:Dataset', 'Assay', 'assay-proteomics-001', 'Proteomics assay example', 'Seed dataset for the SQL import profile.');
-
-INSERT INTO sample (id, type, additional_type, name)
-VALUES
-  ('sample:source-1', 'bioschemas:Sample', 'Source', 'Arabidopsis source 1'),
-  ('sample:sample-1', 'bioschemas:Sample', 'Sample', 'Arabidopsis sample 1');
-
-INSERT INTO data (id, type, additional_type, path, selector, selector_format, encoding_format)
-VALUES
-  ('data:raw-spectrum', 'File', 'Raw Data', 'assays/proteomics/raw/sample-1.mzML', NULL, NULL, 'application/mzml+xml'),
-  ('data:protein-table', 'File', 'Processed Data', 'assays/proteomics/processed/proteins.csv', NULL, NULL, 'text/csv'),
-  ('data:protein-table#abundance', 'File', 'Data Fragment', 'assays/proteomics/processed/proteins.csv', 'col=abundance', 'https://www.rfc-editor.org/rfc/rfc7111', 'text/csv');
-
-INSERT INTO process (id, type, additional_type, name, executes_protocol_id)
-VALUES
-  ('process:growth-1', 'bioschemas:LabProcess', 'Process', 'Grow source 1', 'protocol:growth'),
-  ('process:measure-1', 'bioschemas:LabProcess', 'Process', 'Measure sample 1', 'protocol:proteomics');
-
-INSERT INTO annotation (id, type, additional_type, name, value, unit, name_tan, value_tan, unit_tan, instance_of_id)
-VALUES
-  ('pv:growth-temperature-22c', 'schema:PropertyValue', 'ParameterValue', 'growth temperature', '22', 'degree Celsius', 'obo:NCIT_C16681', NULL, 'obo:UO_0000027', 'param:growth-temperature'),
-  ('pv:dataset-organism', 'schema:PropertyValue', 'CharacteristicValue', 'organism', 'Arabidopsis thaliana', NULL, NULL, NULL, NULL, NULL),
-  ('pv:source-genotype', 'schema:PropertyValue', 'CharacteristicValue', 'genotype', 'Col-0', NULL, NULL, NULL, NULL, NULL),
-  ('pv:raw-format', 'schema:PropertyValue', 'CharacteristicValue', 'file role', 'raw spectrum', NULL, NULL, NULL, NULL, NULL),
-  ('pv:protocol-instrument', 'schema:PropertyValue', 'Component', 'instrument', 'Q Exactive', NULL, NULL, NULL, NULL, NULL);
-
-INSERT INTO dataset_has_part (dataset_id, position, part_dataset_id, part_data_id)
-VALUES
-  ('dataset:proteomics-assay', 0, NULL, 'data:raw-spectrum'),
-  ('dataset:proteomics-assay', 1, NULL, 'data:protein-table');
-
-INSERT INTO dataset_process (dataset_id, position, process_id)
-VALUES
-  ('dataset:proteomics-assay', 0, 'process:growth-1'),
-  ('dataset:proteomics-assay', 1, 'process:measure-1');
-
-INSERT INTO dataset_additional_property (dataset_id, position, annotation_id)
-VALUES
-  ('dataset:proteomics-assay', 0, 'pv:dataset-organism');
-
-INSERT INTO sample_additional_property (sample_id, position, annotation_id)
-VALUES
-  ('sample:source-1', 0, 'pv:source-genotype');
-
-INSERT INTO data_additional_property (data_id, position, annotation_id)
-VALUES
-  ('data:raw-spectrum', 0, 'pv:raw-format');
-
-INSERT INTO protocol_additional_property (protocol_id, position, annotation_id)
-VALUES
-  ('protocol:proteomics', 0, 'pv:protocol-instrument');
-
-INSERT INTO process_parameter_value (process_id, position, annotation_id)
-VALUES
-  ('process:growth-1', 0, 'pv:growth-temperature-22c');
-
-INSERT INTO process_io (process_id, direction, position, sample_id, data_id)
-VALUES
-  ('process:growth-1', 'input', 0, 'sample:source-1', NULL),
-  ('process:growth-1', 'output', 0, 'sample:sample-1', NULL),
-  ('process:measure-1', 'input', 0, 'sample:sample-1', NULL),
-  ('process:measure-1', 'output', 0, NULL, 'data:raw-spectrum'),
-  ('process:measure-1', 'output', 1, NULL, 'data:protein-table');
-
+INSERT INTO defined_term_set(id,type,name,identifier) VALUES ('ontology','DefinedTermSet','Example ontology','https://example.org/ontology');
+INSERT INTO defined_term(id,type,name,tan,identifier,in_defined_term_set_id) VALUES ('term','DefinedTerm','Published','EX:1','https://example.org/term','ontology');
+INSERT INTO defined_term(id,type,name,in_defined_term_set_url) VALUES ('url-term','DefinedTerm','Equipment','https://example.org/ontology');
+INSERT INTO organization(id,type,name,url) VALUES ('org','Organization','Research institute','https://example.org');
+INSERT INTO agent(id,type,name,given_name,family_name) VALUES ('agent','Agent','Ada Example','Ada','Example');
+INSERT INTO agent_email VALUES ('agent',0,'ada@example.org');
+INSERT INTO agent_identifier VALUES ('agent',0,'researcher-1');
+INSERT INTO agent_affiliation VALUES ('agent',0,'org');
+INSERT INTO agent_job_title VALUES ('agent',0,'term');
+INSERT INTO scholarly_article(id,type,headline,creative_work_status_id) VALUES ('article','ScholarlyArticle','Example study','term');
+INSERT INTO scholarly_article_author VALUES ('article',0,'agent');
+INSERT INTO scholarly_article_identifier VALUES ('article',0,'doi:example');
+INSERT INTO dataset(id,type,title,license,date_created) VALUES ('root','Dataset','Combined example','CC-BY-4.0','2026-01-01');
+INSERT INTO dataset(id,type) VALUES ('provenance','Dataset'),('semantic','Dataset'),('admin','Dataset');
+INSERT INTO dataset_identifier VALUES ('root',0,'arc-example'),('root',1,'arc-example'),('provenance',0,'processes'),('semantic',0,'descriptions'),('admin',0,'metadata');
+INSERT INTO dataset_conforms_to VALUES ('root',0,'administrative'),('root',1,'process-provenance'),('root',2,'semantic-designation'),('provenance',0,'process-provenance'),('semantic',0,'semantic-designation'),('admin',0,'administrative');
+INSERT INTO dataset_has_part VALUES ('root',0,'provenance'),('root',1,'semantic'),('root',2,'admin'),('root',3,'semantic');
+INSERT INTO dataset_has_part VALUES ('admin',0,'provenance');
+INSERT INTO sample(id,type,name) VALUES ('source','Sample','Source'),('sample','Sample','Prepared sample');
+INSERT INTO data(id,type,path,encoding_format) VALUES ('file','Data','results.csv','text/csv'),('same-file','Data','results.csv','text/csv');
+INSERT INTO data(id,type,path,selector,selector_format) VALUES ('fragment','Data','results.csv','col=2','https://www.rfc-editor.org/rfc/rfc7111');
+INSERT INTO data_has_part VALUES ('file',0,'fragment');
+INSERT INTO dataset_data_file VALUES ('root',0,'file'),('root',1,'same-file');
+INSERT INTO annotation(id,type,name,value_number,unit,instance_of_id) VALUES ('temperature','Annotation','Temperature',22.5,'Celsius','parameter');
+INSERT INTO annotation(id,type,name,value_text) VALUES ('text','Annotation','Text value','42'),('component','Annotation','Equipment','Instrument');
+INSERT INTO annotation(id,type,name,value_number) VALUES ('number','Annotation','Numeric value',42.0),('zero','Annotation','Zero',0.0);
+INSERT INTO annotation(id,type,name) VALUES ('absent','Annotation','Absent value');
+INSERT INTO annotation(id,type,name,value_text) VALUES ('empty','Annotation','Empty text','');
+INSERT INTO formal_parameter(id,type,name,default_value_id) VALUES ('parameter','FormalParameter','Temperature','temperature');
+INSERT INTO recipe(id,type,name,intended_use_id) VALUES ('recipe','Recipe','Preparation','term');
+INSERT INTO recipe(id,type,intended_use_text) VALUES ('text-recipe','Recipe','term');
+INSERT INTO recipe_parameter VALUES ('recipe',0,'parameter');
+INSERT INTO recipe_component VALUES ('recipe',0,'component');
+INSERT INTO recipe_additional_property VALUES ('recipe',0,'text');
+INSERT INTO process(id,type,name,executes_recipe_id) VALUES ('prepare','Process','Preparation','recipe'),('measure','Process','Measurement','text-recipe');
+INSERT INTO process_io VALUES ('prepare','input','source',NULL),('prepare','output','sample',NULL),('measure','input','sample',NULL),('measure','output',NULL,'file');
+INSERT INTO dataset_process VALUES ('provenance',0,'prepare'),('provenance',1,'measure'),('root',0,'prepare');
+INSERT INTO process_parameter_value VALUES ('prepare',0,'temperature'),('prepare',1,'temperature');
+INSERT INTO descriptor(id,type,sample_id) VALUES ('sample-description','Descriptor','sample');
+INSERT INTO descriptor(id,type,data_id) VALUES ('file-description','Descriptor','file');
+INSERT INTO descriptor_annotation VALUES ('sample-description',0,'text'),('sample-description',1,'number'),('sample-description',2,'text'),('file-description',0,'zero');
+INSERT INTO dataset_descriptor VALUES ('semantic',0,'sample-description'),('semantic',1,'file-description');
+INSERT INTO dataset_agent VALUES ('root',0,'agent');
+INSERT INTO dataset_citation VALUES ('root',0,'article');
+INSERT INTO dataset_additional_property VALUES ('root',0,'text');
+INSERT INTO sample_additional_property VALUES ('sample',0,'text');
+INSERT INTO data_additional_property VALUES ('file',0,'text');
+INSERT INTO agent_additional_property VALUES ('agent',0,'text');
+INSERT INTO scholarly_article_additional_property VALUES ('article',0,'text');
+INSERT INTO dataset_additional_type VALUES ('root',0,'example'),('root',1,'example');
 COMMIT;

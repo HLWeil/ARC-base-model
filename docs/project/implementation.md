@@ -24,12 +24,14 @@ The F# object model, YAML codec, graph traversal helpers, fragment selector prov
 
 The SQL profile artifacts live in `schemas/sql/`:
 
-- `001_core.sql` contains the current executable SQLite DDL for the process graph profile. Datamap and administrative SQL storage are intentionally out of scope for this transition step.
-- `seed_example.sql` contains a small seeded process graph.
+- `001_core.sql` contains executable SQLite DDL for all three current base profiles and thirteen shared/profile entity types. SQL persistence requires explicitly supplied domain IDs; the domain model still permits absent IDs.
+- `seed_example.sql` covers all three profiles, shared references, ordered collections and numeric alternatives.
 - `seeded_core.sqlite` is the generated SQLite database.
 - `design.md` explains the relational design.
 
-`ProcessCore.SQL` inside the consolidated `ProcessCore` project mirrors the SQL profile:
+The current profile reuses the existing `PolyglotSQLite` infrastructure. A small validation helper lives in `src/ARCtrl/Storage/SQLiteStore.fs`, and focused checks live in `tests/ManagementPrototype.Tests`. The [design and property checklist](../../schemas/sql/design.md) document the representation. Run `.\build.cmd TestCoreSQL` to verify the schema on .NET, Node and Python. The core schema remains separate from the prototype's session tables.
+
+`ProcessCore.SQL` inside the consolidated `ProcessCore` project retains its legacy API and explicit legacy test fixtures; it does not implement the current schema:
 
 - `Tables.fs` defines row types for tabular representation of the underlying processes.
 - `RowCodecs.fs` converts between `SqlRow` values and row types.
@@ -39,7 +41,7 @@ The SQL profile artifacts live in `schemas/sql/`:
 
 ## Runtime Adapters
 
-Runtime-specific SQL drivers live in target-specific files under `src/ProcessCore/SQL/`:
+Current SQL runtime drivers live under `src/PolyglotSQLite/`; ARCtrl reuses them. The legacy drivers remain under `src/ProcessCore/SQL/`:
 
 - .NET uses `Microsoft.Data.Sqlite`.
 - JavaScript uses `better-sqlite3` after Fable transpilation.

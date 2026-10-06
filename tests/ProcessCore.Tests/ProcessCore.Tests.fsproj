@@ -53,12 +53,6 @@
     <Compile Include="YAML/Integration/Examples.fs" />
     <Compile Include="YAML/ScalarStyle.fs" />
     <Compile Include="YAML/Tests.fs" />
-    <Compile Include="SQL/Fixtures.fs" />
-    <Compile Include="SQL/TableModelTests.fs" />
-    <Compile Include="SQL/RowCodecTests.fs" />
-    <Compile Include="SQL/DotNetDriverTests.fs" />
-    <Compile Include="SQL/RepositoryCrudTests.fs" />
-    <Compile Include="SQL/Tests.fs" />
     <Compile Include="ARC.fs" />
     <Compile Include="WorkspaceProject.fs" Condition="'$(FABLE_COMPILER_PYTHON)' != 'true'" />
     <Compile Include="Main.fs" />

@@ -25,6 +25,16 @@ module internal Store =
     let parameters values = values |> List.map (fun (name, value) -> SqlParameter(name, value))
     let execute (db: SqliteConnection) sql values = db.Execute(sql, parameters values)
     let optText (row: SqlRow) name = let value = row.GetByName(name) in if value.IsNull then None else Some(value.AsText())
+    /// Validate a completed core-profile database separately from session metadata.
+    let validateCore (db: SqliteConnection) =
+        let errors = db.Query("SELECT dataset_id,message FROM core_validation_errors ORDER BY dataset_id,message")
+        if errors.Count > 0 then
+            errors
+            |> Seq.map (fun row -> row.GetByName("dataset_id").AsText() + ": " + row.GetByName("message").AsText())
+            |> String.concat "; "
+            |> invalidOp
+        if db.Query("PRAGMA foreign_key_check").Count > 0 then
+            invalidOp "Core database contains invalid foreign keys."
     let mirror (db: SqliteConnection) state =
         for table in ["dataset_part"; "dataset_process"; "process"; "sample"; "dataset"] do db.Execute("DELETE FROM " + table)
         for row in state.Datasets do

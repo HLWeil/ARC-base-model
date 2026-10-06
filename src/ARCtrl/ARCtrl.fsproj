@@ -20,6 +20,9 @@
     <Compile Include="ARC.fs" />
   </ItemGroup>
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>ManagementPrototype.Tests</_Parameter1>
+    </AssemblyAttribute>
     <ProjectReference Include="../ARCBaseModel/ARCBaseModel.fsproj" />
     <ProjectReference Include="../PolyglotSQLite/PolyglotSQLite.fsproj" />
     <PackageReference Include="Fable.Core" />

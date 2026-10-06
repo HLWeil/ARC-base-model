@@ -6,5 +6,6 @@ open Fable.Pyxpecto
 let main arguments =
     match arguments with
     | [|"--demo"; folder|] -> Walkthrough.run folder; 0
-    | [||] -> Pyxpecto.runTests [||] Behavior.tests
-    | _ -> eprintfn "Usage: [--demo <new-folder>]"; 1
+    | [|"--core-sql"|] -> Pyxpecto.runTests [||] CoreSql.tests
+    | [||] -> Pyxpecto.runTests [||] (testList "ARCtrl" [Behavior.tests; CoreSql.tests])
+    | _ -> eprintfn "Usage: [--demo <new-folder> | --core-sql]"; 1

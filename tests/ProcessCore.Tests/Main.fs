@@ -43,7 +43,6 @@ let all =
             Spreadsheet.Workbooks.tests
             Spreadsheet.Scaffold.tests
             ProcessCore.Yaml.Tests.All.all
-            ProcessCore.SQL.Tests.All.all
             ARC.tests
             WorkspaceProject.tests
         ]

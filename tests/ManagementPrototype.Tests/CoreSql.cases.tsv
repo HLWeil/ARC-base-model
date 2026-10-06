@@ -1,0 +1,63 @@
+integer	SELECT count(*) FROM sqlite_master WHERE type='table'	52
+integer	SELECT count(*) FROM sqlite_master WHERE name IN ('session','history','journal')	0
+integer	SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE '%_additional_type'	13
+text	PRAGMA integrity_check	ok
+integer	SELECT count(*) FROM core_validation_errors	0
+integer	SELECT count(*) FROM process_edges	2
+text	SELECT group_concat(value,'|') FROM (SELECT value FROM dataset_identifier WHERE dataset_id='root' ORDER BY position)	arc-example|arc-example
+text	SELECT group_concat(part_dataset_id,'|') FROM (SELECT part_dataset_id FROM dataset_has_part WHERE dataset_id='root' ORDER BY position)	provenance|semantic|admin|semantic
+integer	SELECT count(*) FROM dataset_has_part WHERE part_dataset_id='provenance'	2
+integer	SELECT count(*) FROM data WHERE path='results.csv' AND selector IS NULL	2
+integer	SELECT count(*) FROM data_has_part	1
+real	SELECT value_number FROM annotation WHERE id='zero'	0
+real	SELECT value_number FROM annotation WHERE id='number'	42
+real	SELECT value_number FROM annotation WHERE id='temperature'	22.5
+text	SELECT value_text FROM annotation WHERE id='text'	42
+text	SELECT value_text FROM annotation WHERE id='empty'	
+text	SELECT typeof(value_number) FROM annotation WHERE id='number'	real
+null	SELECT value_number FROM annotation WHERE id='text'	
+null	SELECT value_text FROM annotation WHERE id='absent'	
+null	SELECT value_number FROM annotation WHERE id='absent'	
+text	SELECT intended_use_text FROM recipe WHERE id='text-recipe'	term
+null	SELECT intended_use_id FROM recipe WHERE id='text-recipe'	
+text	SELECT in_defined_term_set_url FROM defined_term WHERE id='url-term'	https://example.org/ontology
+null	SELECT in_defined_term_set_id FROM defined_term WHERE id='url-term'	
+text	SELECT in_defined_term_set_id FROM defined_term WHERE id='term'	ontology
+text	SELECT default_value_id FROM formal_parameter WHERE id='parameter'	temperature
+text	SELECT instance_of_id FROM annotation WHERE id='temperature'	parameter
+integer	SELECT count(*) FROM descriptor_annotation WHERE descriptor_id='sample-description' AND annotation_id='text'	2
+integer	SELECT count(*) FROM dataset_descriptor	2
+integer	SELECT count(*) FROM recipe_component	1
+integer	SELECT count(*) FROM dataset_agent	1
+integer	SELECT count(*) FROM dataset_citation	1
+integer	SELECT count(*) FROM scholarly_article_author	1
+integer	SELECT count(*) FROM agent_affiliation	1
+reject	INSERT INTO sample(id,type,name) VALUES(NULL,'Sample','Missing ID')	
+reject	INSERT INTO sample(id,type,name) VALUES('bad','Wrong','Wrong type')	
+reject	INSERT INTO sample(id,type) VALUES('bad','Sample')	
+reject	INSERT INTO process_io VALUES('prepare','input','sample',NULL)	
+reject	INSERT INTO process_io VALUES('prepare','other','sample',NULL)	
+reject	INSERT INTO process_io VALUES('measure','output','sample','file')	
+reject	INSERT INTO dataset_process VALUES('root',-1,'prepare')	
+reject	INSERT INTO dataset_process VALUES('root',9,'missing')	
+reject	INSERT INTO annotation(id,type,name,value_text,value_number) VALUES('bad','Annotation','Bad','42',42)	
+reject	INSERT INTO annotation(id,type,name,value_number) VALUES('bad','Annotation','Bad','not numeric')	
+reject	INSERT INTO recipe(id,type,intended_use_id,intended_use_text) VALUES('bad','Recipe','term','term')	
+reject	INSERT INTO defined_term(id,type,name,in_defined_term_set_url,in_defined_term_set_id) VALUES('bad','DefinedTerm','Bad','url','ontology')	
+reject	INSERT INTO descriptor(id,type) VALUES('bad','Descriptor')	
+accept	INSERT INTO annotation(id,type,name) VALUES('standalone','Annotation','Unattached')	
+accept	INSERT INTO sample(id,type,name) VALUES('file','Sample','Same ID as Data')	
+accept	INSERT INTO data(id,type,path) VALUES('other','Data','results.csv')	
+accept	INSERT INTO process(id,type,name) VALUES('no-endpoints','Process','Absent endpoints')	
+invalid	INSERT INTO dataset(id,type) VALUES('incomplete','Dataset')	
+invalid	DELETE FROM dataset_identifier WHERE dataset_id='root'	
+invalid	DELETE FROM dataset_conforms_to WHERE dataset_id='root'	
+invalid	DELETE FROM dataset_conforms_to WHERE dataset_id='provenance'	
+invalid	DELETE FROM dataset_conforms_to WHERE dataset_id='semantic'	
+invalid	DELETE FROM dataset_conforms_to WHERE dataset_id='admin'	
+invalid	UPDATE dataset_conforms_to SET value='custom' WHERE value='administrative'	
+text	SELECT input_kind || '|' || input_id || '|' || output_kind || '|' || output_id FROM process_edges WHERE process_id='prepare'	sample|source|sample|sample
+text	SELECT input_kind || '|' || input_id || '|' || output_kind || '|' || output_id FROM process_edges WHERE process_id='measure'	sample|sample|data|file
+crud	INSERT INTO sample(id,type,name) VALUES('crud','Sample','Initial');INSERT INTO sample_additional_property VALUES('crud',0,'text');SELECT s.name || '|' || a.annotation_id FROM sample s JOIN sample_additional_property a ON a.sample_id=s.id WHERE s.id='crud'	Initial|text
+crud	INSERT INTO sample(id,type,name) VALUES('crud','Sample','Initial');INSERT INTO sample_additional_property VALUES('crud',0,'text');UPDATE sample SET name='' WHERE id='crud';UPDATE sample_additional_property SET annotation_id='number' WHERE sample_id='crud' AND position=0;SELECT s.name || '|' || a.annotation_id FROM sample s JOIN sample_additional_property a ON a.sample_id=s.id WHERE s.id='crud'	|number
+crud	INSERT INTO sample(id,type,name) VALUES('crud','Sample','Initial');INSERT INTO sample_additional_property VALUES('crud',0,'text');DELETE FROM sample_additional_property WHERE sample_id='crud' AND position=0;DELETE FROM sample WHERE id='crud';SELECT CAST((SELECT count(*) FROM sample WHERE id='crud') AS TEXT) || '|' || CAST((SELECT count(*) FROM sample_additional_property WHERE sample_id='crud') AS TEXT) || '|' || CAST((SELECT count(*) FROM annotation WHERE id='text') AS TEXT)	0|0|1

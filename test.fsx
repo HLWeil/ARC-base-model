@@ -19,7 +19,6 @@ let arc = ARC.create(folder, Dataset(["process-provenance"], ["example-arc"]))
 
 ARC.openFolder
 
-
 let sample = arc.Sample.create("leaf")
 let proc = arc.Process.create("measurement")
 
