@@ -17,7 +17,13 @@ let folder = @"C:\Users\HLWei\Downloads\test"
 
 let arc = ARC.create(folder, Dataset(["process-provenance"], ["example-arc"]))
 
-ARC.openFolder
+arc.Agent.create("Looookas")
+
+
+
+arc.save()
+
+arc.Dataset.addAgent(arc.Model, arc.Agent.list()[0]) |> ignore
 
 let sample = arc.Sample.create("leaf")
 let proc = arc.Process.create("measurement")

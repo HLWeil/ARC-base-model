@@ -16,7 +16,16 @@
     <Compile Include="Operations/DatasetOperations.fs" />
     <Compile Include="Operations/ProcessOperations.fs" />
     <Compile Include="Operations/SampleOperations.fs" />
-    <Compile Include="Operations/EntityOperations.fs" />
+    <Compile Include="Operations/OrganizationOperations.fs" />
+    <Compile Include="Operations/AgentOperations.fs" />
+    <Compile Include="Operations/ScholarlyArticleOperations.fs" />
+    <Compile Include="Operations/AnnotationOperations.fs" />
+    <Compile Include="Operations/FormalParameterOperations.fs" />
+    <Compile Include="Operations/DefinedTermSetOperations.fs" />
+    <Compile Include="Operations/DefinedTermOperations.fs" />
+    <Compile Include="Operations/DescriptorOperations.fs" />
+    <Compile Include="Operations/DataOperations.fs" />
+    <Compile Include="Operations/RecipeOperations.fs" />
     <Compile Include="Operations/HistoryOperations.fs" />
     <Compile Include="ARC.fs" />
   </ItemGroup>
