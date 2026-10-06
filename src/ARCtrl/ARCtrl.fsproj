@@ -7,8 +7,8 @@
   <ItemGroup>
     <Compile Include="IO/FileSystem.fs" />
     <Compile Include="Internal/State.fs" />
-    <Compile Include="Serialization/YamlCodec.fs" />
     <Compile Include="Internal/Model.fs" />
+    <Compile Include="Serialization/YamlCodec.fs" />
     <Compile Include="Storage/SQLiteStore.fs" />
     <Compile Include="AppliedOperation.fs" />
     <Compile Include="Runtime/Session.fs" />
@@ -16,6 +16,7 @@
     <Compile Include="Operations/DatasetOperations.fs" />
     <Compile Include="Operations/ProcessOperations.fs" />
     <Compile Include="Operations/SampleOperations.fs" />
+    <Compile Include="Operations/EntityOperations.fs" />
     <Compile Include="Operations/HistoryOperations.fs" />
     <Compile Include="ARC.fs" />
   </ItemGroup>

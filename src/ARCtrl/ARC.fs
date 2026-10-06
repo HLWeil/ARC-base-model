@@ -11,11 +11,31 @@ type ARC private (session: Session) =
     let datasetOperations = DatasetOperations(session)
     let processOperations = ProcessOperations(session)
     let sampleOperations = SampleOperations(session)
+    let organizationOperations = OrganizationOperations(session)
+    let agentOperations = AgentOperations(session)
+    let scholarlyArticleOperations = ScholarlyArticleOperations(session)
+    let annotationOperations = AnnotationOperations(session)
+    let formalParameterOperations = FormalParameterOperations(session)
+    let definedTermSetOperations = DefinedTermSetOperations(session)
+    let definedTermOperations = DefinedTermOperations(session)
+    let descriptorOperations = DescriptorOperations(session)
+    let dataOperations = DataOperations(session)
+    let recipeOperations = RecipeOperations(session)
     let historyOperations = HistoryOperations(session)
     member _.Model = session.Model
     member _.Dataset = datasetOperations
     member _.Process = processOperations
     member _.Sample = sampleOperations
+    member _.Organization = organizationOperations
+    member _.Agent = agentOperations
+    member _.ScholarlyArticle = scholarlyArticleOperations
+    member _.Annotation = annotationOperations
+    member _.FormalParameter = formalParameterOperations
+    member _.DefinedTermSet = definedTermSetOperations
+    member _.DefinedTerm = definedTermOperations
+    member _.Descriptor = descriptorOperations
+    member _.Data = dataOperations
+    member _.Recipe = recipeOperations
     member _.History = historyOperations
     member _.Folder = session.Folder
     member _.DatabasePath = session.DatabasePath
@@ -30,8 +50,8 @@ type ARC private (session: Session) =
         // Validate/adopt the supplied graph with the same registration pipeline.
         let initialRoot = Dataset(rootDataset.ConformsTo, rootDataset.Identifiers)
         let rootId = Files.newId()
-        let row = Model.datasetRow rootId (fun _ -> invalidOp "Unexpected initial child.") (fun _ -> invalidOp "Unexpected initial process.") initialRoot
-        let temporaryState = { Root = rootId; Datasets = [row]; Processes = []; Samples = [] }
+        let row = Model.capture rootId (fun _ -> invalidOp "Unexpected initial reference.") initialRoot
+        let temporaryState = { Root = rootId; Entities = [row] }
         let session = Workspace.create folder temporaryState None
         try
             session.Register(rootDataset, "Dataset")

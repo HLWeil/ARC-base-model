@@ -86,7 +86,8 @@ let runTestsPy = BuildTask.createFn "runTestsPy" [clean] (fun tp ->
 )
 
 let testManagementPrototype = BuildTask.createFn "TestManagementPrototype" [] (fun _ ->
-    let result = DotNet.exec id "run" "--project tests/ManagementPrototype.Tests/ManagementPrototype.Tests.fsproj --configuration Release"
+    let output = Path.GetFullPath("build/out/management/dotnet") + "/"
+    let result = DotNet.exec id "run" ("--project tests/ManagementPrototype.Tests/ManagementPrototype.Tests.fsproj --configuration Release --property:OutDir=\"" + output + "\"")
     if not result.OK then failwith "ARC management prototype tests failed."
 )
 

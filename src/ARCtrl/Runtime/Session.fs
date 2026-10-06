@@ -15,59 +15,24 @@ type internal Session(folder: string, database: Database) =
     let mutable baseline = Store.optText metadata "baseline"
     let mutable savedGraph = Store.optText metadata "saved_graph"
     let mutable closed = false
-    let datasets = Dictionary<string, Dataset>()
-    let processes = Dictionary<string, ARCBaseModel.Process>()
-    let samples = Dictionary<string, Sample>()
+    // Retained instances also serve as tombstones so undo preserves identity.
+    let entities = Dictionary<string,obj>()
     let rootPath = Files.combine folder "arc.yml"
-    let replace (target: ResizeArray<'T>) values = target.Clear(); target.AddRange(values)
-    let active kind id =
-        match kind with
-        | "Dataset" -> state.Datasets |> List.exists (fun row -> row.Id = id)
-        | "Process" -> state.Processes |> List.exists (fun row -> row.Id = id)
-        | _ -> state.Samples |> List.exists (fun row -> row.Id = id)
-    let owned kind id entity =
-        let matches =
-            match kind with
-            | "Dataset" -> datasets.ContainsKey(id) && obj.ReferenceEquals(datasets[id], entity)
-            | "Process" -> processes.ContainsKey(id) && obj.ReferenceEquals(processes[id], entity)
-            | _ -> samples.ContainsKey(id) && obj.ReferenceEquals(samples[id], entity)
-        if not (active kind id && matches) then invalidOp (kind + " is not registered in this session.")
-        id
-    let datasetId (value: Dataset) = Model.required "dataset" value |> ignore; owned "Dataset" (Model.entityId value.Id) value
-    let processId (value: ARCBaseModel.Process) = Model.required "process" value |> ignore; owned "Process" (Model.entityId value.Id) value
-    let sampleId (value: Sample) = Model.required "sample" value |> ignore; owned "Sample" (Model.entityId value.Id) value
-    let endpoint = function
-        | EntityReference.Sample value -> sampleId value
-        | EntityReference.Data _ -> invalidOp "Data endpoints are outside the prototype."
-    let restore next =
-        for row in next.Datasets do
-            if not (datasets.ContainsKey row.Id) then datasets.Add(row.Id, Dataset(row.Profiles, row.Identifiers))
-            let value = datasets[row.Id]
-            value.Id <- Some row.Id
-            replace value.AdditionalTypes row.Types; replace value.ConformsTo row.Profiles; replace value.Identifiers row.Identifiers
-            value.Title <- row.Title; value.Description <- row.Description; value.License <- row.License
-            value.DatePublished <- row.Published; value.DateCreated <- row.Created; value.DateModified <- row.Modified
-        for row in next.Samples do
-            if not (samples.ContainsKey row.Id) then samples.Add(row.Id, Sample(row.Name))
-            let value = samples[row.Id]
-            value.Id <- Some row.Id; value.Name <- row.Name; replace value.AdditionalTypes row.Types
-        for row in next.Processes do
-            if not (processes.ContainsKey row.Id) then processes.Add(row.Id, ARCBaseModel.Process(row.Name))
-            let value = processes[row.Id]
-            value.Id <- Some row.Id; value.Name <- row.Name; replace value.AdditionalTypes row.Types
-            value.Input <- row.Input |> Option.map (fun id -> EntityReference.Sample samples[id])
-            value.Output <- row.Output |> Option.map (fun id -> EntityReference.Sample samples[id])
-        for row in next.Datasets do
-            replace datasets[row.Id].HasParts (row.Parts |> List.map (fun id -> datasets[id]))
-            replace datasets[row.Id].Processes (row.Processes |> List.map (fun id -> processes[id]))
+    let active id = state.Entities |> List.exists (fun row -> row.Id = id)
     let ensureOpen () = if closed then invalidOp "The ARC session is closed."
+    let owned entity =
+        Model.required "entity" entity |> ignore
+        let id = Model.id entity |> Model.entityId
+        if not (active id && entities.ContainsKey(id) && obj.ReferenceEquals(entities[id], entity)) then
+            invalidOp (Model.kind entity + " is not registered in this session.")
+        id
+    let restore next =
+        for row in next.Entities do
+            if not (entities.ContainsKey row.Id) then entities.Add(row.Id, Model.create row)
+        for row in next.Entities do Model.restore (fun id -> entities[id]) row entities[row.Id]
     let check () =
         ensureOpen()
-        let captured =
-            { Root = state.Root
-              Datasets = state.Datasets |> List.map (fun row -> let value = datasets[row.Id] in Model.datasetRow (datasetId value) datasetId processId value)
-              Processes = state.Processes |> List.map (fun row -> let value = processes[row.Id] in Model.processRow (processId value) endpoint value)
-              Samples = state.Samples |> List.map (fun row -> let value = samples[row.Id] in Model.sampleRow (sampleId value) value) }
+        let captured = { state with Entities = state.Entities |> List.map (fun row -> {Model.capture (owned entities[row.Id]) owned entities[row.Id] with SuppliedId = row.SuppliedId}) }
         if captured <> state then invalidOp "Direct model mutation detected. Use the session operations or reopen the session."
     let assertRevision () =
         if (Store.metadata db).GetByName("revision").AsInteger() <> revision then invalidOp "Session changed through another connection; reopen it."
@@ -87,12 +52,16 @@ type internal Session(folder: string, database: Database) =
                     ["state", Store.text (Codec.encodeState next); "cursor", SqlValue.Integer(int64 nextCursor); "revision", SqlValue.Integer(revision + 1L)]
                 Store.execute db "INSERT INTO journal(operation_id,kind,action,revision) VALUES($id,$kind,$action,$revision)"
                     ["id", Store.text operationId; "kind", Store.text kind; "action", Store.text action; "revision", SqlValue.Integer(revision + 1L)]
-                restore next)
+                restore next
+                if action = "undo" && (kind.EndsWith(".register") || kind.EndsWith(".set")) then
+                    for row in previous.Entities do
+                        if not (next.Entities |> List.exists (fun nextRow -> nextRow.Id = row.Id)) then
+                            Model.setId entities[row.Id] row.SuppliedId)
             state <- next; cursor <- nextCursor; revision <- revision + 1L
         with _ -> restore previous; reraise()
     do Model.validate state; restore state
 
-    member _.Model = ensureOpen(); datasets[state.Root]
+    member _.Model = ensureOpen(); unbox<Dataset> entities[state.Root]
     member _.Folder = folder
     member _.DatabasePath = Files.combine (Files.combine folder ".arc") "testing.sqlite"
     member _.IsDirty = check(); savedGraph <> Some(Codec.encodeGraph state)
@@ -100,127 +69,139 @@ type internal Session(folder: string, database: Database) =
     member _.CanUndo = ensureOpen(); cursor > 0
     member _.CanRedo = ensureOpen(); db.Query("SELECT sequence FROM history WHERE sequence=" + string (cursor + 1)).Count > 0
     member _.Check() = check()
+    member _.Id(value: obj) = ensureOpen(); owned value
+    member _.List<'T>(kind: string) =
+        ensureOpen()
+        state.Entities |> Seq.filter (fun row -> row.Kind = kind) |> Seq.map (fun row -> unbox<'T> entities[row.Id]) |> ResizeArray
+    member _.Get<'T>(kind: string, id: string) =
+        ensureOpen()
+        if not (state.Entities |> List.exists (fun row -> row.Id = id && row.Kind = kind)) then invalidArg "id" ("Unknown " + kind)
+        unbox<'T> entities[id]
     member _.Execute(kind, transform) =
         check()
         let next = transform state
         let operationId = Files.newId()
         update next (cursor + 1) kind "apply" operationId
         AppliedOperation(operationId, kind)
-    member _.DatasetId(value) = ensureOpen(); datasetId value
-    member _.ProcessId(value) = ensureOpen(); processId value
-    member _.SampleId(value) = ensureOpen(); sampleId value
-    member _.Datasets() = ensureOpen(); state.Datasets |> Seq.map (fun row -> datasets[row.Id]) |> ResizeArray
-    member _.Processes() = ensureOpen(); state.Processes |> Seq.map (fun row -> processes[row.Id]) |> ResizeArray
-    member _.Samples() = ensureOpen(); state.Samples |> Seq.map (fun row -> samples[row.Id]) |> ResizeArray
-    member _.GetDataset(id) =
-        ensureOpen()
-        if not (active "Dataset" id) then invalidArg "id" "Unknown Dataset."
-        datasets[id]
-    member _.GetProcess(id) =
-        ensureOpen()
-        if not (active "Process" id) then invalidArg "id" "Unknown Process."
-        processes[id]
-    member _.GetSample(id) =
-        ensureOpen()
-        if not (active "Sample" id) then invalidArg "id" "Unknown Sample."
-        samples[id]
-    member private _.RegisterAs(entity: obj, kind: string, operationKind: string) =
+    member this.Change(entity: obj, key: string, value: Cell option, kind: string) =
+        let id = this.Id(entity)
+        this.Execute(kind, fun state ->
+            let rows = state.Entities |> List.map (fun row ->
+                if row.Id <> id then row
+                else { row with Properties = match value with Some v -> Map.add key v row.Properties | None -> Map.remove key row.Properties })
+            { state with Entities = rows })
+    member this.Collection(entity: obj, key: string, target: obj, append: bool, kind: string) =
+        let id, targetId = this.Id(entity), this.Id(target)
+        this.Execute(kind, fun state ->
+            let rows = state.Entities |> List.map (fun row ->
+                if row.Id <> id then row else
+                    let values = Model.links key row
+                    if not append && not (List.contains targetId values) then invalidOp "Target is not attached."
+                    let rec remove = function [] -> [] | head :: tail when head = targetId -> tail | head :: tail -> head :: remove tail
+                    {row with Properties = Map.add key (Links(if append then values @ [targetId] else remove values)) row.Properties})
+            {state with Entities = rows})
+    member this.Move(entity: obj, destination: Dataset, key: string, kind: string) =
+        let id, destinationId = this.Id(entity), this.Id(destination)
+        this.Execute(kind,fun state ->
+            let occurrences = state.Entities |> List.filter (fun row -> row.Kind = "Dataset") |> List.collect (Model.links key) |> List.filter ((=) id)
+            if occurrences.Length > 1 then invalidOp "Move requires a single membership. Use collection setters to edit shared or repeated memberships."
+            let rows = state.Entities |> List.map (fun row ->
+                if row.Kind <> "Dataset" then row else
+                    let values = Model.links key row |> List.filter ((<>) id)
+                    {row with Properties = Map.add key (Links(if row.Id = destinationId then values @ [id] else values)) row.Properties})
+            {state with Entities = rows})
+    member this.Delete(entity: obj) =
+        let id = this.Id(entity)
+        this.Execute(Model.kind entity + ".delete",fun state ->
+            if id = state.Root then invalidOp "The root Dataset cannot be deleted."
+            // Cascade Dataset containment only when it is exclusively owned by deleted nodes.
+            let rec cascade removed =
+                let candidates = state.Entities |> List.filter (fun row -> Set.contains row.Id removed && row.Kind = "Dataset")
+                                 |> List.collect (fun row -> Model.links "hasParts" row @ Model.links "processes" row)
+                let next = candidates |> List.fold (fun deleted candidate ->
+                    let shared = state.Entities |> List.exists (fun row -> not (Set.contains row.Id deleted) && row.Properties |> Map.exists (fun _ cell -> match cell with Links ids -> List.contains candidate ids | _ -> false))
+                    if shared then deleted else Set.add candidate deleted) removed
+                if next = removed then removed else cascade next
+            let removed = cascade (Set.singleton id)
+            let rows = state.Entities |> List.filter (fun row -> not (Set.contains row.Id removed)) |> List.map (fun row ->
+                let props = row.Properties |> Map.toList |> List.choose (fun (key,cell) ->
+                    match cell with
+                    | Links ids ->
+                        let remaining = ids |> List.filter (fun id -> not (Set.contains id removed))
+                        let _,shape,_,mandatory = Model.specifications row.Kind |> List.find (fun (name,_,_,_) -> name = key)
+                        if remaining = [] && shape <> "links" then
+                            if mandatory then invalidOp ("Cannot delete required target of " + row.Kind + "." + key)
+                            None
+                        else Some(key,Links remaining)
+                    | _ -> Some(key,cell)) |> Map.ofList
+                {row with Properties = props})
+            {state with Entities = rows})
+    member private _.Adopt(entity: obj, kind: string, replaceExisting: bool, operationKind: string) =
         check()
+        Model.required "entity" entity |> ignore
+        if Model.kind entity <> kind then invalidArg "entity" "Wrong entity type."
         let pending = ResizeArray<string * obj>()
-        let mutable next = state
-        let reserve kind supplied value =
-            match pending |> Seq.tryFind (fun (_, existing) -> obj.ReferenceEquals(value, existing)) with
-            | Some(id, _) -> id, false
+        let replacements = Dictionary<string,EntityRow>()
+        let mutable planned = state.Entities
+        let rec register (value: obj) =
+            Model.required "entity" value |> ignore
+            match pending |> Seq.tryFind (fun (_,existing) -> obj.ReferenceEquals(value,existing)) with
+            | Some(id,_) -> id
             | None ->
-                let id = supplied |> Option.defaultWith Files.newId
-                let existing =
-                    if datasets.ContainsKey(id) then Some(box datasets[id])
-                    elif processes.ContainsKey(id) then Some(box processes[id])
-                    elif samples.ContainsKey(id) then Some(box samples[id]) else None
-                match existing with
-                | Some existing when obj.ReferenceEquals(existing, value) && active kind id -> id, false
-                | Some _ -> invalidOp ("Session ID collision: " + id)
-                | None ->
-                    if pending |> Seq.exists (fun (existingId, _) -> existingId = id) then invalidOp ("Session ID collision: " + id)
-                    pending.Add(id, value)
-                    id, true
-        let rec sample (value: Sample) =
-            Model.required "sample" value |> ignore
-            let id, isNew = reserve "Sample" value.Id value
-            if isNew then next <- { next with Samples = next.Samples @ [Model.sampleRow id value] }
-            id
-        and proc (value: ARCBaseModel.Process) =
-            Model.required "process" value |> ignore
-            let id, isNew = reserve "Process" value.Id value
-            if isNew then
-                let row = Model.processRow id (function EntityReference.Sample s -> sample s | EntityReference.Data _ -> invalidOp "Data endpoints are outside the prototype.") value
-                next <- { next with Processes = next.Processes @ [row] }
-            id
-        and dataset (value: Dataset) =
-            Model.required "dataset" value |> ignore
-            let id, isNew = reserve "Dataset" value.Id value
-            if isNew then
-                let row = Model.datasetRow id dataset proc value
-                next <- { next with Datasets = next.Datasets @ [row] }
-            id
-        match entity with
-        | :? Dataset as value -> dataset value |> ignore
-        | :? ARCBaseModel.Process as value -> proc value |> ignore
-        | :? Sample as value -> sample value |> ignore
-        | _ -> invalidArg "entity" "Only Dataset, Process, and Sample are supported."
+                let retained = entities |> Seq.tryFind (fun item -> obj.ReferenceEquals(item.Value,value))
+                let id =
+                    match retained, Model.id value with
+                    | Some item, None -> item.Key
+                    | Some item, Some supplied when item.Key <> supplied -> invalidOp "A retained instance cannot change its session identity. Use a detached input."
+                    | _, Some supplied -> supplied
+                    | _ -> Files.newId()
+                let isRoot = obj.ReferenceEquals(entity,value)
+                if entities.ContainsKey id then
+                    let canonical = entities[id]
+                    if Model.kind canonical <> Model.kind value then invalidOp ("Session ID collision: " + id)
+                    if (isRoot && replaceExisting) || (not (active id) && obj.ReferenceEquals(canonical,value)) then
+                        // Reserve first to permit self-references in detached graphs.
+                        pending.Add(id,value)
+                        let row = Model.capture id register value
+                        let suppliedId = state.Entities |> List.tryFind (fun row -> row.Id = id) |> Option.map (fun row -> row.SuppliedId) |> Option.defaultWith (fun () -> Model.id canonical)
+                        let row = {row with SuppliedId = suppliedId}
+                        replacements[id] <- Model.capture id (fun reference -> entities |> Seq.find (fun item -> obj.ReferenceEquals(item.Value,reference)) |> fun item -> item.Key) canonical
+                        planned <- planned |> List.filter (fun row -> row.Id <> id)
+                        planned <- planned @ [row]
+                        id
+                    elif active id && obj.ReferenceEquals(canonical,value) then id
+                    else invalidOp ("Session ID collision: " + id)
+                else
+                    if pending |> Seq.exists (fun (existing,_) -> existing = id) then invalidOp ("Session ID collision: " + id)
+                    pending.Add(id,value)
+                    let row = Model.capture id register value
+                    planned <- planned @ [row]
+                    id
+        register entity |> ignore
+        let next = {state with Entities = planned}
         Model.validate next
-        if pending.Count > 0 then
-            for id, value in pending do
-                match value with
-                | :? Dataset as value -> datasets.Add(id, value)
-                | :? ARCBaseModel.Process as value -> processes.Add(id, value)
-                | :? Sample as value -> samples.Add(id, value)
-                | _ -> ()
-            let originalIds = pending |> Seq.map (fun (id, value) ->
-                id, value, (match value with :? Dataset as d -> d.Id | :? ARCBaseModel.Process as p -> p.Id | :? Sample as s -> s.Id | _ -> None)) |> Seq.toList
-            try update next (cursor + 1) operationKind "apply" (Files.newId())
-            with _ ->
-                for id, value, originalId in originalIds do
-                    match value with
-                    | :? Dataset as d -> datasets.Remove(id) |> ignore; d.Id <- originalId
-                    | :? ARCBaseModel.Process as p -> processes.Remove(id) |> ignore; p.Id <- originalId
-                    | :? Sample as s -> samples.Remove(id) |> ignore; s.Id <- originalId
-                    | _ -> ()
-                reraise()
-    member this.Register(entity: obj, kind: string) =
-        this.RegisterAs(entity, kind, kind + ".register")
-    member this.SetSample(value: Sample) =
-        check()
-        Model.required "sample" value |> ignore
-        match value.Id with
-        | Some id when samples.ContainsKey(id) ->
-            // Keep the canonical instance, including a tombstone retained for undo.
-            let canonical = samples[id]
-            let previous = Model.sampleRow id canonical
-            let replacement = Model.sampleRow id value
-            let rows =
-                if active "Sample" id then
-                    state.Samples |> List.map (fun row -> if row.Id = id then replacement else row)
-                else state.Samples @ [replacement]
-            try
-                update { state with Samples = rows } (cursor + 1) "Sample.set" "apply" (Files.newId())
-            with _ ->
-                // Normal rollback restores active objects; also repair an inactive instance.
-                canonical.Id <- Some previous.Id
-                canonical.Name <- previous.Name
-                replace canonical.AdditionalTypes previous.Types
-                reraise()
-        | _ -> this.RegisterAs(value, "Sample", "Sample.set")
+        let additions = pending |> Seq.filter (fun (id,_) -> not (entities.ContainsKey id)) |> Seq.map (fun (id,value) -> id,value,Model.id value) |> Seq.toList
+        for id,value,_ in additions do entities.Add(id,value)
+        try
+            if next <> state then update next (cursor + 1) operationKind "apply" (Files.newId())
+        with _ ->
+            for KeyValue(id,row) in replacements do
+                Model.restore (fun id -> entities[id]) row entities[id]
+                if not (active id) then Model.setId entities[id] row.SuppliedId
+            for id,value,original in additions do entities.Remove(id) |> ignore; Model.setId value original
+            reraise()
+    member this.Register(entity: obj, kind: string) = this.Adopt(entity,kind,false,kind + ".register")
+    member this.Set(entity: obj, kind: string) = this.Adopt(entity,kind,true,kind + ".set")
     member _.InitializeRoot(value: Dataset) =
         let previousRoot = state.Root
-        let next = { state with Root = datasetId value; Datasets = state.Datasets |> List.filter (fun row -> row.Id <> previousRoot) }
+        let next = {Root = owned value; Entities = state.Entities |> List.filter (fun row -> row.Id <> previousRoot)}
         Model.validate next
         db.WithTransaction(fun () ->
             Store.mirror db next
             Store.execute db "UPDATE session SET state=$state,cursor=0,revision=0 WHERE singleton=1" ["state", Store.text (Codec.encodeState next)]
             db.Execute("DELETE FROM history")
             db.Execute("DELETE FROM journal"))
-        datasets.Remove(previousRoot) |> ignore
+        entities.Remove(previousRoot) |> ignore
         state <- next; cursor <- 0; revision <- 0L
     member _.History(redo: bool) =
         check()

@@ -6,19 +6,17 @@ open ARCtrl.Internal
 
 [<AttachMembers>]
 type SampleOperations internal (session: Session) =
-    member _.create(name: string) = let value = Sample(name) in session.Register(value, "Sample"); value
-    member _.register(value: Sample) = session.Register(value, "Sample"); value
-    /// Register a new Sample or replace supported values in the existing instance by ID.
-    /// Use a detached value for updates; direct mutation of registered objects is unsupported.
-    member _.set(value: Sample): unit = session.SetSample(value)
-    member _.get(id: string) = session.GetSample(id)
-    member _.list() = session.Samples()
-    member _.setName(value: Sample, name: string) =
-        let id = session.SampleId(value)
-        session.Execute("Sample.setName", fun state -> {state with Samples = state.Samples |> List.map (fun row -> if row.Id = id then {row with Name = Model.required "name" name} else row)})
-    member _.delete(value: Sample) =
-        let id = session.SampleId(value)
-        session.Execute("Sample.delete", fun state ->
-            {state with
-                Samples = state.Samples |> List.filter (fun row -> row.Id <> id)
-                Processes = state.Processes |> List.map (fun row -> {row with Input = row.Input |> Option.filter ((<>) id); Output = row.Output |> Option.filter ((<>) id)})})
+    member _.create(name: string) = let value = Sample(name) in session.Register(value,"Sample"); value
+    member _.register(value: Sample) = session.Register(value,"Sample"); value
+    member _.set(value: Sample): unit = session.Set(value,"Sample")
+    member _.get(id: string) = session.Get<Sample>("Sample",id)
+    member _.list() = session.List<Sample>("Sample")
+    member _.delete(value: Sample) = session.Delete(value)
+    member _.setName(value: Sample, replacement: string) =
+        session.Change(value,"name",Some(Text(Model.required "name" replacement)),"Sample.setName")
+    member _.setAdditionalProperties(value: Sample, replacement: seq<Annotation>) =
+        session.Change(value,"additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"Sample.setAdditionalProperties")
+    member _.addAdditionalProperty(value: Sample, target: Annotation) = session.Collection(value,"additionalProperties",target,true,"Sample.addAdditionalProperty")
+    member _.removeAdditionalProperty(value: Sample, target: Annotation) = session.Collection(value,"additionalProperties",target,false,"Sample.removeAdditionalProperty")
+    member _.setAdditionalTypes(value: Sample, replacement: seq<string>) =
+        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"Sample.setAdditionalTypes")

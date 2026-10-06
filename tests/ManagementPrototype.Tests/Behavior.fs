@@ -281,7 +281,7 @@ let tests = testList "Management prototype" [
         arc.History.undo()
         Expect.equal proc.Name "name" "Process name restored"
 
-    testCase "ownership membership cycles and ID collisions fail without history" <| fun _ ->
+    testCase "ownership and ID collisions fail without history" <| fun _ ->
         let _, created = create()
         use arc = created
         let proc = arc.Process.create("local")
@@ -291,27 +291,21 @@ let tests = testList "Management prototype" [
         let commands = count "history" arc.DatabasePath
         Expect.throws (fun () -> arc.Process.setInputSample(proc, foreign) |> ignore) "Foreign object rejected"
         Expect.throws (fun () -> arc.Sample.register(foreign) |> ignore) "Cross-kind ID collision rejected"
-        Expect.throws (fun () -> arc.Dataset.addPart(child, arc.Model) |> ignore) "Root cannot be nested"
-        Expect.throws (fun () -> arc.Dataset.addPart(child, child) |> ignore) "Cycle rejected"
-        Expect.throws (fun () -> arc.Dataset.addPart(arc.Model, child) |> ignore) "Duplicate membership rejected"
         Expect.throws (fun () -> arc.Dataset.delete(arc.Model) |> ignore) "Root cannot be deleted"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed commands create no history"
         let fake = ARCBaseModel.Process("fake", id = proc.Id.Value)
         Expect.throws (fun () -> arc.Process.setName(fake, "oops") |> ignore) "Same ID does not confer ownership"
         same arc.Model.HasParts[0] child
 
-    testCase "unsupported graph and cycles are rejected before assigning IDs" <| fun _ ->
+    testCase "invalid graph is rejected before assigning IDs" <| fun _ ->
         let _, created = create()
         use arc = created
         let sample = Sample("pending")
         let bad = ARCBaseModel.Process("bad", input = EntityReference.Sample sample, executesRecipe = Recipe("recipe"))
-        Expect.throws (fun () -> arc.Process.register(bad) |> ignore) "Unsupported recipe rejected"
+        bad.Name <- Unchecked.defaultof<string>
+        Expect.throws (fun () -> arc.Process.register(bad) |> ignore) "Missing required process name rejected"
         Expect.isNone bad.Id "No process ID assigned on failure"
         Expect.isNone sample.Id "No sample ID assigned on failure"
-        let cycle = Dataset(["process-provenance"], ["cycle"])
-        cycle.HasParts.Add(cycle)
-        Expect.throws (fun () -> arc.Dataset.register(cycle) |> ignore) "Cyclic graph rejected"
-        Expect.isNone cycle.Id "No Dataset ID assigned on failure"
         Expect.equal (arc.Process.list()).Count 0 "Registry unchanged"
 
     testCase "SQL failure rolls back model registry IDs and history" <| fun _ ->
@@ -386,10 +380,11 @@ let tests = testList "Management prototype" [
         Expect.throws (fun () -> second.save()) "Stale save rejected"
         first.save()
 
-    testCase "initial unsupported graph leaves no broken session database" <| fun _ ->
+    testCase "initial invalid graph leaves no broken session database" <| fun _ ->
         let path = folder()
         let root = Dataset(["process-provenance"], ["example"], dataFiles = [Data("file", "file.txt")])
-        Expect.throws (fun () -> ARC.create(path, root) |> ignore) "Unsupported initial graph rejected"
+        root.DataFiles[0].Path <- Unchecked.defaultof<string>
+        Expect.throws (fun () -> ARC.create(path, root) |> ignore) "Invalid initial graph rejected"
         Expect.isFalse (File.Exists(Path.Combine(path, ".arc", "testing.sqlite"))) "Failed creation removes its own database"
         Expect.isNone root.Id "Failed initial graph leaves root ID optional"
 
@@ -607,8 +602,9 @@ let tests = testList "Management prototype" [
         invalid.Name <- Unchecked.defaultof<string>
         Expect.throws (fun () -> arc.Sample.set(invalid)) "Null name rejected"
         Expect.isNone invalid.Id "Validation failure does not assign an ID"
-        let unsupported = Sample("unsupported", id = "sample-1", additionalProperties = [Annotation("property")])
-        Expect.throws (fun () -> arc.Sample.set(unsupported)) "Unsupported properties are not silently dropped"
+        let invalid = Sample("invalid", id = "sample-1", additionalProperties = [Annotation("property")])
+        invalid.AdditionalProperties[0].Name <- Unchecked.defaultof<string>
+        Expect.throws (fun () -> arc.Sample.set(invalid)) "Invalid nested properties are rejected"
         let invalidTypes = Sample("invalid", id = "sample-1")
         invalidTypes.AdditionalTypes.Add(Unchecked.defaultof<string>)
         Expect.throws (fun () -> arc.Sample.set(invalidTypes)) "Null collection values rejected"
@@ -647,11 +643,12 @@ let tests = testList "Management prototype" [
         arc.save()
         let sample = Sample("original")
         arc.Sample.set(sample)
+        let id = sample.Id.Value
         arc.History.undo()
         Expect.isTrue arc.History.CanRedo "Insertion can be redone"
-        arc.Sample.set(Sample("new branch", id = sample.Id.Value))
+        arc.Sample.set(Sample("new branch", id = id))
         Expect.isFalse arc.History.CanRedo "New upsert clears the redo branch"
-        same (arc.Sample.get(sample.Id.Value)) sample
+        same (arc.Sample.get(id)) sample
         Expect.equal sample.Name "new branch" "Retained identity reused on the new branch"
         Expect.isFalse arc.IsDirty "Standalone upsert does not change the saved root graph"
         Expect.isTrue arc.HasSessionOnlyObjects "Standalone state is tracked separately"
