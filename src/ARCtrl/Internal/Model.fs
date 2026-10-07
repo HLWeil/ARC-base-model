@@ -6,55 +6,37 @@ open ARCBaseModel
 module internal Model =
     let required name value = if isNull (box value) then nullArg name else value
     let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no session ID; register it first.")
-    let kind (entity: obj) =
-        match entity with
-        | :? Organization as value -> value.Type
-        | :? Agent as value -> value.Type
-        | :? ScholarlyArticle as value -> value.Type
-        | :? Annotation as value -> value.Type
-        | :? FormalParameter as value -> value.Type
-        | :? Dataset as value -> value.Type
-        | :? DefinedTermSet as value -> value.Type
-        | :? DefinedTerm as value -> value.Type
-        | :? Descriptor as value -> value.Type
-        | :? Sample as value -> value.Type
-        | :? Data as value -> value.Type
-        | :? ARCBaseModel.Process as value -> value.Type
-        | :? Recipe as value -> value.Type
-        | _ -> invalidArg "entity" "Unsupported base-model entity."
-    let id (entity: obj) =
-        match entity with
-        | :? Organization as value -> value.Id
-        | :? Agent as value -> value.Id
-        | :? ScholarlyArticle as value -> value.Id
-        | :? Annotation as value -> value.Id
-        | :? FormalParameter as value -> value.Id
-        | :? Dataset as value -> value.Id
-        | :? DefinedTermSet as value -> value.Id
-        | :? DefinedTerm as value -> value.Id
-        | :? Descriptor as value -> value.Id
-        | :? Sample as value -> value.Id
-        | :? Data as value -> value.Id
-        | :? ARCBaseModel.Process as value -> value.Id
-        | :? Recipe as value -> value.Id
-        | _ -> invalidArg "entity" "Unsupported base-model entity."
-    let setId (entity: obj) id =
-        match entity with
-        | :? Organization as value -> value.Id <- id
-        | :? Agent as value -> value.Id <- id
-        | :? ScholarlyArticle as value -> value.Id <- id
-        | :? Annotation as value -> value.Id <- id
-        | :? FormalParameter as value -> value.Id <- id
-        | :? Dataset as value -> value.Id <- id
-        | :? DefinedTermSet as value -> value.Id <- id
-        | :? DefinedTerm as value -> value.Id <- id
-        | :? Descriptor as value -> value.Id <- id
-        | :? Sample as value -> value.Id <- id
-        | :? Data as value -> value.Id <- id
-        | :? ARCBaseModel.Process as value -> value.Id <- id
-        | :? Recipe as value -> value.Id <- id
-        | _ -> invalidArg "entity" "Unsupported base-model entity."
+    let kind (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Type
+    let id (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Id
+    let setId (entity: obj) id = (unbox<EntityObject> entity).Id <- id
+    let captureExtension (reference: obj -> string) value =
+        let rec capture ancestors value =
+            match value with
+            | Entity.Object v -> ExtensionObject(reference (box v))
+            | Entity.Collection v ->
+                if ancestors |> List.exists (fun existing -> obj.ReferenceEquals(existing, v)) then
+                    invalidOp "Collections cannot contain themselves; use typed objects for cyclic references."
+                ExtensionCollection([for i in 0 .. v.Count - 1 -> capture (v :: ancestors) (v.Get(i))])
+            | Entity.Number v -> ExtensionNumber v
+            | Entity.Text v -> ExtensionText(required "value" v)
+            | Entity.Bool v -> ExtensionBool v
+            | Entity.Null _ -> ExtensionNull
+            | Entity.Blob v -> ExtensionBlob v.Base64
+        capture [] value
+    let rec extensionReferences = function
+        | ExtensionObject id -> [id]
+        | ExtensionCollection values -> List.collect extensionReferences values
+        | _ -> []
+    let rec restoreExtension resolve = function
+        | ExtensionObject id -> Entity.Object(unbox<EntityObject> (resolve id))
+        | ExtensionCollection values -> Entity.Collection(EntityCollection(List.map (restoreExtension resolve) values))
+        | ExtensionNumber v -> Entity.Number v
+        | ExtensionText v -> Entity.Text v
+        | ExtensionBool v -> Entity.Bool v
+        | ExtensionNull -> Entity.Null(EntityNull())
+        | ExtensionBlob v -> Entity.Blob(EntityBlob(v))
     let endpoint reference = match reference with EntityReference.Sample v -> box v | EntityReference.Data v -> box v
+    let private coreKinds = ["Organization"; "Agent"; "ScholarlyArticle"; "Annotation"; "FormalParameter"; "Dataset"; "DefinedTermSet"; "DefinedTerm"; "Descriptor"; "Sample"; "Data"; "Process"; "Recipe"]
     let capture sessionId (reference: obj -> string) (entity: obj) =
         let optional key wrap value = value |> Option.map (fun v -> key, wrap v) |> Option.toList
         let strings key values = [key, Texts(List.ofSeq values)]
@@ -174,8 +156,13 @@ module internal Model =
                 @ optional "version" (required "version" >> Text) v.Version
                 @ optional "url" (required "url" >> Text) v.Url
                 @ strings "additionalTypes" v.AdditionalTypes
-            | _ -> invalidArg "entity" "Unsupported base-model entity."
-        { Id = sessionId; Kind = kind entity; SuppliedId = id entity; Properties = Map.ofList properties }
+            | :? EntityObject as v ->
+                if List.contains v.Type coreKinds then invalidArg "entity" "A core discriminator requires its core class."
+                strings "additionalTypes" v.AdditionalTypes
+            | _ -> invalidArg "entity" "Expected a typed entity object."
+        let value = unbox<EntityObject> entity
+        let extensions = value.EntityProperties.Keys |> Seq.map (fun key -> key, captureExtension reference (value.EntityProperties.Get(key))) |> Map.ofSeq
+        { Id = sessionId; Kind = kind entity; SuppliedId = id entity; Properties = Map.ofList properties; Extensions = extensions }
     let text key row = match Map.tryFind key row.Properties with Some(Text v) -> Some v | None -> None | _ -> invalidOp ("Expected text: " + key)
     let texts key row = match Map.tryFind key row.Properties with Some(Texts v) -> v | None -> [] | _ -> invalidOp ("Expected text collection: " + key)
     let links key row = match Map.tryFind key row.Properties with Some(Links v) -> v | None -> [] | _ -> invalidOp ("Expected entity reference: " + key)
@@ -195,7 +182,7 @@ module internal Model =
         | "Data" -> box (Data(name "path"))
         | "Process" -> box (ARCBaseModel.Process(name "name"))
         | "Recipe" -> box (Recipe())
-        | _ -> invalidOp "Unknown entity discriminator."
+        | _ -> box (EntityObject(row.Kind))
     let restore (resolve: string -> obj) row (entity: obj) =
         let replace (target: ResizeArray<'T>) values = target.Clear(); target.AddRange(values)
         let one key = links key row |> List.tryHead |> Option.map resolve
@@ -297,7 +284,11 @@ module internal Model =
             v.Version <- text "version" row
             v.Url <- text "url" row
             replace v.AdditionalTypes (texts "additionalTypes" row)
-        | _ -> invalidArg "entity" "Unsupported base-model entity."
+        | :? EntityObject as v -> replace v.AdditionalTypes (texts "additionalTypes" row)
+        | _ -> invalidArg "entity" "Expected a typed entity object."
+        let value = unbox<EntityObject> entity
+        for key in value.EntityProperties.Keys do value.RemoveEntityProperty(key) |> ignore
+        for KeyValue(key, cell) in row.Extensions do value.SetEntityProperty(key, restoreExtension resolve cell)
     let specifications kind =
         match kind with
         | "Organization" -> ["name", "text", "", true; "url", "text", "", false; "additionalTypes", "strings", "", false]
@@ -313,7 +304,7 @@ module internal Model =
         | "Data" -> ["path", "text", "", true; "selector", "text", "", false; "selectorFormat", "text", "", false; "encodingFormat", "text", "", false; "hasParts", "links", "Data", false; "additionalProperties", "links", "Annotation", false; "additionalTypes", "strings", "", false]
         | "Process" -> ["name", "text", "", true; "input", "alternative", "Sample|Data", false; "output", "alternative", "Sample|Data", false; "executesRecipe", "link", "Recipe", false; "parameterValues", "links", "Annotation", false; "additionalTypes", "strings", "", false]
         | "Recipe" -> ["name", "text", "", false; "parameters", "links", "FormalParameter", false; "description", "text", "", false; "intendedUse", "alternative", "DefinedTerm", false; "additionalProperties", "links", "Annotation", false; "components", "links", "Annotation", false; "version", "text", "", false; "url", "text", "", false; "additionalTypes", "strings", "", false]
-        | _ -> invalidOp "Unknown entity discriminator."
+        | _ -> ["additionalTypes", "strings", "", false]
     let validate state =
         let ids = state.Entities |> List.map (fun row -> row.Id)
         if (List.distinct ids).Length <> ids.Length then invalidOp "Different entities cannot share a session ID."
@@ -339,6 +330,18 @@ module internal Model =
                             if not (targets.Split('|') |> Array.contains target.Kind) then invalidOp ("Wrong reference type: " + key)
                         shape = "links" || ((shape = "link" || shape = "alternative") && vs.Length = 1)
                 if not valid then invalidOp ("Invalid property: " + key)
+            let probe = unbox<EntityObject> (create row)
+            let rec validateExtension = function
+                | ExtensionNumber v when Double.IsNaN v || Double.IsInfinity v -> invalidOp "Non-finite extension number."
+                | ExtensionObject id when not (Map.containsKey id rows) -> invalidOp ("Unknown extension reference: " + id)
+                | ExtensionCollection values -> List.iter validateExtension values
+                | ExtensionBlob v -> EntityBlob(v) |> ignore
+                | _ -> ()
+            for KeyValue(key, cell) in row.Extensions do
+                if key = "type" || key = "id" || spec |> List.exists (fun (name,_,_,_) -> name = key) then
+                    invalidArg "key" "Reserved core property name."
+                probe.SetEntityProperty(key, Entity.Null(EntityNull()))
+                validateExtension cell
             for key, _, _, mandatory in spec do
                 if mandatory && not (Map.containsKey key row.Properties) then invalidOp ("Missing required property: " + key)
             if row.Kind = "Dataset" then Dataset(texts "conformsTo" row, texts "identifiers" row) |> ignore
@@ -348,7 +351,9 @@ module internal Model =
             if Set.contains id seen then seen
             else
                 let seen = Set.add id seen
-                rows[id].Properties |> Map.toList |> List.fold (fun seen (_,cell) ->
+                let row = rows[id]
+                let seen = row.Properties |> Map.toList |> List.fold (fun seen (_,cell) ->
                     match cell with Links ids -> List.fold visit seen ids | _ -> seen) seen
+                row.Extensions |> Map.toList |> List.collect (snd >> extensionReferences) |> List.fold visit seen
         visit Set.empty state.Root
     let sessionOnly state = (reachable state).Count < state.Entities.Length

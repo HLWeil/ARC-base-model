@@ -5,7 +5,7 @@ Usage: python build/base-model-python.py GENERATED_DIR PACKAGE_OUTPUT_DIR
        python build/base-model-python.py compat GENERATED_DIR
 
 Fable 5 emits erased unions as Any in Python. Public stubs retain the emitted
-constructor and property shapes while restoring the four domain alternatives.
+constructor, property, and method shapes while restoring domain alternatives.
 The runtime package exports the original generated classes so consumers and
 transpiled mappers share class identity.
 
@@ -25,6 +25,7 @@ import sys
 
 
 MODULE_CLASSES = {
+    "entity": ("EntityObject", "EntityPropertyBag", "EntityCollection", "EntityNull", "EntityBlob"),
     "defined_term": ("DefinedTermSet", "DefinedTerm"),
     "annotation": ("Annotation", "FormalParameter"),
     "entities": ("Sample", "Data"),
@@ -38,12 +39,20 @@ MODULE_CLASSES = {
 # These are the only type facts lost by the pinned Python compiler. Everything
 # else in the public signatures is read from the generated source.
 ALIASES = {
+    "Entity": ("entity", "EntityObject | EntityCollection | float | str | bool | EntityNull | EntityBlob"),
     "AnnotationValue": ("annotation", "str | float"),
     "EntityReference": ("entities", "Sample | Data"),
     "RecipeIntendedUse": ("recipe", "str | DefinedTerm"),
     "DefinedTermSetReference": ("defined_term", "str | DefinedTermSet"),
 }
 ERASED_FIELDS = {
+    ("MappingProbe", "ClassifyExtension"): "Entity",
+    ("MappingProbe", "IsExtensionNumber"): "Entity",
+    **{(owner, field): "Entity" for owner, fields in {
+        "EntityObject": ("AddEntityProperty", "SetEntityProperty"),
+        "EntityPropertyBag": ("Get", "Add", "Set"),
+        "EntityCollection": ("values", "Get", "Set", "Add"),
+    }.items() for field in fields},
     ("Annotation", "value"): "AnnotationValue",
     ("DefinedTerm", "in_defined_term_set"): "DefinedTermSetReference",
     ("Recipe", "intended_use"): "RecipeIntendedUse",
@@ -161,7 +170,7 @@ def numeric_compatibility(source: str, filename: str) -> str:
                 (class_node.name == "Annotation" and method.name == "Value")
                 or (class_node.name == "AnnotationColumns" and method.name == "Number")
             )
-            is_numeric_reader = class_node.name == "MappingProbe" and method.name == "ReadAnnotation"
+            is_numeric_reader = (class_node.name == "MappingProbe" and method.name == "ReadAnnotation") or (class_node.name in {"EntityPropertyBag", "EntityCollection"} and method.name == "Get")
             if is_numeric_getter or is_numeric_reader:
                 method.body = [NativeReturns().visit(statement) for statement in method.body]
                 boundaries += 1
@@ -228,6 +237,8 @@ def annotation_text(annotation: ast.expr | None, class_name: str, field: str) ->
                 return ast.Name(id=replacement, ctx=ast.Load())
             if node.id == "IEnumerable_1":
                 return ast.Name(id="Iterable", ctx=ast.Load())
+            if node.id == "int32":
+                return ast.Name(id="int", ctx=ast.Load())
             if node.id == "float64":
                 return ast.Name(id="float", ctx=ast.Load())
             return node
@@ -248,6 +259,8 @@ def constructor_stub(class_node: ast.ClassDef, constructor: ast.FunctionDef) -> 
         if index == 0 and argument.arg == "self":
             parameters.append("self")
             continue
+        if argument.arg == "__unit":
+            continue
         annotation = annotation_text(argument.annotation, class_node.name, argument.arg)
         parameter = f"{argument.arg}: {annotation}"
         if index >= default_start:
@@ -260,7 +273,10 @@ def constructor_stub(class_node: ast.ClassDef, constructor: ast.FunctionDef) -> 
 
 
 def class_stub(class_node: ast.ClassDef) -> str:
-    lines = [f"class {class_node.name}:"]
+    base = "(EntityObject)" if any(dotted_name(b) == "EntityObject" for b in class_node.bases) else ""
+    lines = [f"class {class_node.name}{base}:"]
+    if base:
+        lines.extend(("    @property", f'    def Type(self) -> Literal["{class_node.name}"]: ...'))
     for member in class_node.body:
         if not isinstance(member, ast.FunctionDef):
             continue
@@ -276,7 +292,7 @@ def class_stub(class_node: ast.ClassDef) -> str:
             for decorator in member.decorator_list
         )
         if is_getter:
-            if member.name == "Type":
+            if member.name == "Type" and class_node.name != "EntityObject":
                 if not any(
                     isinstance(statement, ast.Return)
                     and isinstance(statement.value, ast.Constant)
@@ -300,8 +316,12 @@ def class_stub(class_node: ast.ClassDef) -> str:
                 f"    @{member.name}.setter",
                 f"    def {member.name}(self, value: {annotation}) -> None: ...",
             ))
-        elif not member.name.startswith("_"):
-            raise ValueError(f"Unhandled public member {class_node.name}.{member.name}")
+        elif not member.name.startswith("_") and member.name not in {"Reserve", "check"}:
+            parameters = ["self"]
+            for argument in member.args.args[1:]:
+                parameters.append(f"{argument.arg}: {annotation_text(argument.annotation, class_node.name, member.name)}")
+            result = annotation_text(member.returns, class_node.name, member.name)
+            lines.append(f"    def {member.name}({', '.join(parameters)}) -> {result}: ...")
     if not any(isinstance(node, ast.FunctionDef) and node.name == "__init__" for node in class_node.body):
         raise ValueError(f"Missing constructor for {class_node.name}")
     return "\n".join(lines)

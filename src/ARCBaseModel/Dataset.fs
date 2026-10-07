@@ -10,6 +10,7 @@ type Dataset(conformsTo: seq<string>, identifiers: seq<string>, ?title: string, 
              ?hasParts: seq<Dataset>, ?dataFiles: seq<Data>, ?agents: seq<Agent>, ?citations: seq<ScholarlyArticle>,
              ?processes: seq<Process>, ?descriptors: seq<Descriptor>, ?additionalProperties: seq<Annotation>,
              ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Dataset", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _conformsTo = ResizeArray<string>(Construction.required "conformsTo" conformsTo)
     let mutable _identifiers = ResizeArray<string>(Construction.required "identifiers" identifiers)
     let mutable _title = title
@@ -25,8 +26,6 @@ type Dataset(conformsTo: seq<string>, identifiers: seq<string>, ?title: string, 
     let mutable _processes = Construction.collection processes
     let mutable _descriptors = Construction.collection descriptors
     let mutable _additionalProperties = Construction.collection additionalProperties
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
     do
         if _conformsTo.Count = 0 then
@@ -37,12 +36,7 @@ type Dataset(conformsTo: seq<string>, identifiers: seq<string>, ?title: string, 
         if _identifiers.Count = 0 then
             invalidArg "identifiers" "At least one dataset identifier is required."
 
-    /// Fixed entity discriminator; profiles do not change the runtime entity type.
-    member _.Type = "Dataset"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["conformsTo"; "identifiers"; "title"; "description"; "license"; "datePublished"; "dateCreated"; "dateModified"; "hasParts"; "dataFiles"; "agents"; "citations"; "processes"; "descriptors"; "additionalProperties"])
     /// Open collection of profile declarations; validated only at construction.
     member _.ConformsTo with get() = _conformsTo and set(value) = _conformsTo <- Construction.copy value
     /// Dataset identifiers, separate from optional Id; validated only at construction.

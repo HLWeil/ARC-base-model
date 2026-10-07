@@ -13,6 +13,7 @@
     <Compile Include="AppliedOperation.fs" />
     <Compile Include="Runtime/Session.fs" />
     <Compile Include="Runtime/Workspace.fs" />
+    <Compile Include="Operations/EntityOperations.fs" />
     <Compile Include="Operations/DatasetOperations.fs" />
     <Compile Include="Operations/ProcessOperations.fs" />
     <Compile Include="Operations/SampleOperations.fs" />

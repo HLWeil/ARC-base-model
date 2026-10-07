@@ -111,3 +111,22 @@ type MappingProbe() =
         sample
 
     static member ReadSampleId(sample: Sample) = sample.Id
+
+    static member ClassifyExtension(value: Entity) =
+        match value with
+        | Entity.Number _ -> "number"
+        | Entity.Bool _ -> "bool"
+        | Entity.Text _ -> "text"
+        | Entity.Object _ -> "object"
+        | Entity.Collection _ -> "collection"
+        | Entity.Null _ -> "null"
+        | Entity.Blob _ -> "blob"
+
+    static member IsExtensionNumber(value: Entity) =
+        match value with
+        | Entity.Number _ -> true
+        | _ -> false
+
+    static member FillExtensionNumbers(target: EntityObject, values: EntityCollection) =
+        target.SetEntityProperty("wrapped", Entity.Number 1.25)
+        values.Add(Entity.Number 2.5)

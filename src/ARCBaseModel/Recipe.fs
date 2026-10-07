@@ -13,6 +13,7 @@ type RecipeIntendedUse =
 type Recipe(?name: string, ?parameters: seq<FormalParameter>, ?description: string,
             ?intendedUse: RecipeIntendedUse, ?additionalProperties: seq<Annotation>, ?components: seq<Annotation>,
             ?version: string, ?url: string, ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Recipe", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = name
     let mutable _parameters = Construction.collection parameters
     let mutable _description = description
@@ -21,15 +22,8 @@ type Recipe(?name: string, ?parameters: seq<FormalParameter>, ?description: stri
     let mutable _components = Construction.collection components
     let mutable _version = version
     let mutable _url = url
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "Recipe"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "parameters"; "description"; "intendedUse"; "additionalProperties"; "components"; "version"; "url"])
     /// Human-readable recipe title.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Prospective parameter slots, preserving references and duplicates.

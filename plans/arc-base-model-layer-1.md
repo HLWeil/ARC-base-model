@@ -1,5 +1,13 @@
 # ARCBaseModel: Layer 1 Implementation
 
+## Property bag dictionary repair
+
+Replaced linear value/key lookups with an internal `Dictionary<string, Entity>` and reserved-name checks with `HashSet<string>`. Per the revised requirement, insertion order is not preserved: the dictionary alone stores properties, and `Keys` returns a snapshot with unspecified enumeration order. Lookup, insertion, replacement, and removal use dictionary operations. The first cross-runtime run passed .NET and native/packed consumers but exposed a pinned Fable Python `ContainsKey` emission bug in shared tests; `Contains` now uses `TryGetValue`. After removing order preservation, all 25 shared .NET tests passed; `git diff --check` passed. Final cross-runtime verification remains pending because elevated execution was declined and sandbox Fable invocation cannot resolve the installed tool.
+
+## Extensible entities follow-up
+
+Implemented a shared `EntityObject` base, ordered property bag, erased `Entity` alternatives, and attached collection/null/blob wrappers. All thirteen core classes inherit the base without changing their constructors. Native exports, recursive declarations, Python numeric boundaries, behavioral/native tests, and extension documentation are updated. YAML/SQL codecs and schema changes remain deferred. Verification (2026-10-07): `dotnet run --no-restore --project build/build.fsproj -- TestBaseModel` passed with 25/25 shared tests on each of .NET, JavaScript, and Python, strict TypeScript checking, native consumers, and isolated local archive consumers via the new `TestBaseModelPacked` target. Inspected generated inheritance and curated declarations/stubs; targeted markdown links and `git diff --check` passed. Initial verification caught a parameterless Python constructor stub issue and an overbroad identifier-member edit; both were corrected before the passing run. Existing dependency warnings remain. No dependency or compiler upgrades.
+
 ## Implementation state
 
 Update this section in every implementation commit, alongside the changes it describes. Record checks actually executed, failures, and justified deviations; do not mark unverified work complete.

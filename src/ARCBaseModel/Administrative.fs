@@ -5,17 +5,11 @@ open Fable.Core
 /// Organization associated with creation, curation, hosting, or publication.
 [<AttachMembers>]
 type Organization(name: string, ?url: string, ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Organization", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = Construction.required "name" name
     let mutable _url = url
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "Organization"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "url"])
     /// Human-readable organization name.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Website or identifier URL.
@@ -26,6 +20,7 @@ type Organization(name: string, ?url: string, ?id: string, ?additionalTypes: seq
 type Agent(name: string, ?givenName: string, ?familyName: string, ?emails: seq<string>,
            ?affiliations: seq<Organization>, ?identifiers: seq<string>, ?additionalProperties: seq<Annotation>,
            ?jobTitles: seq<DefinedTerm>, ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Agent", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = Construction.required "name" name
     let mutable _givenName = givenName
     let mutable _familyName = familyName
@@ -34,15 +29,8 @@ type Agent(name: string, ?givenName: string, ?familyName: string, ?emails: seq<s
     let mutable _identifiers = Construction.collection identifiers
     let mutable _additionalProperties = Construction.collection additionalProperties
     let mutable _jobTitles = Construction.collection jobTitles
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator for both people and software agents.
-    member _.Type = "Agent"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "givenName"; "familyName"; "emails"; "affiliations"; "identifiers"; "additionalProperties"; "jobTitles"])
     /// Supplied display name; never inferred from other properties.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Optional given name for a person.
@@ -65,20 +53,14 @@ type Agent(name: string, ?givenName: string, ?familyName: string, ?emails: seq<s
 type ScholarlyArticle(headline: string, ?identifiers: seq<string>, ?authors: seq<Agent>,
                       ?creativeWorkStatus: DefinedTerm, ?additionalProperties: seq<Annotation>,
                       ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("ScholarlyArticle", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _headline = Construction.required "headline" headline
     let mutable _identifiers = Construction.collection identifiers
     let mutable _authors = Construction.collection authors
     let mutable _creativeWorkStatus = creativeWorkStatus
     let mutable _additionalProperties = Construction.collection additionalProperties
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "ScholarlyArticle"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["headline"; "identifiers"; "authors"; "creativeWorkStatus"; "additionalProperties"])
     /// Human-readable article title.
     member _.Headline with get() = _headline and set(value) = _headline <- value
     /// DOI, PubMed ID, repository identifier, or other identifying strings.

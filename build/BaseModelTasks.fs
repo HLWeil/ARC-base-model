@@ -85,5 +85,9 @@ let testBaseModelNative = BuildTask.create "TestBaseModelNative" [buildBaseModel
     |> ignore
 }
 
+let testBaseModelPacked = BuildTask.create "TestBaseModelPacked" [buildBaseModelJSTests; buildBaseModelPyTests] {
+    python ["build/base-model-packed.py"]
+}
+
 let testBaseModel =
-    BuildTask.createEmpty "TestBaseModel" [testBaseModelDotNet; testBaseModelJS; testBaseModelPy; testBaseModelNative]
+    BuildTask.createEmpty "TestBaseModel" [testBaseModelDotNet; testBaseModelJS; testBaseModelPy; testBaseModelNative; testBaseModelPacked]

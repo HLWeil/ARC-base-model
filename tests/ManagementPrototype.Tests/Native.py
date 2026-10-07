@@ -44,6 +44,16 @@ try:
     arc.Dataset.set_citations(arc.Model, [article])
     assert type(arc.Data.list()) is list
     assert data.HasParts[0] is data.HasParts[1]
+    quality = arc.Entity.create("QualityAssessment")
+    arc.Entity.set_number_property(quality, "score", 0)
+    arc.Entity.set_bool_property(quality, "accepted", False)
+    arc.Entity.set_null_property(quality, "missing")
+    arc.Entity.set_blob_property(quality, "bytes", "AA==")
+    arc.Entity.set_collection_property(quality, "values", [0, False, ""])
+    arc.Entity.set_object_property(arc.Model, "quality", quality)
+    assert arc.Entity.get_property(quality, "score") == 0
+    assert arc.Entity.get_property(quality, "accepted") is False
+    assert arc.Entity.has_property(quality, "missing")
     replacement = Annotation("replaced")
     replacement.Id = value.Id
     replacement.Value = ""
@@ -54,6 +64,9 @@ try:
     resumed = ARC.open_folder(folder, "sql")
     try:
         assert resumed.Model.HasParts[0] is resumed.Model.HasParts[1]
+        recovered_quality = resumed.Entity.get(quality.Id)
+        assert resumed.Entity.get_property(resumed.Model, "quality") is recovered_quality
+        assert resumed.Entity.get_property(recovered_quality, "score") == 0
         resumed.History.undo()
         restored = resumed.Annotation.get(value.Id)
         assert restored.Value == 0 and type(restored.Value) is float

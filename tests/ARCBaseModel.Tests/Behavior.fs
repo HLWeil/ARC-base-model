@@ -370,4 +370,49 @@ let private mapping = testList "transpilable explicit mappings" [
         Expect.throws (fun () -> MappingProbe.ReadTermSet(TermSetColumns(url = "url", termSet = termSet)) |> ignore) "Conflicting term-set columns"
 ]
 
-let tests = testList "ARCBaseModel" [ construction; collections; domain; mapping ]
+let private extensions = testList "extensions" [
+    testCase "dictionary properties and inherited identity" <| fun _ ->
+        let sample = Sample("leaf")
+        let target = EntityObject("QualityAssessment")
+        sample.SetEntityProperty("quality", Entity.Object target)
+        sample.SetEntityProperty("zero", Entity.Number 0.)
+        sample.SetEntityProperty("quality", Entity.Object target)
+        target.SetEntityProperty("back", Entity.Object sample)
+        Expect.equal (sample.EntityProperties.Keys |> Seq.sort |> Seq.toArray) [|"quality"; "zero"|] "Replacement preserves key membership"
+        let keys = sample.EntityProperties.Keys
+        keys.Clear()
+        Expect.isTrue (sample.EntityProperties.Contains("quality")) "Key snapshot cannot mutate bag"
+        match sample.EntityProperties.Get("quality") with
+        | Entity.Object value -> same value target "Preserves object identity"
+        | _ -> failwith "Expected object"
+        Expect.isNone target.Id "No inferred ID"
+        Expect.throws (fun () -> sample.EntityProperties.Add("name", Entity.Text "other")) "Reserved property"
+        Expect.throws (fun () -> sample.SetEntityProperty("type", Entity.Text "other")) "Reserved type"
+        Expect.throws (fun () -> sample.AddEntityProperty("zero", Entity.Text "other")) "Duplicate key"
+        sample.SetEntityProperty("Name", Entity.Text "case sensitive")
+        sample.SetEntityProperty("null", Entity.Null(EntityNull()))
+        Expect.isTrue (sample.EntityProperties.Contains("null")) "Explicit null is present"
+        Expect.throws (fun () -> sample.EntityProperties.Get("missing") |> ignore) "Missing key"
+        Expect.isTrue (sample.RemoveEntityProperty("zero")) "Remove existing"
+        Expect.isFalse (sample.RemoveEntityProperty("zero")) "Remove missing"
+
+    testCase "value alternatives and base64" <| fun _ ->
+        let obj = EntityObject("Custom")
+        let values = EntityCollection([Entity.Object obj; Entity.Object obj])
+        Expect.equal values.Count 2 "Duplicates retained"
+        Expect.throws (fun () -> values.Get(-1) |> ignore) "Negative index"
+        Expect.throws (fun () -> values.Set(2, Entity.Text "outside")) "Out of range index"
+        let input = ResizeArray<Entity>([Entity.Object obj])
+        let copied = EntityCollection(input)
+        input.Clear()
+        Expect.equal copied.Count 1 "Input container copied"
+        let cases = [Entity.Number 0., "number"; Entity.Text "", "text"; Entity.Bool false, "bool";
+                     Entity.Object obj, "object"; Entity.Collection values, "collection";
+                     Entity.Null(EntityNull()), "null"; Entity.Blob(EntityBlob("AA==")), "blob"]
+        for value, expected in cases do Expect.equal (MappingProbe.ClassifyExtension(value)) expected "Distinct alternative"
+        Expect.equal (EntityBlob("").Base64) "" "Empty blob"
+        for invalid in ["A"; "!!!!"; "A==="; "AB=="; "AA=A"; "AAA "] do
+            Expect.throws (fun () -> EntityBlob(invalid) |> ignore) "Invalid base64"
+]
+
+let tests = testList "ARCBaseModel" [ construction; collections; domain; mapping; extensions ]

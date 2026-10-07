@@ -8,6 +8,7 @@ open ARCtrl.Internal
 /// Experimental ARC session. SQL retains the full registry; save exports only Model.
 [<AttachMembers>]
 type ARC private (session: Session) =
+    let entityOperations = EntityOperations(session)
     let datasetOperations = DatasetOperations(session)
     let processOperations = ProcessOperations(session)
     let sampleOperations = SampleOperations(session)
@@ -23,6 +24,7 @@ type ARC private (session: Session) =
     let recipeOperations = RecipeOperations(session)
     let historyOperations = HistoryOperations(session)
     member _.Model = session.Model
+    member _.Entity = entityOperations
     member _.Dataset = datasetOperations
     member _.Process = processOperations
     member _.Sample = sampleOperations

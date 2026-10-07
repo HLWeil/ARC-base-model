@@ -122,3 +122,13 @@ MappingProbe.IsText(undefined);
 
 void [valueRoundtrip, entityRoundtrip, intendedUseRoundtrip, termSetRoundtrip, sampleId,
   numericCase, textualCase, classifiedCase, generatedAnnotation];
+
+import { EntityObject, EntityCollection, EntityNull, EntityBlob, type Entity } from "arc-base-model";
+const customObject = new EntityObject("QualityAssessment");
+const customValues: Entity[] = [customObject, 42, false, "", new EntityNull(), new EntityBlob("AA==")];
+const customCollection = new EntityCollection(customValues);
+customObject.SetEntityProperty("values", customCollection);
+const customValue: Entity = customObject.EntityProperties.Get("values");
+void customValue;
+// @ts-expect-error Arbitrary runtime objects are not extension values.
+customObject.SetEntityProperty("invalid", { score: 1 });

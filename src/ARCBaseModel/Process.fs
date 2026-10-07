@@ -6,20 +6,14 @@ open Fable.Core
 [<AttachMembers>]
 type Process(name: string, ?input: EntityReference, ?output: EntityReference, ?executesRecipe: Recipe,
              ?parameterValues: seq<Annotation>, ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Process", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = Construction.required "name" name
     let mutable _input = input
     let mutable _output = output
     let mutable _executesRecipe = executesRecipe
     let mutable _parameterValues = Construction.collection parameterValues
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "Process"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "input"; "output"; "executesRecipe"; "parameterValues"])
     /// Human-readable process name.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Optional single Sample or Data input; no graph links are maintained.

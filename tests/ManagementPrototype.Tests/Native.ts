@@ -43,6 +43,16 @@ try {
   arc.Dataset.setCitations(arc.Model,[article]);
   check(Array.isArray(arc.Data.list()),"Native arrays");
   check(data.HasParts[0]===data.HasParts[1],"Shared duplicate target");
+  const quality=arc.Entity.create("QualityAssessment");
+  arc.Entity.setNumberProperty(quality,"score",0);
+  arc.Entity.setBoolProperty(quality,"accepted",false);
+  arc.Entity.setNullProperty(quality,"missing");
+  arc.Entity.setBlobProperty(quality,"bytes","AA==");
+  arc.Entity.setCollectionProperty(quality,"values",[0,false,""]);
+  arc.Entity.setObjectProperty(arc.Model,"quality",quality);
+  check(arc.Entity.getProperty(quality,"score")===0,"Extension zero");
+  check(arc.Entity.getProperty(quality,"accepted")===false,"Extension false");
+  check(arc.Entity.hasProperty(quality,"missing"),"Explicit null is present");
   const replacement=new Annotation("replaced");
   replacement.Id=value.Id;
   replacement.Value="";
@@ -54,6 +64,9 @@ try {
   const resumed=ARC.openFolder(folder,"sql");
   try {
     check(resumed.Model.HasParts[0]===resumed.Model.HasParts[1],"Shared recovery");
+    const recoveredQuality=resumed.Entity.get(quality.Id!);
+    check(resumed.Entity.getProperty(resumed.Model,"quality")===recoveredQuality,"Extension identity recovered");
+    check(resumed.Entity.getProperty(recoveredQuality,"score")===0,"Extension number recovered");
     resumed.History.undo();
     const restored=resumed.Annotation.get(value.Id!);
     check(restored.Value===0,"Numeric before-image restored");

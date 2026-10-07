@@ -5,17 +5,11 @@ open Fable.Core
 /// A named ontology, controlled vocabulary, or other set of defined terms.
 [<AttachMembers>]
 type DefinedTermSet(name: string, ?identifier: string, ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("DefinedTermSet", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = Construction.required "name" name
     let mutable _identifier = identifier
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "DefinedTermSet"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, in supplied order and without deduplication.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "identifier"])
     /// Human-readable name of the term set.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Optional text or URL identifying the term set.
@@ -31,19 +25,13 @@ type DefinedTermSetReference =
 [<AttachMembers>]
 type DefinedTerm(name: string, ?identifier: string, ?tan: string, ?inDefinedTermSet: DefinedTermSetReference,
                  ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("DefinedTerm", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = Construction.required "name" name
     let mutable _identifier = identifier
     let mutable _tan = tan
     let mutable _inDefinedTermSet = inDefinedTermSet
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "DefinedTerm"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "identifier"; "TAN"; "inDefinedTermSet"])
     /// Human-readable term name.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Optional text or URL identifying the term.

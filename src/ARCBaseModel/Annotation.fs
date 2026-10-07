@@ -13,6 +13,7 @@ type AnnotationValue =
 type Annotation(name: string, ?value: AnnotationValue, ?unit: string,
                 ?nameTAN: string, ?valueTAN: string, ?unitTAN: string, ?instanceOf: FormalParameter,
                 ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Annotation", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = Construction.required "name" name
     let mutable _value = value
     let mutable _unit = unit
@@ -20,15 +21,8 @@ type Annotation(name: string, ?value: AnnotationValue, ?unit: string,
     let mutable _valueTAN = valueTAN
     let mutable _unitTAN = unitTAN
     let mutable _instanceOf = instanceOf
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "Annotation"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "value"; "unit"; "nameTAN"; "valueTAN"; "unitTAN"; "instanceOf"])
     /// Human-readable annotation key.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Optional text or number; zero and empty text are present values.
@@ -47,18 +41,12 @@ type Annotation(name: string, ?value: AnnotationValue, ?unit: string,
 /// A prospective recipe parameter slot with an optional annotation default.
 and [<AttachMembers>] FormalParameter(?name: string, ?nameTAN: string, ?defaultValue: Annotation,
                                      ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("FormalParameter", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = name
     let mutable _nameTAN = nameTAN
     let mutable _defaultValue = defaultValue
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "FormalParameter"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "nameTAN"; "defaultValue"])
     /// Human-readable parameter name.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Ontology term URL for the parameter key.

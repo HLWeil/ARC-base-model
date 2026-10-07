@@ -168,3 +168,46 @@ implementation owns uniqueness and collision policies; the base model does not
 require separate SQL surrogate keys. Erased alternatives need explicit mappings
 rather than reflection over union tags, and separately built consumers must
 reuse the same model classes. Layer 1 adds no SQLite schema or driver.
+
+## Typed extension properties
+
+All thirteen core classes inherit `EntityObject`. Its read-only `Type`, optional mutable `Id`, and mutable `AdditionalTypes` retain their existing meanings. Generic extension objects require a type string, and never receive an inferred ID. See the [normative extension contract](../spec/extensions.md).
+
+```fsharp
+let sample = Sample("leaf")
+let quality = EntityObject("QualityAssessment")
+quality.SetEntityProperty("accepted", Entity.Bool true)
+quality.SetEntityProperty("score", Entity.Number 0.95)
+sample.SetEntityProperty("lab:quality", Entity.Object quality)
+sample.SetEntityProperty("lab:missingMeasurement", Entity.Null(EntityNull()))
+```
+
+JavaScript/TypeScript uses direct scalar and object values:
+
+```javascript
+const quality = new EntityObject("QualityAssessment");
+quality.SetEntityProperty("score", 0.95);
+sample.SetEntityProperty("lab:quality", quality);
+sample.SetEntityProperty("lab:values", new EntityCollection([0, false, ""]));
+sample.SetEntityProperty("lab:binary", new EntityBlob("AA=="));
+sample.SetEntityProperty("lab:null", new EntityNull());
+```
+
+Python uses the same attached classes and members:
+
+```python
+quality = EntityObject("QualityAssessment")
+quality.SetEntityProperty("score", 0.95)
+sample.SetEntityProperty("lab:quality", quality)
+sample.SetEntityProperty("lab:values", EntityCollection([0, False, ""]))
+sample.SetEntityProperty("lab:binary", EntityBlob("AA=="))
+sample.SetEntityProperty("lab:null", EntityNull())
+```
+
+Import these classes through `arc-base-model` or `arc_base_model`. `EntityCollection` copies the input container, retaining values, duplicates, and object references; `Count`, `Get`, `Set`, and `Add` expose its stored values. `EntityBlob.Base64` returns validated, unmodified canonical standard padded base64.
+
+`AddEntityProperty` rejects duplicate keys. `SetEntityProperty` inserts or replaces. `RemoveEntityProperty` reports whether a key existed. `EntityProperties.Contains` distinguishes absence from explicit null; `Get` throws for a missing key; `Keys` returns a copied collection with no guaranteed enumeration order. Bag `Add`, `Set`, and `Remove` provide the same operations. Core wire names are reserved through both APIs, with exact case-sensitive comparisons.
+
+Numbers use binary64, matching `AnnotationValue`; integer and float inputs share one alternative. Large integers may lose precision. Python staging adapts Fable numeric checks and unwraps wrapped numeric reads at bag and collection boundaries; future transpiled consumers must apply the existing `compat` pass and share the staged model classes.
+
+This change supplies no YAML codec or SQL persistence. Future YAML maps extension keys alongside core fields, null to YAML null, and blobs to tagged binary. SQL guidance uses typed rows, ordered elements, BLOBs, and entity relationships, retaining the current supplied-ID requirement. Future codecs must report unsupported non-finite numbers and define shared/cyclic reference encoding explicitly.

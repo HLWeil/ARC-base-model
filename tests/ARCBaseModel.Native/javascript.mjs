@@ -1,7 +1,7 @@
 // Executable native example and consumer checks; run through TestBaseModelNative.
 import assert from "node:assert/strict";
 import {
-  Agent, Annotation, Data, Dataset, DefinedTerm, DefinedTermSet, Descriptor,
+  EntityObject, EntityCollection, EntityNull, EntityBlob, Agent, Annotation, Data, Dataset, DefinedTerm, DefinedTermSet, Descriptor,
   FormalParameter, Organization, Process, Recipe, Sample, ScholarlyArticle,
 } from "arc-base-model";
 import { MappingProbe } from "arc-base-model-probe";
@@ -221,3 +221,25 @@ assert.equal(copied.ConformsTo.length, 0);
 assert.equal(copied.Identifiers.length, 0);
 
 console.log("ARCBaseModel native JavaScript consumer passed");
+
+const extension = new EntityObject("QualityAssessment");
+assert.equal(extension.Id, undefined);
+const extensionValues = [0, 42, 0.95, false, "", extension, new EntityCollection([]), new EntityNull(), new EntityBlob("AA==")];
+const extensionKinds = ["number", "number", "number", "bool", "text", "object", "collection", "null", "blob"];
+extensionValues.forEach((value, i) => {
+  sample.SetEntityProperty(`custom:${i}`, value);
+  assert.equal(sample.EntityProperties.Get(`custom:${i}`), value);
+  assert.equal(MappingProbe.ClassifyExtension(value), extensionKinds[i]);
+});
+assert.equal(MappingProbe.IsExtensionNumber(false), false);
+assert.equal(MappingProbe.IsExtensionNumber(0), true);
+assert.throws(() => sample.EntityProperties.Set("name", "override"));
+assert.throws(() => sample.EntityProperties.Add("custom:0", 1));
+sample.SetEntityProperty("cycle", extension);
+extension.SetEntityProperty("back", sample);
+assert.equal(extension.EntityProperties.Get("back"), sample);
+const numericCollection = new EntityCollection([extension, extension]);
+MappingProbe.FillExtensionNumbers(extension, numericCollection);
+assert.equal(extension.EntityProperties.Get("wrapped"), 1.25);
+assert.equal(numericCollection.Get(2), 2.5);
+for (const value of ["A", "!!!!", "AB==", "AA=A"]) assert.throws(() => new EntityBlob(value));

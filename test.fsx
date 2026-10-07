@@ -17,13 +17,20 @@ let folder = @"C:\Users\HLWei\Downloads\test"
 
 let arc = ARC.create(folder, Dataset(["process-provenance"], ["example-arc"]))
 
-arc.Agent.create("Looookas")
 
+let agent = arc.Agent.create("Looookas")
+let entity = arc.Entity.create("Helicopter")
 
+arc.Entity.addNumberProperty(entity, "altitude", 1000.0) |> ignore
+
+arc.Entity.addObjectProperty(agent, "Gender", entity) |> ignore
+
+// arc.Agent.list()
+
+arc.Dataset.addAgent(arc.Model, arc.Agent.list()[0]) |> ignore
 
 arc.save()
 
-arc.Dataset.addAgent(arc.Model, arc.Agent.list()[0]) |> ignore
 
 let sample = arc.Sample.create("leaf")
 let proc = arc.Process.create("measurement")

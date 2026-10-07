@@ -2,6 +2,16 @@
 
 Status: preliminary design plan
 
+## YAML formatting repair (2026-10-07)
+
+Removed blanket extension-key quoting: safe keys remain plain; unsafe, implicitly typed, and pinned-reader-special keys are quoted. Numbers now emit plain numeric scalars, Annotation/extension text uses quotes instead of explicit string tags, Boolean/null values are plain, and binary values use the valid standard tag URI. Retained reading of older scalar tag forms. Added the exact Agent/Helicopter reproduction and SQL/YAML round-trip coverage of every core class plus generic objects, numeric/text alternatives, collections, safe and unsafe keys, and binary values. Verification: `dotnet run --no-restore --project build/build.fsproj -- TestManagementPrototype` passed 109/109 tests after the final fix; targeted documentation links and `git diff --check` passed. The initial scalar-edge run exposed the pinned reader's handling of empty quoted binary values with standard URI tags; emitting canonical base64 as plain content fixes the round trip. One direct sandbox run encountered an intermittent existing filesystem replacement error; the final FAKE run passed.
+
+## Extension session implementation (2026-10-07)
+
+Added `ARC.Entity` for generic typed objects and session-owned extension property operations, including typed convenience methods. Snapshots/history, direct-mutation detection, reachability, deletion checks, typed SQL extension nodes, BLOB storage, and prototype YAML round trips now cover extensions. Session schema version 3 upgrades version 2 transactionally without discarding state/history; version 1 retains explicit reload behavior. Collections are ordered value containers; typed objects retain canonical identity, including cycles. Self-containing collection containers are rejected safely. Core profile DDL and derived schemas are unchanged.
+
+Verification: `dotnet run --no-restore --project build/build.fsproj -- TestManagementPrototype` passed 107/107 tests after the final fixes, covering extension history, SQL and YAML recovery, version upgrade, failed SQL rollback, quoted reference-like keys, empty blobs, invalid numbers, reserved names, detached references, and safe rejection of collection cycles. Targeted documentation links and `git diff --check` passed. Added native JavaScript/TypeScript and Python extension consumer cases; these native session checks have not been executed and remain a separate milestone. No dependency or toolchain upgrades. Initial edge-case testing exposed the YAML reader's unquoted `$ref` key handling; snapshot and graph output now quotes extension keys. A concurrently run suite also hit an existing filesystem-test collision; the final required target ran alone and passed.
+
 Update this document as the management API is refined and implemented. Record
 the checks actually run alongside implementation milestones; a transpiled build
 alone is not evidence of a usable native API.

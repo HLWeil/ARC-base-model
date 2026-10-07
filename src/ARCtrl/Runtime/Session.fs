@@ -90,6 +90,23 @@ type internal Session(folder: string, database: Database) =
                 if row.Id <> id then row
                 else { row with Properties = match value with Some v -> Map.add key v row.Properties | None -> Map.remove key row.Properties })
             { state with Entities = rows })
+    member _.GetEntity(id: string) =
+        ensureOpen()
+        if not (active id) then invalidArg "id" "Unknown entity."
+        unbox<EntityObject> entities[id]
+    member _.ListEntities() =
+        ensureOpen()
+        state.Entities |> Seq.map (fun row -> unbox<EntityObject> entities[row.Id]) |> ResizeArray
+    member this.Extension(entity: EntityObject, key: string, value: Entity option, addOnly: bool) =
+        let id = this.Id(entity)
+        let captured = value |> Option.map (Model.captureExtension owned)
+        this.Execute(entity.Type + "." + (if value.IsNone then "removeProperty" elif addOnly then "addProperty" else "setProperty"), fun state ->
+            let rows = state.Entities |> List.map (fun row ->
+                if row.Id <> id then row
+                else
+                    if addOnly && Map.containsKey key row.Extensions then invalidArg "key" "Duplicate extension property."
+                    {row with Extensions = match captured with Some v -> Map.add key v row.Extensions | None -> Map.remove key row.Extensions})
+            {state with Entities = rows})
     member this.Collection(entity: obj, key: string, target: obj, append: bool, kind: string) =
         let id, targetId = this.Id(entity), this.Id(target)
         this.Execute(kind, fun state ->
@@ -119,11 +136,16 @@ type internal Session(folder: string, database: Database) =
                 let candidates = state.Entities |> List.filter (fun row -> Set.contains row.Id removed && row.Kind = "Dataset")
                                  |> List.collect (fun row -> Model.links "hasParts" row @ Model.links "processes" row)
                 let next = candidates |> List.fold (fun deleted candidate ->
-                    let shared = state.Entities |> List.exists (fun row -> not (Set.contains row.Id deleted) && row.Properties |> Map.exists (fun _ cell -> match cell with Links ids -> List.contains candidate ids | _ -> false))
+                    let shared = state.Entities |> List.exists (fun row ->
+                        not (Set.contains row.Id deleted) &&
+                        ((row.Properties |> Map.exists (fun _ cell -> match cell with Links ids -> List.contains candidate ids | _ -> false)) ||
+                         (row.Extensions |> Map.exists (fun _ cell -> Model.extensionReferences cell |> List.contains candidate))))
                     if shared then deleted else Set.add candidate deleted) removed
                 if next = removed then removed else cascade next
             let removed = cascade (Set.singleton id)
             let rows = state.Entities |> List.filter (fun row -> not (Set.contains row.Id removed)) |> List.map (fun row ->
+                if row.Extensions |> Map.exists (fun _ cell -> Model.extensionReferences cell |> List.exists (fun id -> Set.contains id removed)) then
+                    invalidOp "Remove extension references before deleting their targets."
                 let props = row.Properties |> Map.toList |> List.choose (fun (key,cell) ->
                     match cell with
                     | Links ids ->

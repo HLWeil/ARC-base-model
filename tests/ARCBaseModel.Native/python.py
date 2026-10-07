@@ -1,7 +1,7 @@
 """Executable native example and consumer checks; run via TestBaseModelNative."""
 
 from arc_base_model import (
-    Agent, Annotation, Data, Dataset, DefinedTerm, DefinedTermSet, Descriptor,
+    EntityObject, EntityCollection, EntityNull, EntityBlob, Agent, Annotation, Data, Dataset, DefinedTerm, DefinedTermSet, Descriptor,
     FormalParameter, Organization, Process, Recipe, Sample, ScholarlyArticle,
 )
 from arc_base_model_probe import MappingProbe
@@ -234,3 +234,27 @@ assert copied.ConformsTo == []
 assert copied.Identifiers == []
 
 print("ARCBaseModel native Python consumer passed")
+
+extension = EntityObject("QualityAssessment")
+assert extension.Id is None
+extension_values = [0, 42, 0.95, False, "", extension, EntityCollection([]), EntityNull(), EntityBlob("AA==")]
+extension_kinds = ["number", "number", "number", "bool", "text", "object", "collection", "null", "blob"]
+for index, (value, kind) in enumerate(zip(extension_values, extension_kinds)):
+    sample.SetEntityProperty(f"custom:{index}", value)
+    assert sample.EntityProperties.Get(f"custom:{index}") is value
+    assert MappingProbe.ClassifyExtension(value) == kind
+assert not MappingProbe.IsExtensionNumber(False)
+assert MappingProbe.IsExtensionNumber(0)
+rejects(lambda: sample.EntityProperties.Set("name", "override"))
+rejects(lambda: sample.EntityProperties.Add("custom:0", 1))
+sample.SetEntityProperty("cycle", extension)
+extension.SetEntityProperty("back", sample)
+assert extension.EntityProperties.Get("back") is sample
+numeric_collection = EntityCollection([extension, extension])
+MappingProbe.FillExtensionNumbers(extension, numeric_collection)
+assert type(extension.EntityProperties.Get("wrapped")) is float
+assert extension.EntityProperties.Get("wrapped") == 1.25
+assert type(numeric_collection.Get(2)) is float
+assert numeric_collection.Get(2) == 2.5
+for invalid in ["A", "!!!!", "AB==", "AA=A"]:
+    rejects(lambda: EntityBlob(invalid))

@@ -52,8 +52,8 @@ let tests = testList "Full base-model management" [
         Expect.isFalse arc.HasSessionOnlyObjects "All registered objects are reachable"
         arc.save()
         let yaml = Files.read(Files.combine path "arc.yml")
-        Expect.isTrue (yaml.Contains("!!float")) "Numeric wire alternative explicit"
-        Expect.isTrue (yaml.Contains("!!str")) "Text wire alternative explicit"
+        Expect.isFalse (yaml.Contains("!<!!")) "No malformed built-in tag syntax"
+        Expect.isTrue (yaml.Contains("value: \"42\"")) "Numeric-looking text is quoted"
         arc.close()
         for source in ["sql";"yml"] do
             let resumed = ARC.openFolder(path,source)
@@ -335,5 +335,176 @@ let tests = testList "Full base-model management" [
         data.Id <- Some "renamed"
         Expect.throws (fun () -> arc.Data.register(data) |> ignore) "Retained identity cannot alias another key"
         arc.close())
+
+    testCase "extensions persist through SQL history and typed YAML" (fun _ ->
+        let path = folder()
+        let root = Dataset(["process-provenance"], ["extensions"])
+        let custom = EntityObject("QualityAssessment")
+        custom.SetEntityProperty("back", Entity.Object root)
+        root.SetEntityProperty("quality", Entity.Object custom)
+        let arc = ARC.create(path, root)
+        let customId = custom.Id.Value
+        same (arc.Entity.get(customId)) custom
+        arc.Entity.setNumberProperty(custom, "score", 0.95) |> ignore
+        arc.Entity.setBoolProperty(custom, "accepted", false) |> ignore
+        arc.Entity.setTextProperty(custom, "$ref", "literal extension key") |> ignore
+        arc.Entity.setBlobProperty(custom, "emptyBlob", "") |> ignore
+        arc.Entity.setNullProperty(custom, "missing") |> ignore
+        arc.Entity.setBlobProperty(custom, "bytes", "AAH//w==") |> ignore
+        arc.Entity.setCollectionProperty(custom, "values", [Entity.Object custom; Entity.Object custom; Entity.Text "42"; Entity.Number 0.; Entity.Collection(EntityCollection([]))]) |> ignore
+        arc.Entity.setTextProperty(custom, "accepted", "false") |> ignore
+        arc.History.undo()
+        match arc.Entity.getProperty(custom, "accepted") with Entity.Bool false -> () | _ -> failwith "Undo bool"
+        arc.History.redo()
+        match arc.Entity.getProperty(custom, "accepted") with Entity.Text "false" -> () | _ -> failwith "Redo text"
+        Expect.throws (fun () -> arc.Entity.create("Recipe") |> ignore) "Core type requires core class"
+        Expect.throws (fun () -> arc.Entity.setProperty(root, "type", Entity.Text "override") |> ignore) "Reserved key"
+        Expect.throws (fun () -> arc.Entity.addProperty(custom, "score", Entity.Number 1.) |> ignore) "Duplicate key"
+        Expect.throws (fun () -> arc.Entity.setNumberProperty(custom, "bad", Double.NaN) |> ignore) "Nonfinite number"
+        let cycle = EntityCollection([])
+        cycle.Add(Entity.Collection cycle)
+        Expect.throws (fun () -> arc.Entity.setProperty(custom, "cycle", Entity.Collection cycle) |> ignore) "Collection cycles are rejected safely"
+        Expect.throws (fun () -> arc.Entity.setObjectProperty(custom, "detached", EntityObject("Detached")) |> ignore) "Detached reference"
+        Expect.throws (fun () -> arc.Entity.delete(custom) |> ignore) "Referenced extension object"
+        arc.save()
+        let database = Store.openDatabase arc.DatabasePath
+        let blobs = database.Connection.Query("SELECT value_blob FROM entity_extension WHERE property='bytes'")
+        Expect.equal (blobs.[0].Get(0).AsBlob() |> Array.toList) [0uy;1uy;255uy;255uy] "Real BLOB storage"
+        Expect.equal (database.Connection.Query("PRAGMA foreign_key_check").Count) 0 "Foreign keys"
+        database.Connection.Execute("CREATE TRIGGER reject_extension BEFORE INSERT ON entity_extension BEGIN SELECT RAISE(ABORT,'extension failure'); END")
+        let historyCount = database.Connection.Query("SELECT count(*) FROM history").[0].Get(0).AsInteger()
+        Expect.throws (fun () -> arc.Entity.setNumberProperty(custom, "score", 0.1) |> ignore) "SQL failure rolls back extension update"
+        match arc.Entity.getProperty(custom, "score") with Entity.Number v -> Expect.equal v 0.95 "Model restored" | _ -> failwith "Number"
+        Expect.equal (database.Connection.Query("SELECT count(*) FROM history").[0].Get(0).AsInteger()) historyCount "History unchanged"
+        database.Connection.Execute("DROP TRIGGER reject_extension")
+        database.Close()
+        arc.close()
+        let recovered = ARC.openFolder(path, "sql")
+        let recoveredCustom = recovered.Entity.get(customId)
+        match recovered.Entity.getProperty(recovered.Model, "quality") with Entity.Object v -> same v recoveredCustom | _ -> failwith "Object reference"
+        match recovered.Entity.getProperty(recoveredCustom, "back") with Entity.Object v -> same v recovered.Model | _ -> failwith "Cycle"
+        recovered.close()
+        let yaml = ARC.openFolder(path, "yml")
+        let loaded = yaml.Entity.get(customId)
+        match yaml.Entity.getProperty(loaded, "bytes") with Entity.Blob v -> Expect.equal v.Base64 "AAH//w==" "Blob YAML" | _ -> failwith "Blob"
+        match yaml.Entity.getProperty(loaded, "$ref") with Entity.Text v -> Expect.equal v "literal extension key" "Reference-like key remains metadata" | _ -> failwith "Text"
+        match yaml.Entity.getProperty(loaded, "emptyBlob") with Entity.Blob v -> Expect.equal v.Base64 "" "Empty blob" | _ -> failwith "Empty blob"
+        match yaml.Entity.getProperty(loaded, "missing") with Entity.Null _ -> () | _ -> failwith "Null"
+        match yaml.Entity.getProperty(loaded, "values") with
+        | Entity.Collection vs ->
+            Expect.equal vs.Count 5 "Collection count"
+            match vs.Get(0), vs.Get(1) with Entity.Object a, Entity.Object b -> same a b; same a loaded | _ -> failwith "Shared values"
+        | _ -> failwith "Collection"
+        yaml.close())
+
+    testCase "extensions are tracked and removal is reversible" (fun _ ->
+        let arc = ARC.create(folder(), Dataset(["process-provenance"], ["extensions"]))
+        arc.Entity.addTextProperty(arc.Model, "custom", "") |> ignore
+        arc.Entity.removeProperty(arc.Model, "custom") |> ignore
+        Expect.isFalse (arc.Entity.hasProperty(arc.Model, "custom")) "Removed"
+        arc.History.undo()
+        Expect.isTrue (arc.Entity.hasProperty(arc.Model, "custom")) "Restored"
+        arc.Model.SetEntityProperty("custom", Entity.Text "direct mutation")
+        Expect.throws (fun () -> arc.save()) "Direct extension mutation detected"
+        arc.close())
+
+    testCase "version two sessions upgrade without discarding history" (fun _ ->
+        let path = folder()
+        let arc = ARC.create(path, Dataset(["process-provenance"], ["upgrade"]))
+        arc.Dataset.setTitle(arc.Model, "title") |> ignore
+        let dbPath = arc.DatabasePath
+        arc.close()
+        let database = Store.openDatabase dbPath
+        database.Connection.Execute("DROP TABLE entity_extension")
+        database.Connection.Execute("UPDATE session SET schema_version=2")
+        database.Close()
+        let reopened = ARC.openFolder(path, "sql")
+        Expect.equal reopened.Model.Title (Some "title") "Working state retained"
+        reopened.History.undo()
+        Expect.isNone reopened.Model.Title "History retained"
+        reopened.Entity.setNumberProperty(reopened.Model, "score", 0.) |> ignore
+        reopened.close())
+
+    testCase "plain extension keys and numbers match the Agent Helicopter example" (fun _ ->
+        let path = folder()
+        let arc = ARC.create(path, Dataset(["process-provenance"], ["example-arc"]))
+        let agent = arc.Agent.create("Looookas")
+        let helicopter = arc.Entity.create("Helicopter")
+        arc.Entity.addNumberProperty(helicopter, "altitude", 1000.) |> ignore
+        arc.Entity.addObjectProperty(agent, "Gender", helicopter) |> ignore
+        arc.Dataset.addAgent(arc.Model, agent) |> ignore
+        arc.save()
+        let yaml = Files.read(Files.combine path "arc.yml")
+        Expect.isTrue (yaml.Contains("Gender:")) "Simple object key"
+        Expect.isFalse (yaml.Contains("\"Gender\"")) "No unnecessary object key quotes"
+        Expect.isTrue (yaml.Contains("altitude: 1000")) "Plain number"
+        Expect.isFalse (yaml.Contains("\"altitude\"")) "No unnecessary numeric key quotes"
+        Expect.isFalse (yaml.Contains("!!float")) "No float tag"
+        let agentId, helicopterId = agent.Id.Value, helicopter.Id.Value
+        arc.close()
+        let loaded = ARC.openFolder(path, "yml")
+        match loaded.Entity.getProperty(loaded.Agent.get(agentId), "Gender") with
+        | Entity.Object target -> same target (loaded.Entity.get(helicopterId))
+        | _ -> failwith "Expected Helicopter"
+        match loaded.Entity.getProperty(loaded.Entity.get(helicopterId), "altitude") with
+        | Entity.Number value -> Expect.equal value 1000. "Numeric alternative restored"
+        | _ -> failwith "Expected number"
+        loaded.close())
+
+    testCase "clean YAML scalars round trip on every core class and generic entities" (fun _ ->
+        let path = folder()
+        let arc = ARC.create(path, fixture())
+        let custom = arc.Entity.create("Custom")
+        arc.Entity.setObjectProperty(arc.Model, "customObject", custom) |> ignore
+        let entities = arc.Entity.list() |> Seq.toList
+        Expect.equal (entities |> List.map (fun v -> v.Type) |> List.distinct |> List.length) 14 "All thirteen core types plus generic"
+        for entity in entities do
+            arc.Entity.setNumberProperty(entity, "altitude", 1000.) |> ignore
+            arc.Entity.setNumberProperty(entity, "fraction", 0.125) |> ignore
+            arc.Entity.setNumberProperty(entity, "zero", 0.) |> ignore
+            arc.Entity.setNumberProperty(entity, "negative", -42.) |> ignore
+            arc.Entity.setTextProperty(entity, "numberText", "1000") |> ignore
+            arc.Entity.setTextProperty(entity, "boolText", "false") |> ignore
+            arc.Entity.setTextProperty(entity, "nullText", "null") |> ignore
+            arc.Entity.setBoolProperty(entity, "accepted", false) |> ignore
+            arc.Entity.setNullProperty(entity, "missing") |> ignore
+            arc.Entity.setBlobProperty(entity, "blob", "AA==") |> ignore
+            arc.Entity.setTextProperty(entity, "$ref", "custom key") |> ignore
+            arc.Entity.setTextProperty(entity, "a: b", "colon key") |> ignore
+            arc.Entity.setTextProperty(entity, "a#b", "hash key") |> ignore
+            arc.Entity.setTextProperty(entity, "true", "Boolean-like key") |> ignore
+            arc.Entity.setTextProperty(entity, "1000", "Numeric-like key") |> ignore
+            arc.Entity.setTextProperty(entity, "lab:altitude", "namespaced key") |> ignore
+            arc.Entity.setCollectionProperty(entity, "values", [Entity.Number 1000.; Entity.Text "1000"; Entity.Bool false; Entity.Null(EntityNull())]) |> ignore
+        let ids = entities |> List.map (fun v -> v.Id.Value)
+        arc.save()
+        let yaml = Files.read(Files.combine path "arc.yml")
+        Expect.isFalse (yaml.Contains("!<!!")) "No invalid verbatim built-in tags for any scalar alternative"
+        Expect.isFalse (yaml.Contains("\"altitude\"")) "Plain keys on all classes"
+        Expect.isTrue (yaml.Contains("altitude: 1000")) "Plain integral numbers"
+        Expect.isTrue (yaml.Contains("fraction: 0.125")) "Plain fractional numbers"
+        Expect.isTrue (yaml.Contains("lab:altitude:")) "Safe namespaced key"
+        Expect.isTrue (yaml.Contains("\"a: b\":")) "Unsafe key quoted"
+        Expect.isTrue (yaml.Contains("\"$ref\":")) "Reader-special key quoted"
+        arc.close()
+        for source in ["sql"; "yml"] do
+            let loaded = ARC.openFolder(path, source)
+            for id in ids do
+                let entity = loaded.Entity.get(id)
+                let value key = loaded.Entity.getProperty(entity, key)
+                for key, expected in ["altitude",1000.; "fraction",0.125; "zero",0.; "negative",-42.] do
+                    match value key with Entity.Number n -> Expect.equal n expected "Numeric value" | _ -> failwith ("Expected number: " + entity.Type)
+                for key, expected in ["numberText","1000"; "boolText","false"; "nullText","null"; "$ref","custom key"; "a: b","colon key"; "a#b","hash key"; "true","Boolean-like key"; "1000","Numeric-like key"; "lab:altitude","namespaced key"] do
+                    match value key with Entity.Text text -> Expect.equal text expected "Text value" | _ -> failwith ("Expected text: " + entity.Type)
+                match value "accepted" with Entity.Bool false -> () | _ -> failwith "Expected Boolean"
+                match value "missing" with Entity.Null _ -> () | _ -> failwith "Expected null"
+                match value "blob" with Entity.Blob b -> Expect.equal b.Base64 "AA==" "Blob survives valid tag" | _ -> failwith "Expected blob"
+                match value "values" with
+                | Entity.Collection values ->
+                    match values.Get(0), values.Get(1), values.Get(2), values.Get(3) with
+                    | Entity.Number 1000., Entity.Text "1000", Entity.Bool false, Entity.Null _ -> ()
+                    | _ -> failwith "Mixed collection alternatives"
+                | _ -> failwith "Expected collection"
+            loaded.close())
 
 ]

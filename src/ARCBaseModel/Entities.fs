@@ -5,17 +5,11 @@ open Fable.Core
 /// A biological, chemical, or digital sample without inferred identity.
 [<AttachMembers>]
 type Sample(name: string, ?additionalProperties: seq<Annotation>, ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Sample", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _name = Construction.required "name" name
     let mutable _additionalProperties = Construction.collection additionalProperties
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "Sample"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["name"; "additionalProperties"])
     /// Human-readable sample name.
     member _.Name with get() = _name and set(value) = _name <- value
     /// Extensible metadata. Replacement copies the container, retaining annotation references.
@@ -25,21 +19,15 @@ type Sample(name: string, ?additionalProperties: seq<Annotation>, ?id: string, ?
 [<AttachMembers>]
 type Data(path: string, ?selector: string, ?selectorFormat: string, ?encodingFormat: string,
           ?hasParts: seq<Data>, ?additionalProperties: seq<Annotation>, ?id: string, ?additionalTypes: seq<string>) =
+    inherit EntityObject("Data", ?id = id, ?additionalTypes = additionalTypes)
     let mutable _path = Construction.required "path" path
     let mutable _selector = selector
     let mutable _selectorFormat = selectorFormat
     let mutable _encodingFormat = encodingFormat
     let mutable _hasParts = Construction.collection hasParts
     let mutable _additionalProperties = Construction.collection additionalProperties
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
 
-    /// Fixed entity discriminator.
-    member _.Type = "Data"
-    /// Optional application-scoped identifier; never assigned automatically.
-    member _.Id with get() = _id and set(value) = _id <- value
-    /// Additional classifications, preserving duplicates.
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
+    do base.EntityProperties.Reserve(["path"; "selector"; "selectorFormat"; "encodingFormat"; "hasParts"; "additionalProperties"])
     /// Path to the target file, unchanged by construction.
     member _.Path with get() = _path and set(value) = _path <- value
     /// Optional fragment selector.

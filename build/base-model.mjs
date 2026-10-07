@@ -14,6 +14,7 @@ const probePackage = path.join(javascript, "node_modules/arc-base-model-probe");
 const nativeTests = path.join(repository, "tests/ARCBaseModel.Native");
 
 const modelExports = {
+  Entity: ["EntityObject", "EntityPropertyBag", "EntityCollection", "EntityNull", "EntityBlob", "Entity"],
   DefinedTerm: ["DefinedTerm", "DefinedTermSet", "DefinedTermSetReference"],
   Annotation: ["Annotation", "FormalParameter", "AnnotationValue"],
   Entities: ["Sample", "Data", "EntityReference"],
@@ -24,7 +25,7 @@ const modelExports = {
   Dataset: ["Dataset"],
 };
 const alternativeNames = new Set([
-  "AnnotationValue", "EntityReference", "RecipeIntendedUse", "DefinedTermSetReference",
+  "AnnotationValue", "EntityReference", "RecipeIntendedUse", "DefinedTermSetReference", "Entity",
 ]);
 const modelNames = new Set(Object.values(modelExports).flat());
 const probeNames = new Set([
@@ -71,7 +72,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         if (args?.length !== 1) throw new Error("Unexpected Option signature.");
         return f.createUnionTypeNode([args[0], f.createKeywordTypeNode(ts.SyntaxKind.UndefinedKeyword)]);
       }
-      if (name === "float64") return f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword);
+      if (name === "float64" || name === "int32") return f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword);
       if (!publicNames.has(name)) throw new Error(`Unexpected public type ${name}; explicitly review its native representation.`);
       return f.createTypeReferenceNode(name, args);
     }
@@ -109,8 +110,9 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         statements.push(f.createTypeAliasDeclaration([exportModifier], name, undefined, publicType(statement.type)));
         continue;
       }
-      if (statement.heritageClauses?.length) throw new Error(`Unexpected public inheritance on ${name}.`);
+      if (statement.heritageClauses?.some(clause => clause.types.some(t => t.expression.getText(parsed) !== "EntityObject"))) throw new Error(`Unexpected public inheritance on ${name}.`);
       const members = [];
+      if (statement.heritageClauses?.length) members.push(f.createGetAccessorDeclaration(undefined, "Type", [], f.createLiteralTypeNode(f.createStringLiteral(name)), undefined));
       for (const member of statement.members) {
         if (ts.isPropertyDeclaration(member) && member.name.getText(parsed).startsWith("_")) continue;
         if (ts.isConstructorDeclaration(member)) {
@@ -118,7 +120,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         } else if (ts.isGetAccessorDeclaration(member)) {
           const property = member.name.getText(parsed);
           let propertyType = publicType(member.type);
-          if (property === "Type") {
+          if (property === "Type" && name !== "EntityObject") {
             const body = member.body?.statements;
             const expression = body?.length === 1 && ts.isReturnStatement(body[0]) ? body[0].expression : undefined;
             if (!expression || !ts.isStringLiteral(expression) || expression.text !== name) {
@@ -130,6 +132,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         } else if (ts.isSetAccessorDeclaration(member)) {
           members.push(f.createSetAccessorDeclaration(undefined, member.name.getText(parsed), member.parameters.map(parameter), undefined));
         } else if (ts.isMethodDeclaration(member)) {
+          if (["Reserve", "check"].includes(member.name.getText(parsed))) continue;
           const modifiers = member.modifiers?.filter(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword);
           members.push(f.createMethodDeclaration(modifiers, undefined, member.name.getText(parsed), undefined, undefined,
             member.parameters.map(parameter), publicType(member.type), undefined));
@@ -137,7 +140,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
           throw new Error(`Unexpected public member in ${name}; review the generated API before staging.`);
         }
       }
-      statements.push(f.createClassDeclaration([exportModifier, declareModifier], name, undefined, undefined, members));
+      statements.push(f.createClassDeclaration([exportModifier, declareModifier], name, undefined, statement.heritageClauses, members));
     }
   }
   for (const name of expectedNames) {
@@ -265,7 +268,7 @@ if (command === "build") {
 } else if (command === "tests") {
   await stage(true);
 } else if (command === "typecheck") {
-  const consumer = path.join(javascript, "consumer/consumer.ts");
+  const consumer = process.argv[3] ?? path.join(javascript, "consumer/consumer.ts");
   assertExists(consumer);
   checkTypes([consumer]);
   console.log("ARCBaseModel native TypeScript consumer passed strict checking.");
