@@ -12,7 +12,7 @@ type EntityOperations internal (session: Session) =
         session.Register(value, entityType)
         value
     member _.register(value: EntityObject) = session.Register(value, value.Type); value
-    member _.set(value: EntityObject): unit = session.Set(value, value.Type)
+    member _.upsert(value: EntityObject): unit = session.Set(value, value.Type)
     member _.get(id: string) = session.GetEntity(id)
     member _.list() = session.ListEntities()
     member _.delete(value: EntityObject) = session.Delete(value)
@@ -29,7 +29,7 @@ type EntityOperations internal (session: Session) =
     member _.setProperty(value: EntityObject, key: string, replacement: Entity) = session.Extension(value, key, Some replacement, false)
     member _.addProperty(value: EntityObject, key: string, replacement: Entity) = session.Extension(value, key, Some replacement, true)
     member _.removeProperty(value: EntityObject, key: string) = session.Extension(value, key, None, false)
-    member _.setNumberProperty(value: EntityObject, key: string, replacement: float) = session.Extension(value, key, Some(Entity.Number replacement), false)
+    member _.setNumberProperty(value: EntityObject, key: string, replacement: float) = session.Extension(value, key, Some(Entity.Number(Model.number replacement)), false)
     member _.setTextProperty(value: EntityObject, key: string, replacement: string) = session.Extension(value, key, Some(Entity.Text replacement), false)
     member _.setBoolProperty(value: EntityObject, key: string, replacement: bool) = session.Extension(value, key, Some(Entity.Bool replacement), false)
     member _.setObjectProperty(value: EntityObject, key: string, replacement: EntityObject) = session.Extension(value, key, Some(Entity.Object replacement), false)
@@ -37,7 +37,7 @@ type EntityOperations internal (session: Session) =
     member _.setNullProperty(value: EntityObject, key: string) = session.Extension(value, key, Some(Entity.Null(EntityNull())), false)
     member _.setBlobProperty(value: EntityObject, key: string, base64: string) = session.Extension(value, key, Some(Entity.Blob(EntityBlob(base64))), false)
 
-    member _.addNumberProperty(value: EntityObject, key: string, replacement: float) = session.Extension(value, key, Some(Entity.Number replacement), true)
+    member _.addNumberProperty(value: EntityObject, key: string, replacement: float) = session.Extension(value, key, Some(Entity.Number(Model.number replacement)), true)
     member _.addTextProperty(value: EntityObject, key: string, replacement: string) = session.Extension(value, key, Some(Entity.Text replacement), true)
     member _.addBoolProperty(value: EntityObject, key: string, replacement: bool) = session.Extension(value, key, Some(Entity.Bool replacement), true)
     member _.addObjectProperty(value: EntityObject, key: string, replacement: EntityObject) = session.Extension(value, key, Some(Entity.Object replacement), true)

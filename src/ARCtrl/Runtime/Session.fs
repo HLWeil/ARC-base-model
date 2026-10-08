@@ -5,10 +5,11 @@ open System.Collections.Generic
 open ARCBaseModel
 open PolyglotSQLite
 open ARCtrl
+open ARCSession.Internal
 
-type internal Session(folder: string, database: Database) =
-    let db = database.Connection
-    let metadata = Store.metadata db
+type internal Session(repository: Repository, arcId: string, supplied: (string * obj) list) =
+    let db = repository.Connection
+    let metadata = Store.metadata db arcId
     let mutable state = metadata.GetByName("state").AsText() |> Codec.decodeState
     let mutable cursor = int (metadata.GetByName("cursor").AsInteger())
     let mutable revision = metadata.GetByName("revision").AsInteger()
@@ -17,40 +18,48 @@ type internal Session(folder: string, database: Database) =
     let mutable closed = false
     // Retained instances also serve as tombstones so undo preserves identity.
     let entities = Dictionary<string,obj>()
-    let rootPath = Files.combine folder "arc.yml"
+    let mutable folder = Store.optText metadata "folder"
     let active id = state.Entities |> List.exists (fun row -> row.Id = id)
-    let ensureOpen () = if closed then invalidOp "The ARC session is closed."
+    let ensureOpen () =
+        repository.EnsureOpen()
+        if closed then invalidOp "The ARC context is closed."
     let owned entity =
         Model.required "entity" entity |> ignore
         let id = Model.id entity |> Model.entityId
         if not (active id && entities.ContainsKey(id) && obj.ReferenceEquals(entities[id], entity)) then
-            invalidOp (Model.kind entity + " is not registered in this session.")
+            invalidOp (Model.kind entity + " is not registered in this ARC.")
         id
+    let execute sql values = Store.execute db sql (("arc",Store.text arcId)::values)
+    let query sql values = db.Query(sql, Store.parameters (("arc",Store.text arcId)::values))
     let restore next =
         for row in next.Entities do
-            if not (entities.ContainsKey row.Id) then entities.Add(row.Id, Model.create row)
+            if not (entities.ContainsKey row.Id) then
+                let value = Model.create row
+                repository.Claim(arcId,value)
+                entities.Add(row.Id,value)
         for row in next.Entities do Model.restore (fun id -> entities[id]) row entities[row.Id]
     let check () =
         ensureOpen()
         let captured = { state with Entities = state.Entities |> List.map (fun row -> {Model.capture (owned entities[row.Id]) owned entities[row.Id] with SuppliedId = row.SuppliedId}) }
-        if captured <> state then invalidOp "Direct model mutation detected. Use the session operations or reopen the session."
+        if captured <> state then invalidOp "Direct model mutation detected. Use ARC operations or close and reopen this ARC."
     let assertRevision () =
-        if (Store.metadata db).GetByName("revision").AsInteger() <> revision then invalidOp "Session changed through another connection; reopen it."
+        if (Store.metadata db arcId).GetByName("revision").AsInteger() <> revision then
+            invalidOp "ARC changed through another connection. Close this ARC and reopen it with session.openArc or ARC.openFolder."
     let update next nextCursor kind action operationId =
         Model.validate next
         let previous = state
         try
             db.WithTransaction(fun () ->
                 assertRevision()
-                Store.mirror db next
+                Store.mirror db arcId next
                 if action = "apply" then
-                    Store.execute db "DELETE FROM history WHERE sequence > $cursor" ["cursor", SqlValue.Integer(int64 cursor)]
-                    Store.execute db "INSERT INTO history VALUES($sequence,$id,$kind,$before,$after)"
+                    execute "DELETE FROM history WHERE arc_id=$arc AND sequence > $cursor" ["cursor", SqlValue.Integer(int64 cursor)]
+                    execute "INSERT INTO history VALUES($arc,$sequence,$id,$kind,$before,$after)"
                         ["sequence", SqlValue.Integer(int64 nextCursor); "id", Store.text operationId; "kind", Store.text kind
                          "before", Store.text (Codec.encodeState previous); "after", Store.text (Codec.encodeState next)]
-                Store.execute db "UPDATE session SET state=$state,cursor=$cursor,revision=$revision WHERE singleton=1"
-                    ["state", Store.text (Codec.encodeState next); "cursor", SqlValue.Integer(int64 nextCursor); "revision", SqlValue.Integer(revision + 1L)]
-                Store.execute db "INSERT INTO journal(operation_id,kind,action,revision) VALUES($id,$kind,$action,$revision)"
+                execute "UPDATE session SET state=$state,root_id=$root,cursor=$cursor,revision=$revision WHERE arc_id=$arc"
+                    ["root",Store.text next.Root; "state", Store.text (Codec.encodeState next); "cursor", SqlValue.Integer(int64 nextCursor); "revision", SqlValue.Integer(revision + 1L)]
+                execute "INSERT INTO journal(arc_id,sequence,operation_id,kind,action,revision) VALUES($arc,$revision,$id,$kind,$action,$revision)"
                     ["id", Store.text operationId; "kind", Store.text kind; "action", Store.text action; "revision", SqlValue.Integer(revision + 1L)]
                 restore next
                 if action = "undo" && (kind.EndsWith(".register") || kind.EndsWith(".set")) then
@@ -59,15 +68,27 @@ type internal Session(folder: string, database: Database) =
                             Model.setId entities[row.Id] row.SuppliedId)
             state <- next; cursor <- nextCursor; revision <- revision + 1L
         with _ -> restore previous; reraise()
-    do Model.validate state; restore state
+    do
+        Model.validate state
+        for id,value in supplied do
+            repository.Claim(arcId,value)
+            entities.Add(id,value)
+        restore state
 
     member _.Model = ensureOpen(); unbox<Dataset> entities[state.Root]
-    member _.Folder = folder
-    member _.DatabasePath = Files.combine (Files.combine folder ".arc") "testing.sqlite"
+    member _.ArcId = arcId
+    member _.Repository = repository
+    member _.IsClosed = closed
+    member _.Folder = ensureOpen(); folder
+    member _.DatabasePath = repository.DatabasePath
+    member _.State = ensureOpen(); state
+    member _.Baseline = baseline
+    member _.SavedGraph = savedGraph
+    member _.Revision = revision
     member _.IsDirty = check(); savedGraph <> Some(Codec.encodeGraph state)
     member _.HasSessionOnlyObjects = check(); Model.sessionOnly state
     member _.CanUndo = ensureOpen(); cursor > 0
-    member _.CanRedo = ensureOpen(); db.Query("SELECT sequence FROM history WHERE sequence=" + string (cursor + 1)).Count > 0
+    member _.CanRedo = ensureOpen(); (query "SELECT sequence FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence",SqlValue.Integer(int64 (cursor + 1))]).Count > 0
     member _.Check() = check()
     member _.Id(value: obj) = ensureOpen(); owned value
     member _.List<'T>(kind: string) =
@@ -77,12 +98,12 @@ type internal Session(folder: string, database: Database) =
         ensureOpen()
         if not (state.Entities |> List.exists (fun row -> row.Id = id && row.Kind = kind)) then invalidArg "id" ("Unknown " + kind)
         unbox<'T> entities[id]
-    member _.Execute(kind, transform) =
+    member _.Execute(kind, transform) = repository.Access(fun () ->
         check()
         let next = transform state
         let operationId = Files.newId()
         update next (cursor + 1) kind "apply" operationId
-        AppliedOperation(operationId, kind)
+        AppliedOperation(operationId, kind))
     member this.Change(entity: obj, key: string, value: Cell option, kind: string) =
         let id = this.Id(entity)
         this.Execute(kind, fun state ->
@@ -158,7 +179,7 @@ type internal Session(folder: string, database: Database) =
                     | _ -> Some(key,cell)) |> Map.ofList
                 {row with Properties = props})
             {state with Entities = rows})
-    member private _.Adopt(entity: obj, kind: string, replaceExisting: bool, operationKind: string) =
+    member private _.Adopt(entity: obj, kind: string, replaceExisting: bool, operationKind: string) = repository.Access(fun () ->
         check()
         Model.required "entity" entity |> ignore
         if Model.kind entity <> kind then invalidArg "entity" "Wrong entity type."
@@ -167,6 +188,7 @@ type internal Session(folder: string, database: Database) =
         let mutable planned = state.Entities
         let rec register (value: obj) =
             Model.required "entity" value |> ignore
+            repository.AssertAvailable(arcId,value)
             match pending |> Seq.tryFind (fun (_,existing) -> obj.ReferenceEquals(value,existing)) with
             | Some(id,_) -> id
             | None ->
@@ -203,60 +225,71 @@ type internal Session(folder: string, database: Database) =
         let next = {state with Entities = planned}
         Model.validate next
         let additions = pending |> Seq.filter (fun (id,_) -> not (entities.ContainsKey id)) |> Seq.map (fun (id,value) -> id,value,Model.id value) |> Seq.toList
-        for id,value,_ in additions do entities.Add(id,value)
+        for id,value,_ in additions do
+            repository.Claim(arcId,value)
+            entities.Add(id,value)
         try
             if next <> state then update next (cursor + 1) operationKind "apply" (Files.newId())
         with _ ->
             for KeyValue(id,row) in replacements do
                 Model.restore (fun id -> entities[id]) row entities[id]
                 if not (active id) then Model.setId entities[id] row.SuppliedId
-            for id,value,original in additions do entities.Remove(id) |> ignore; Model.setId value original
-            reraise()
+            for id,value,original in additions do
+                entities.Remove(id) |> ignore
+                repository.Release(arcId,value)
+                Model.setId value original
+            reraise())
     member this.Register(entity: obj, kind: string) = this.Adopt(entity,kind,false,kind + ".register")
     member this.Set(entity: obj, kind: string) = this.Adopt(entity,kind,true,kind + ".set")
-    member _.InitializeRoot(value: Dataset) =
-        let previousRoot = state.Root
-        let next = {Root = owned value; Entities = state.Entities |> List.filter (fun row -> row.Id <> previousRoot)}
-        Model.validate next
-        db.WithTransaction(fun () ->
-            Store.mirror db next
-            Store.execute db "UPDATE session SET state=$state,cursor=0,revision=0 WHERE singleton=1" ["state", Store.text (Codec.encodeState next)]
-            db.Execute("DELETE FROM history")
-            db.Execute("DELETE FROM journal"))
-        entities.Remove(previousRoot) |> ignore
-        state <- next; cursor <- 0; revision <- 0L
-    member _.History(redo: bool) =
+    member _.History(redo: bool) = repository.Access(fun () ->
         check()
         let sequence = if redo then cursor + 1 else cursor
-        let rows = db.Query("SELECT * FROM history WHERE sequence=" + string sequence)
+        let rows = query "SELECT * FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence",SqlValue.Integer(int64 sequence)]
         if sequence <= 0 || rows.Count = 0 then invalidOp (if redo then "Nothing to redo." else "Nothing to undo.")
         let row = rows[0]
         let next = row.GetByName(if redo then "after_state" else "before_state").AsText() |> Codec.decodeState
         update next (if redo then cursor + 1 else cursor - 1) (row.GetByName("kind").AsText())
-            (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText())
-    member _.Save() =
+            (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText()))
+    member _.AssertRevision() = ensureOpen(); assertRevision()
+    member _.SetBinding(path: string) =
         check()
-        if Files.readOptional rootPath <> baseline then invalidOp "Persistent YAML changed externally. Reopen with an explicit source preference."
-        let graph = Codec.encodeGraph state
-        let temporary = Files.combine folder (".arc-" + Files.newId() + ".tmp")
-        try
-            Files.write temporary graph
-            db.WithTransaction(fun () ->
-                assertRevision()
-                if Files.readOptional rootPath <> baseline then invalidOp "Persistent YAML changed during save."
-                Files.replace temporary rootPath
-                Store.execute db "UPDATE session SET baseline=$graph,saved_graph=$graph,revision=$revision WHERE singleton=1"
-                    ["graph", Store.text graph; "revision", SqlValue.Integer(revision + 1L)])
-            baseline <- Some graph; savedGraph <- Some graph; revision <- revision + 1L
-        finally
-            if Files.exists temporary then Files.remove temporary
+        assertRevision()
+        execute "UPDATE session SET folder=$folder,baseline=NULL,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
+            ["folder",Store.text path; "revision",SqlValue.Integer(revision + 1L)]
+        folder <- Some path; baseline <- None; savedGraph <- None; revision <- revision + 1L
+    member _.SetCheckpoint(graph: string) =
+        execute "UPDATE session SET baseline=$graph,saved_graph=$graph,revision=$revision WHERE arc_id=$arc"
+            ["graph",Store.text graph; "revision",SqlValue.Integer(revision + 1L)]
+    member _.AcceptCheckpoint(graph: string) =
+        baseline <- Some graph; savedGraph <- Some graph; revision <- revision + 1L
     member _.AcceptPersistentBaseline(current: string option) =
-        // An explicit SQL choice accepts the observed disk version for overwrite,
-        // but does not pretend the retained working graph has been exported there.
+        check()
         if current <> baseline then
             db.WithTransaction(fun () ->
                 assertRevision()
-                Store.execute db "UPDATE session SET baseline=$baseline,saved_graph=NULL,revision=$revision WHERE singleton=1"
-                    ["baseline", Store.optional current; "revision", SqlValue.Integer(revision + 1L)])
+                execute "UPDATE session SET baseline=$baseline,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
+                    ["baseline",Store.optional current; "revision",SqlValue.Integer(revision + 1L)])
             baseline <- current; savedGraph <- None; revision <- revision + 1L
-    member _.Close() = if not closed then database.Close(); closed <- true
+    member _.Reload(next: State, current: string) =
+        check()
+        Model.validate next
+        db.WithTransaction(fun () ->
+            assertRevision()
+            Store.archive db arcId |> ignore
+            Store.mirror db arcId next
+            execute "DELETE FROM history WHERE arc_id=$arc" []
+            execute "DELETE FROM journal WHERE arc_id=$arc" []
+            execute "UPDATE session SET state=$state,root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0,revision=$revision WHERE arc_id=$arc"
+                ["state",Store.text (Codec.encodeState next); "root",Store.text next.Root; "baseline",Store.text current
+                 "saved",Store.text (Codec.encodeGraph next); "revision",SqlValue.Integer(revision + 1L)])
+        // New instances isolate displaced state from the replacement projection.
+        for value in entities.Values do repository.Release(arcId,value)
+        entities.Clear()
+        state <- next; cursor <- 0; revision <- revision + 1L
+        baseline <- Some current; savedGraph <- Some(Codec.encodeGraph next)
+        restore next
+    member _.Close() =
+        if not closed then
+            closed <- true
+            repository.Forget(arcId)
+            entities.Clear()

@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type DescriptorOperations internal (session: Session) =
     member _.create(describes: EntityReference) = let value = Descriptor(describes) in session.Register(value,"Descriptor"); value
     member _.register(value: Descriptor) = session.Register(value,"Descriptor"); value
-    member _.set(value: Descriptor): unit = session.Set(value,"Descriptor")
+    member _.upsert(value: Descriptor): unit = session.Set(value,"Descriptor")
     member _.get(id: string) = session.Get<Descriptor>("Descriptor",id)
     member _.list() = session.List<Descriptor>("Descriptor")
     member _.delete(value: Descriptor) = session.Delete(value)

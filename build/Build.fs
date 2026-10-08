@@ -30,6 +30,8 @@ let _baseModel = [BaseModelTasks.buildBaseModel; BaseModelTasks.testBaseModel] |
 
 let _polyglotSQLite = [PolyglotSQLiteTasks.buildPolyglotSQLite; PolyglotSQLiteTasks.testPolyglotSQLite] |> ignore
 
+let _arcSession = ARCSessionTasks.testARCSession |> ignore
+
 let _managementPrototype = TestTasks.testManagementPrototype |> ignore
 
 let _coreSQL = TestTasks.testCoreSQL |> ignore

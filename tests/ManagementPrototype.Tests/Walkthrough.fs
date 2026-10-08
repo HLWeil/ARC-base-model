@@ -1,5 +1,6 @@
 module ManagementPrototype.Tests.Walkthrough
 
+#if !FABLE_COMPILER
 open ARCBaseModel
 open ARCtrl
 
@@ -31,4 +32,5 @@ let run folder =
     printfn "Resumed standalone object: %s" (resumed.Sample.get(id)).Name
     printfn "Session database: %s" resumed.DatabasePath
     printfn "Root dirty: %b; session-only objects: %b" resumed.IsDirty resumed.HasSessionOnlyObjects
+#endif
 

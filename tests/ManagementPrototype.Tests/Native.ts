@@ -1,4 +1,25 @@
-import { ARC, Dataset, Annotation } from "../../build/out/management/js/index.js";
+import { ARC, Session } from "arc-session";
+import { Dataset, Annotation } from "arc-base-model";
+
+const session = Session.createInMemory();
+const firstRoot = new Dataset(["process-provenance"], ["first"]);
+const secondRoot = new Dataset(["process-provenance"], ["second"]);
+firstRoot.Id = secondRoot.Id = "root";
+const first = session.createArc(firstRoot);
+const second = session.createArc(secondRoot);
+check(first.Model === firstRoot, "Supplied root adopted");
+check(first.ArcId !== second.ArcId, "Generated ARC identity");
+check(session.openArc(first.ArcId) === first, "Active facade cached");
+check(session.listArcs()[0].RootEntityId === "root", "Lightweight metadata");
+check(session.listArcs()[0].Folder === undefined, "Unbound metadata");
+first.close();
+second.Sample.create("still open");
+session.close();
+
+// @ts-expect-error importing a folder requires a Session
+if (false) ARC.importFolder({}, "folder");
+// @ts-expect-error sessions are created by factories
+if (false) new Session();
 
 function check(value: boolean, message: string): void { if (!value) throw new Error(message); }
 const folder = `build/out/management/native-js-${Date.now()}`;
@@ -56,7 +77,7 @@ try {
   const replacement=new Annotation("replaced");
   replacement.Id=value.Id;
   replacement.Value="";
-  arc.Annotation.set(replacement);
+  arc.Annotation.upsert(replacement);
   check(value.Value==="","Native empty text is present");
   check(value!==replacement,"Canonical instance retained");
   arc.save();

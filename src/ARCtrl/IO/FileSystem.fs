@@ -19,6 +19,8 @@ module internal Files =
     let write (_path: string) (_text: string) : unit = nativeOnly
     [<Emit("__import__('os').replace($0, $1)")>]
     let replace (_source: string) (_destination: string) : unit = nativeOnly
+    [<Emit("__import__('pathlib').Path($0).touch(exist_ok=False)")>]
+    let createExclusive (_path: string) : unit = nativeOnly
     [<Emit("__import__('os').remove($0)")>]
     let remove (_path: string) : unit = nativeOnly
 #else
@@ -37,6 +39,11 @@ module internal Files =
     let private writeText (_path: string) (_text: string) (_encoding: string) : unit = nativeOnly
     [<Import("renameSync", "node:fs")>]
     let replace (_source: string) (_destination: string) : unit = nativeOnly
+    [<Import("openSync", "node:fs")>]
+    let private openExclusive (_path: string) (_flags: string) : int = nativeOnly
+    [<Import("closeSync", "node:fs")>]
+    let private closeFile (_handle: int) : unit = nativeOnly
+    let createExclusive path = closeFile (openExclusive path "wx")
     [<Import("unlinkSync", "node:fs")>]
     let remove (_path: string) : unit = nativeOnly
     let mkdir path = makeDirectory path {| recursive = true |}
@@ -52,8 +59,16 @@ module internal Files =
     let replace source destination =
         if IO.File.Exists(destination) then IO.File.Replace(source, destination, null)
         else IO.File.Move(source, destination)
+    let createExclusive path =
+        use stream = new IO.FileStream(path, IO.FileMode.CreateNew, IO.FileAccess.Write, IO.FileShare.None)
+        ()
     let remove path = IO.File.Delete(path)
 #endif
 #endif
     let readOptional path = if exists path then Some(read path) else None
+#if FABLE_COMPILER_PYTHON
+    [<Emit("__import__('uuid').uuid4().hex")>]
+    let newId () : string = nativeOnly
+#else
     let newId () = Guid.NewGuid().ToString("N")
+#endif

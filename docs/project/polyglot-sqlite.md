@@ -167,7 +167,9 @@ atomicity. A script can contain its own complete transaction. On failure or an
 unfinished transaction, the library rolls back the script's remaining active
 work; earlier committed statements remain committed.
 
-Factories own and close the handles they open. `WrapConnection` borrows an
+Factories own and close the handles they open. Owned .NET connections disable
+provider pooling so `Close` releases physical handles and Windows file locks.
+`WrapConnection` borrows an
 already-open, idle native handle and leaves it open on release. It enables
 foreign keys and restores settings it changes. Use the handle exclusively
 through the wrapper until `Close`; do not retain active native cursors or start

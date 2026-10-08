@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type SampleOperations internal (session: Session) =
     member _.create(name: string) = let value = Sample(name) in session.Register(value,"Sample"); value
     member _.register(value: Sample) = session.Register(value,"Sample"); value
-    member _.set(value: Sample): unit = session.Set(value,"Sample")
+    member _.upsert(value: Sample): unit = session.Set(value,"Sample")
     member _.get(id: string) = session.Get<Sample>("Sample",id)
     member _.list() = session.List<Sample>("Sample")
     member _.delete(value: Sample) = session.Delete(value)

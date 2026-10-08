@@ -10,7 +10,7 @@ type DatasetOperations internal (session: Session) =
         let value = Dataset(["process-provenance"], [Model.required "identifier" identifier])
         session.Register(value,"Dataset"); value
     member _.register(value: Dataset) = session.Register(value,"Dataset"); value
-    member _.set(value: Dataset): unit = session.Set(value,"Dataset")
+    member _.upsert(value: Dataset): unit = session.Set(value,"Dataset")
     member _.get(id: string) = session.Get<Dataset>("Dataset",id)
     member _.list() = session.List<Dataset>("Dataset")
     member _.delete(value: Dataset) = session.Delete(value)

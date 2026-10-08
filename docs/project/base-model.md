@@ -133,13 +133,16 @@ tests `isinstance(value, float64)`, which does not recognize an ordinary Python
 Consequently, raw Fable output alone does not satisfy this library's native
 numeric contract.
 
-Python staging applies a small AST compatibility pass. It extends generated
-`float64` checks to accept native `int` and `float` values alongside the Fable
-wrapper, excluding Python booleans from the numeric case. It also converts
-wrapped numeric return values at the public `Annotation.Value` and test-probe
-numeric boundaries to native Python floats. This adapts numeric representation;
-it does not normalize domain text, identifiers, or object identity. The compiler
-version and production dependencies remain unchanged.
+The user-updated Fable 5.20 runtime represents doubles as plain Python floats;
+its erased numeric tests recognize the exact float type, still excluding native
+integers. Python staging applies a small AST compatibility pass supporting both
+compiler shapes. It accepts native `int`/`float` and older Fable wrappers while
+excluding Python Booleans. Wrapped Annotation, property-bag, collection and probe
+numeric reads return native floats; supplied native values retain their identity.
+The pass handles the wrapper constructor and
+the newer float conversion function. It adapts representation without changing
+domain text, identifiers, or object identity. No dependency or compiler upgrade
+is performed by staging.
 
 Apply the same compatibility pass to future transpiled F# Python consumers,
 including a separately built SQLite mapper:

@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type OrganizationOperations internal (session: Session) =
     member _.create(name: string) = let value = Organization(name) in session.Register(value,"Organization"); value
     member _.register(value: Organization) = session.Register(value,"Organization"); value
-    member _.set(value: Organization): unit = session.Set(value,"Organization")
+    member _.upsert(value: Organization): unit = session.Set(value,"Organization")
     member _.get(id: string) = session.Get<Organization>("Organization",id)
     member _.list() = session.List<Organization>("Organization")
     member _.delete(value: Organization) = session.Delete(value)

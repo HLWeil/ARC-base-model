@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type AnnotationOperations internal (session: Session) =
     member _.create(name: string) = let value = Annotation(name) in session.Register(value,"Annotation"); value
     member _.register(value: Annotation) = session.Register(value,"Annotation"); value
-    member _.set(value: Annotation): unit = session.Set(value,"Annotation")
+    member _.upsert(value: Annotation): unit = session.Set(value,"Annotation")
     member _.get(id: string) = session.Get<Annotation>("Annotation",id)
     member _.list() = session.List<Annotation>("Annotation")
     member _.delete(value: Annotation) = session.Delete(value)
@@ -35,4 +35,4 @@ type AnnotationOperations internal (session: Session) =
     member _.setAdditionalTypes(value: Annotation, replacement: seq<string>) =
         session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"Annotation.setAdditionalTypes")
     member _.setValueText(value: Annotation, replacement: string) = session.Change(value,"value",Some(Text(Model.required "value" replacement)),"Annotation.setValueText")
-    member _.setValueNumber(value: Annotation, replacement: float) = session.Change(value,"value",Some(Number replacement),"Annotation.setValueNumber")
+    member _.setValueNumber(value: Annotation, replacement: float) = session.Change(value,"value",Some(Number(Model.number replacement)),"Annotation.setValueNumber")

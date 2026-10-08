@@ -8,6 +8,7 @@
     <Compile Include="CoreSql.fs" />
     <Compile Include="Behavior.fs" />
     <Compile Include="FullModel.fs" />
+    <Compile Include="Toolbox.fs" />
     <Compile Include="Walkthrough.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>

@@ -1,6 +1,154 @@
 # ARC Management API
 
-Status: preliminary design plan
+Status: ARC toolbox implemented; shared and native verification complete.
+
+## ARC toolbox refactor (2026-10-08)
+
+The current implementation replaces single-workspace resource ownership with two
+public components in the existing ARCtrl assembly:
+
+| Component | Ownership |
+|---|---|
+| `ARCSession.Session` | One PolyglotSQLite connection, memory/file storage, repository schema, ARC creation/opening, lightweight metadata and connection lifetime. |
+| `ARCtrl.ARC` | One working graph, identity map, entity operations, history and optional folder binding/export/recovery. |
+
+```fsharp
+let session = ARCSession.Session.createInMemory()
+// Or createFile("collection.sqlite") / openFile("collection.sqlite").
+let first = session.createArc(firstDataset)
+let second = session.createArc(secondDataset)
+first.Process.setInputSample(process, sample) |> ignore
+first.History.undo()
+first.bindFolder("./arc-a")
+first.save()
+let arcId = first.ArcId
+first.close()
+let reopened = session.openArc(arcId)
+let entries = session.listArcs()
+session.close()
+```
+
+### Implemented contracts
+
+- `createFile` exclusively reserves a new destination; existing files are
+  rejected. `openFile` requires an existing version-4 repository and validates
+  columns, primary keys and relationship foreign keys without hydrating graphs.
+  No legacy migration, initialization-on-open or database replacement occurs.
+- `createArc` adopts a supplied graph with a generated repository `ArcId`,
+  preserving domain IDs and the current missing-ID policy. Repeated `openArc`
+  calls share a facade/projection until it closes. `listArcs` materializes attached
+  `ArcInfo` metadata containing ArcId, root entity ID and optional folder only.
+- Repository metadata scopes entities and typed rows by `(arc_id,id)`, ordered
+  values/references by ARC/owner/property/position, and extensions additionally
+  by path. History/journal, revision, baseline and saved graph are ARC-local;
+  schema version is database-wide. Composite foreign keys enforce ARC scope for
+  generic and typed endpoints, extensions and parent extension paths.
+- Snapshot commands rebuild only the affected ARC's rows. Entity type, scalar
+  property/value, and reverse-reference indexes retain ARC/entity keys. No
+  cross-ARC search API or extra entity surrogate key is introduced.
+- Each ARC retains its own objects, undo/redo stream and revision checks.
+  Sharing live entities across ARCs is rejected, including across repositories.
+  Other-ARC edits do not invalidate handles. Stale same-ARC writes require close
+  and reopen. Connection access stays synchronous and serialized.
+- Closing an ARC releases its context; closing the session invalidates every
+  handle and closes the one owned connection. In-memory storage lasts for that
+  connection. Neither close exports implicitly. ARCtrl and its tests exclusively
+  use PolyglotSQLite; provider code remains encapsulated in that library.
+- `ARC.importFolder(session,folder)` creates a bound entry and baseline from
+  prototype `arc.yml`. New `bindFolder` destinations require absent `arc.yml` and
+  do not load/write. `save` explicitly exports the root graph and preserves
+  standalone objects and history in the database. Database-only reopening does
+  no filesystem reconciliation; `recoverFolder` invokes explicit IO recovery.
+- Folder source selection and external-change checks are retained. Reload
+  archives only the displaced ARC's metadata/state/history/journal inside the
+  repository. Shared database files are never renamed or replaced. Failed saves
+  retain the previous successful SQL checkpoint and pending status; publication
+  followed by checkpoint failure requires explicit source selection.
+- Compatibility `ARC.create` and `ARC.openFolder` privately own a session at the
+  existing `.arc/testing.sqlite` location. Their close releases that session.
+  Convenience opening requires a single matching ARC rather than selecting one
+  from a collection. Entity replacement uses `upsert(value)`; other public
+  operation-group names and call shapes remain intact.
+
+### Structure and verification
+
+Latest verification: `TestARCSession` passed all 120 tests on each of .NET,
+JavaScript and Python, plus native consumers, declarations and packed packages.
+Behavior and SQL suites now use portable file access; no suite is excluded from
+Fable builds. Explicit assertions replace empty literal-pattern success branches
+that Fable Python emitted incorrectly, resolving the two failures recorded below
+without changing production code. Python test output is unbuffered. Local
+documentation links and `git diff --check` passed.
+
+Entity replacement methods are now named `upsert(value)` across all 14 groups,
+with callers, native declarations and documentation updated. Method bodies and
+persisted history labels are unchanged. At rename verification, `TestARCSession` compiled the shared
+Python suite: .NET passed 120/120, JavaScript 24/24, native/packed/declaration
+checks passed, and Python passed 22/24. The aggregate failed on two separate
+Boolean extension checks (`Undo bool` and `Expected Boolean`), replacing the
+previous compiler block. Local documentation links and `git diff --check` passed.
+
+`ARCSession/Internal` storage responsibilities are implemented by
+`Storage/SQLiteStore.fs` and `ARCSession/Repository.fs`; `ARCSession/Session.fs`
+contains the public facade and metadata. The internal ARC context remains in
+`Runtime/Session.fs`. `Runtime/ArcFactory.fs` adopts/hydrates graphs and
+`Runtime/Workspace.fs` handles ARC-local folders. Contexts and operation groups
+compile before ARC, then the public Session. Internal factories avoid a
+recursive public type group. Native entrypoints are `arc-session` and
+`arc_session`, with shared model/SQLite class definitions and curated checked
+declarations. The F# importFolder compile-order bridge accepts the session
+through an internal owner interface; native declarations specify Session.
+
+Added `TestARCSession` with independent .NET/JS/Python/native targets and retained
+`TestManagementPrototype`. Shared tests cover identical IDs, ownership and SQL
+constraint rejection, lazy hydration, history isolation, ARC closure, memory/file
+parity, per-ARC archives, revisions, rollback and checkpoint failures. Full-model
+tests retain cycles, duplicates, extensions and numeric alternatives.
+
+Consolidated the test projects into `ManagementPrototype.Tests.fsproj` and one
+runner; all suites are retained, with compile guards for .NET-only files.
+Rechecked: `TestManagementPrototype` passed 120/120 and `TestARCSessionJS` passed
+24/24. At consolidation, `TestARCSessionPy` still failed on the Fable Python `set` compiler
+error described below.
+
+Verification so far: `TestManagementPrototype` passed 119/119 before the final
+shared checkpoint regression; shared JavaScript passed 23/23 before that added
+case. Handwritten JavaScript/TypeScript and Python consumers passed, including
+native `set(value)` calls. `TestPolyglotSQLite` passed 41 .NET / 36 JS / 36 Python
+tests, native/packed/declaration checks and all nine interoperability cases.
+Final results: `TestManagementPrototype` passed 120/120, including the new
+shared checkpoint failure case. Final `TestARCSessionJS` passed 24/24, including
+the typed numeric and repeated-folder import checks.
+`TestARCSessionNative` passed with strict TypeScript checks, handwritten JS/TS
+and Python consumers, and independent local npm archives/Python wheels. Native
+checks include integer/fractional values, Boolean rejection, standalone objects,
+cycles, duplicates, extensions, memory/file sessions, closure and reopen.
+`TestBaseModel` passed 25/25 on each runtime plus native, declarations and local
+archive consumers after adapting the existing numeric compatibility pass.
+`TestARCSession` failed at `BuildARCSessionPyTests`; its .NET and native targets
+passed, while shared JS/Python execution was skipped in that aggregate run.
+Independent JS coverage is reported separately. Targeted checks passed all 12
+local links in seven updated documents, and `git diff --check` passed. Existing
+NuGet audit/version-constraint and YAMLicious numeric-provider warnings remain.
+
+Before the public `upsert` rename, Fable 5.20.0's Python shared-test compiler failed
+with `The input list was empty` on one-argument methods named `set`: the backend
+mistakes them for two-argument collection assignment. The temporary public-method
+workaround was removed at the user's request and remains removed. Library Python
+compilation and handwritten native calls succeeded; shared Python compilation and
+the aggregate did not pass at that point. Native checks also exposed and repaired
+Python UUID formatting, root validation emission, the existing model numeric
+compatibility pass for 5.20, and JavaScript BLOB buffer conversion. No new
+dependency or compiler upgrade was made by this refactor.
+
+### Follow-up boundary
+
+The prototype still uses `arc.yml`. `.arc/project.yml` dispatch, incremental SQL
+writes, legacy migrations, cross-ARC search and shared mutable entities are
+outside this refactor. The earlier design below is retained as historical
+project-file planning; its single-ARC ownership and whole-database archive
+assumptions are superseded by the contracts above. See the updated
+[project guide](../docs/project/arctrl.md) for current usage.
 
 ## YAML formatting repair (2026-10-07)
 
@@ -119,7 +267,7 @@ The session has a top-level registry for any supported entity type, independent
 of containment in the root Dataset graph. Registration alone does not attach
 an object to a Dataset or create a persistent-IO representation.
 
-Add explicit ID-based value upserts such as `arc.Sample.set(sample): unit`.
+Add explicit ID-based value upserts such as `arc.Sample.upsert(sample): unit`.
 An unknown ID registers the supplied object; a missing ID is assigned by Layer 2.
 An existing same-type ID replaces values in the registered instance, preserving
 references, rather than replacing the instance. Use detached inputs for updates:

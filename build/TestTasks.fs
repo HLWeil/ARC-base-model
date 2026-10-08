@@ -111,5 +111,5 @@ let testCoreSQL = BuildTask.create "TestCoreSQL" [testManagementPrototype; Polyg
 
 let runTests =
     // TODO: add back python tests when FsSpreadsheet
-    BuildTask.create "RunTests" [ clean; buildSolution; runTestsDotnet; (*runTestsPy;*) runTestsJs; BaseModelTasks.testBaseModel; PolyglotSQLiteTasks.testPolyglotSQLite; testCoreSQL ] {
+    BuildTask.create "RunTests" [ clean; buildSolution; runTestsDotnet; (*runTestsPy;*) runTestsJs; BaseModelTasks.testBaseModel; PolyglotSQLiteTasks.testPolyglotSQLite; ARCSessionTasks.testARCSession; testCoreSQL ] {
     }

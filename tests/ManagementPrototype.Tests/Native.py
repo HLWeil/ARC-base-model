@@ -1,8 +1,9 @@
 from pathlib import Path
 from uuid import uuid4
-from arc_management import ARC, Dataset, Annotation
+from arc_session import ARC, Session
+from arc_base_model import Dataset, Annotation, Sample
 
-folder = str(Path("build/out/management") / ("native-python-" + uuid4().hex))
+folder = str(Path("build/out/arc-session") / ("native-python-" + uuid4().hex))
 arc = ARC.create(folder, Dataset(["process-provenance", "semantic-designation", "administrative"], ["native"]))
 try:
     sample = arc.Sample.create("sample")
@@ -57,7 +58,7 @@ try:
     replacement = Annotation("replaced")
     replacement.Id = value.Id
     replacement.Value = ""
-    arc.Annotation.set(replacement)
+    arc.Annotation.upsert(replacement)
     assert value.Value == "" and value is not replacement
     arc.save()
     arc.close()
@@ -76,3 +77,65 @@ try:
 finally:
     arc.close()
 print("Native Python management checks passed.")
+
+def root():
+    value = Dataset(["process-provenance"], ["native"])
+    value.Id = "root"
+    return value
+
+def rejects(action):
+    try:
+        action()
+    except Exception:
+        return
+    raise AssertionError("Expected rejection")
+
+path = str(Path(folder) / "collection.sqlite")
+session = Session.create_file(path)
+first = session.create_arc(root())
+second = session.create_arc(root())
+sample = Sample("first")
+sample.Id = "same"
+first.Sample.upsert(sample)
+other = Sample("second")
+other.Id = "same"
+second.Sample.upsert(other)
+numeric = first.Annotation.create("numeric boundary")
+first.Annotation.set_value_number(numeric, 0)
+assert type(numeric.Value) is float
+rejects(lambda: first.Annotation.set_value_number(numeric, False))
+rejects(lambda: first.Entity.set_number_property(first.Model, "bad", False))
+process = first.Process.create("process")
+rejects(lambda: first.Process.set_input_sample(process, other))
+first.Process.set_input_sample(process, sample)
+first.Dataset.add_process(first.Model, process)
+first.Sample.set_name(sample, "changed")
+first.History.undo()
+assert sample.Name == "first" and other.Name == "second"
+assert session.open_arc(first.ArcId) is first
+assert len(session.list_arcs()) == 2
+assert session.list_arcs()[0].RootEntityId == "root"
+assert session.list_arcs()[0].Folder is None
+destination = str(Path(folder) / "export")
+first.bind_folder(destination)
+assert not (Path(destination) / "arc.yml").exists()
+first.save()
+first_id, second_id = first.ArcId, second.ArcId
+first.close()
+rejects(lambda: first.Sample.create("closed"))
+second.Sample.set_name(other, "independent")
+session.close()
+session = Session.open_file(path)
+resumed = session.open_arc(first_id)
+assert resumed.Model.Processes[0].Input is resumed.Sample.get("same")
+resumed.History.redo()
+assert resumed.Sample.get("same").Name == "changed"
+assert session.open_arc(second_id).Sample.get("same").Name == "independent"
+rejects(lambda: Session.create_file(path))
+memory = Session.create_in_memory()
+imported = ARC.import_folder(memory, destination)
+assert imported.Model.Processes[0].Input.Name == "first"
+memory.close()
+session.close()
+rejects(lambda: resumed.save())
+print("Native Python ARC session checks passed.")

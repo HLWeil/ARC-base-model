@@ -1,9 +1,21 @@
 namespace ARCtrl.Internal
 
 open System
+open Fable.Core
 open ARCBaseModel
 
 module internal Model =
+#if FABLE_COMPILER_PYTHON
+    [<Emit("type($0) in (int, float) or isinstance($0, type(__import__('fable_library.core', fromlist=['float64']).float64(0.0)))")>]
+    let private validNumber (_value: float) : bool = nativeOnly
+    [<Emit("float($0)")>]
+    let private nativeNumber (_value: float) : float = nativeOnly
+    let number value =
+        if not (validNumber value) then invalidArg "value" "Number requires a numeric value, excluding Boolean values."
+        nativeNumber value
+#else
+    let number value = value
+#endif
     let required name value = if isNull (box value) then nullArg name else value
     let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no session ID; register it first.")
     let kind (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Type
@@ -309,9 +321,8 @@ module internal Model =
         let ids = state.Entities |> List.map (fun row -> row.Id)
         if (List.distinct ids).Length <> ids.Length then invalidOp "Different entities cannot share a session ID."
         let rows = state.Entities |> List.map (fun row -> row.Id, row) |> Map.ofList
-        match Map.tryFind state.Root rows with
-        | Some row when row.Kind = "Dataset" -> ()
-        | _ -> invalidOp "Root Dataset is missing."
+        let root = Map.tryFind state.Root rows |> Option.defaultWith (fun () -> invalidOp "Root Dataset is missing.")
+        if root.Kind <> "Dataset" then invalidOp "Root Dataset is missing."
         for row in state.Entities do
             required "id" row.Id |> ignore
             let spec = specifications row.Kind

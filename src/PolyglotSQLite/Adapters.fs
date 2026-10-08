@@ -400,6 +400,8 @@ module internal Adapters =
     let openFile (path: string) =
         let builder = SqliteConnectionStringBuilder()
         builder.DataSource <- path
+        // Owned Close must release the physical handle, including Windows file locks.
+        builder.Pooling <- false
         let connection = new Microsoft.Data.Sqlite.SqliteConnection(builder.ToString())
         try
             connection.Open()

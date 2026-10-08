@@ -4,10 +4,11 @@ open System
 open Fable.Core
 open ARCBaseModel
 open ARCtrl.Internal
+open ARCSession.Internal
 
-/// Experimental ARC session. SQL retains the full registry; save exports only Model.
+/// One managed ARC. SQL retains its full registry; save exports only Model.
 [<AttachMembers>]
-type ARC private (session: Session) =
+type ARC private (session: Session, ownsRepository: bool) =
     let entityOperations = EntityOperations(session)
     let datasetOperations = DatasetOperations(session)
     let processOperations = ProcessOperations(session)
@@ -39,29 +40,39 @@ type ARC private (session: Session) =
     member _.Data = dataOperations
     member _.Recipe = recipeOperations
     member _.History = historyOperations
-    member _.Folder = session.Folder
+    member _.ArcId = session.ArcId
+    member _.FolderBinding = session.Folder
+    member _.Folder = session.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding.")
+    member _.bindFolder(folder: string) = Workspace.bind session folder
+    member _.recoverFolder(source: string) = Workspace.recover session source
     member _.DatabasePath = session.DatabasePath
     member _.IsDirty = session.IsDirty
     member _.HasSessionOnlyObjects = session.HasSessionOnlyObjects
-    member _.save() = session.Save()
-    member _.close() = session.Close()
+    member _.save() = Workspace.save session
+    member _.close() =
+        if not session.IsClosed then session.Repository.Access(session.Close)
+        if ownsRepository then session.Repository.Close()
+    static member internal Wrap(context: Session, ownsRepository: bool) =
+        let arc = new ARC(context,ownsRepository)
+        context.Repository.Track(context.ArcId,box arc,context.Close)
+        arc
     static member create(folder: string, rootDataset: Dataset) =
-        let folder = Files.fullPath folder
+        let folder = Files.fullPath(Model.required "folder" folder)
         Model.required "rootDataset" rootDataset |> ignore
         if Files.exists (Workspace.path folder) || Files.exists (Files.combine folder "arc.yml") then invalidOp "Workspace already exists. Use openFolder."
-        // Validate/adopt the supplied graph with the same registration pipeline.
-        let initialRoot = Dataset(rootDataset.ConformsTo, rootDataset.Identifiers)
-        let rootId = Files.newId()
-        let row = Model.capture rootId (fun _ -> invalidOp "Unexpected initial reference.") initialRoot
-        let temporaryState = { Root = rootId; Entities = [row] }
-        let session = Workspace.create folder temporaryState None
+        Files.mkdir(Files.combine folder ".arc")
+        let repository = Repository.CreateFile(Workspace.path folder)
         try
-            session.Register(rootDataset, "Dataset")
-            session.InitializeRoot(rootDataset)
-            new ARC(session)
+            let context = ArcFactory.create repository rootDataset
+            Workspace.bind context folder
+            ARC.Wrap(context,true)
         with _ ->
-            session.Close()
-            Files.remove (Workspace.path folder)
+            repository.Close()
+            Files.remove(Workspace.path folder)
             reraise()
-    static member openFolder(folder: string, source: string) = new ARC(Workspace.openFolder folder source)
+    static member openFolder(folder: string, source: string) = ARC.Wrap(Workspace.openFolder folder source,true)
+    /// The native declarations type this compile-order bridge as ARCSession.Session.
+    static member importFolder(session: obj, folder: string) =
+        let owner = unbox<ISessionOwner>(Model.required "session" session)
+        ARC.Wrap(ArcFactory.import owner.Repository folder,false)
     interface IDisposable with member this.Dispose() = this.close()

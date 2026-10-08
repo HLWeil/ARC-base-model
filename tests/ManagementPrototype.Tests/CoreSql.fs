@@ -1,22 +1,23 @@
 module ManagementPrototype.Tests.CoreSql
 
-open System.IO
 open System.Globalization
 open Fable.Pyxpecto
 open PolyglotSQLite
 open ARCtrl.Internal
+open ARCSession.Internal
 
 let private fixtures = "schemas/sql/"
 let private withCore action =
     let database = Store.openDatabase ":memory:"
     try
-        database.Connection.ExecuteScript(File.ReadAllText(fixtures + "001_core.sql"))
-        database.Connection.ExecuteScript(File.ReadAllText(fixtures + "seed_example.sql"))
+        database.Connection.ExecuteScript(Files.read(fixtures + "001_core.sql"))
+        database.Connection.ExecuteScript(Files.read(fixtures + "seed_example.sql"))
         action database.Connection
     finally database.Close()
 
 let private cases =
-    File.ReadAllLines("tests/ManagementPrototype.Tests/CoreSql.cases.tsv")
+    Files.read("tests/ManagementPrototype.Tests/CoreSql.cases.tsv")
+    |> fun text -> text.Replace("\r", "").Split('\n')
     |> Array.filter (fun line -> line <> "")
     |> Array.map (fun line ->
         let fields = line.Split('\t')

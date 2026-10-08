@@ -9,10 +9,10 @@ constructor, property, and method shapes while restoring domain alternatives.
 The runtime package exports the original generated classes so consumers and
 transpiled mappers share class identity.
 
-The pinned Fable 5.6 Python backend also tests float64 with a runtime wrapper
-class, excluding ordinary Python int/float inputs. The explicit compatibility
-pass admits those native numeric types (never bool) and unwraps numeric values
-at the public model/probe boundary. It does not change the F# model or IDs.
+Fable 5.6 tests float64 with a runtime wrapper; 5.20 tests the exact float type.
+The explicit compatibility pass admits ordinary Python int/float inputs (never
+bool) and unwraps numeric values at public model/probe boundaries. It does not
+change the F# model or IDs.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ CLASS_MODULES = {
     name: module for module, names in MODULE_CLASSES.items() for name in names
 }
 COMPAT_MARKER = "_ARC_BASE_MODEL_PYTHON_COMPAT"
-COMPAT_VERSION = "fable-5.6-numeric-v1"
+COMPAT_VERSION = "fable-5.6-5.20-numeric-v2"
 
 
 def dotted_name(node: ast.expr) -> str | None:
@@ -119,6 +119,28 @@ def numeric_compatibility(source: str, filename: str) -> str:
     boundaries = 0
 
     class NumericChecks(ast.NodeTransformer):
+        def visit_Compare(self, node: ast.Compare) -> ast.expr:
+            nonlocal changes
+            node = self.generic_visit(node)
+            # Fable 5.20 emits str(type(value)) == "<class 'float'>" for
+            # erased numeric cases. Accept native integers as well, excluding
+            # bool through an exact type comparison.
+            if not (len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq)
+                    and len(node.comparators) == 1
+                    and isinstance(node.comparators[0], ast.Constant)
+                    and node.comparators[0].value == "<class 'float'>"
+                    and isinstance(node.left, ast.Call)
+                    and isinstance(node.left.func, ast.Name) and node.left.func.id == "str"
+                    and len(node.left.args) == 1):
+                return node
+            tested = node.left.args[0]
+            if not (isinstance(tested, ast.Call) and isinstance(tested.func, ast.Name)
+                    and tested.func.id == "type" and len(tested.args) == 1):
+                return node
+            changes += 1
+            return ast.Compare(left=tested, ops=[ast.In()], comparators=[ast.Tuple(
+                elts=[ast.Name(id="int", ctx=ast.Load()), ast.Name(id="float", ctx=ast.Load())], ctx=ast.Load())])
+
         def visit_Call(self, node: ast.Call) -> ast.expr:
             nonlocal changes
             node = self.generic_visit(node)
@@ -179,7 +201,8 @@ def numeric_compatibility(source: str, filename: str) -> str:
     additions = ast.parse(f'{COMPAT_MARKER} = "{COMPAT_VERSION}"\n').body
     if boundaries:
         additions += ast.parse(
-            "from fable_library.core import float64 as _arc_fable_float64\n"
+            "from fable_library.core import float64 as _arc_make_float64\n"
+            "_arc_fable_float64 = type(_arc_make_float64(0.0))\n"
             "def _arc_native_number(value):\n"
             "    return float(value) if isinstance(value, _arc_fable_float64) else value\n"
         ).body
@@ -210,7 +233,7 @@ def compatibility_tree(directory: Path) -> None:
         if transformed != source:
             path.write_text(transformed, encoding="utf-8")
             count += 1
-    print(f"Applied Fable 5.6 native numeric compatibility to {count} generated Python modules")
+    print(f"Applied native numeric compatibility to {count} generated Python modules")
 
 
 def field_key(name: str) -> str:

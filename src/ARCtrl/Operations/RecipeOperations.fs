@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type RecipeOperations internal (session: Session) =
     member _.create(name: string) = let value = Recipe(name) in session.Register(value,"Recipe"); value
     member _.register(value: Recipe) = session.Register(value,"Recipe"); value
-    member _.set(value: Recipe): unit = session.Set(value,"Recipe")
+    member _.upsert(value: Recipe): unit = session.Set(value,"Recipe")
     member _.get(id: string) = session.Get<Recipe>("Recipe",id)
     member _.list() = session.List<Recipe>("Recipe")
     member _.delete(value: Recipe) = session.Delete(value)

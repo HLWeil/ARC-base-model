@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type AgentOperations internal (session: Session) =
     member _.create(name: string) = let value = Agent(name) in session.Register(value,"Agent"); value
     member _.register(value: Agent) = session.Register(value,"Agent"); value
-    member _.set(value: Agent): unit = session.Set(value,"Agent")
+    member _.upsert(value: Agent): unit = session.Set(value,"Agent")
     member _.get(id: string) = session.Get<Agent>("Agent",id)
     member _.list() = session.List<Agent>("Agent")
     member _.delete(value: Agent) = session.Delete(value)

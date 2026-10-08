@@ -133,6 +133,20 @@ let tests = testList "drivers" [
         Expect.throws (fun () -> db.BeginTransaction() |> ignore) "Closed connection cannot transact"
 
 #if !FABLE_COMPILER
+    testCase "owned file closure releases the physical handle" <| fun _ ->
+        let folder = IO.Path.GetFullPath("build/out/polyglot-sqlite/close-tests")
+        IO.Directory.CreateDirectory(folder) |> ignore
+        let path = IO.Path.Combine(folder,Guid.NewGuid().ToString("N") + ".sqlite")
+        let db = Sqlite.OpenFile(path)
+        try db.Execute("CREATE TABLE owned_file (value)")
+        finally db.Close()
+        try
+            // Reopening exclusively fails on Windows if a provider pool retained a handle.
+            use file = new IO.FileStream(path,IO.FileMode.Open,IO.FileAccess.ReadWrite,IO.FileShare.None)
+            Expect.isTrue (file.Length > 0L) "Owned database remains usable after release"
+        finally IO.File.Delete(path)
+        Expect.isFalse (IO.File.Exists(path)) "Closed owned database can be deleted"
+
     testCase "borrowed .NET connections stay open and restore foreign keys" <| fun _ ->
         use native = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
         native.Open()

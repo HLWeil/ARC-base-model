@@ -2,12 +2,13 @@ module ManagementPrototype.Tests.FullModel
 
 open System
 open ARCtrl.Internal
+open ARCSession.Internal
 open ARCBaseModel
 open ARCtrl
 open Fable.Pyxpecto
 
 let private folder () =
-    let path = Files.fullPath(Files.combine "build/out/management-prototype/full-model" (Guid.NewGuid().ToString("N")))
+    let path = Files.fullPath(Files.combine "build/out/management-prototype/full-model" (Files.newId()))
     Files.mkdir path
     path
 let private same actual expected = Expect.isTrue (Object.ReferenceEquals(actual,expected)) "Canonical shared reference"
@@ -130,19 +131,19 @@ let tests = testList "Full base-model management" [
         let article = (arc.ScholarlyArticle.list() |> Seq.head)
         let sampleProperties = sample.AdditionalProperties
         let newDataset = Dataset(["administrative"],["replacement"],id=root.Id.Value)
-        arc.Dataset.set(newDataset)
-        arc.Process.set(ARCBaseModel.Process("Replacement",id=proc.Id.Value))
-        arc.Sample.set(Sample("Replacement",id=sample.Id.Value))
-        arc.Data.set(Data("new.csv",id=data.Id.Value))
-        arc.Recipe.set(Recipe(name="Replacement",id=recipe.Id.Value))
-        arc.Annotation.set(Annotation("Replacement",value=AnnotationValue.Text "",id=annotation.Id.Value))
-        arc.FormalParameter.set(FormalParameter(id=parameter.Id.Value))
-        arc.DefinedTerm.set(DefinedTerm("Replacement",inDefinedTermSet=DefinedTermSetReference.Url "ontology-url",id=term.Id.Value))
-        arc.DefinedTermSet.set(DefinedTermSet("Replacement",id=termset.Id.Value))
-        arc.Descriptor.set(Descriptor(EntityReference.Data data,id=descriptor.Id.Value))
-        arc.Agent.set(Agent("Replacement",id=agent.Id.Value))
-        arc.Organization.set(Organization("Replacement",id=organization.Id.Value))
-        arc.ScholarlyArticle.set(ScholarlyArticle("Replacement",id=article.Id.Value))
+        arc.Dataset.upsert(newDataset)
+        arc.Process.upsert(ARCBaseModel.Process("Replacement",id=proc.Id.Value))
+        arc.Sample.upsert(Sample("Replacement",id=sample.Id.Value))
+        arc.Data.upsert(Data("new.csv",id=data.Id.Value))
+        arc.Recipe.upsert(Recipe(name="Replacement",id=recipe.Id.Value))
+        arc.Annotation.upsert(Annotation("Replacement",value=AnnotationValue.Text "",id=annotation.Id.Value))
+        arc.FormalParameter.upsert(FormalParameter(id=parameter.Id.Value))
+        arc.DefinedTerm.upsert(DefinedTerm("Replacement",inDefinedTermSet=DefinedTermSetReference.Url "ontology-url",id=term.Id.Value))
+        arc.DefinedTermSet.upsert(DefinedTermSet("Replacement",id=termset.Id.Value))
+        arc.Descriptor.upsert(Descriptor(EntityReference.Data data,id=descriptor.Id.Value))
+        arc.Agent.upsert(Agent("Replacement",id=agent.Id.Value))
+        arc.Organization.upsert(Organization("Replacement",id=organization.Id.Value))
+        arc.ScholarlyArticle.upsert(ScholarlyArticle("Replacement",id=article.Id.Value))
         same arc.Model root
         same (arc.Process.get(proc.Id.Value)) proc
         same sample.AdditionalProperties sampleProperties
@@ -282,22 +283,16 @@ let tests = testList "Full base-model management" [
             Expect.isFalse resumed.HasSessionOnlyObjects "Reachability terminates on cycles"
             resumed.close())
 
-#if !FABLE_COMPILER
-    testCase "SQL failures roll back rich upserts and old session versions require explicit reload" (fun _ ->
+    testCase "SQL failures roll back rich upserts and incompatible repository versions are rejected" (fun _ ->
         let path = folder()
         let arc = ARC.create(path,fixture())
         let recipe = arc.Model.Processes[0].ExecutesRecipe.Value
         let original = recipe.Components
-        let options = Microsoft.Data.Sqlite.SqliteConnectionStringBuilder()
-        options.DataSource <- arc.DatabasePath
-        options.Pooling <- false
-        use handle = new Microsoft.Data.Sqlite.SqliteConnection(options.ToString())
-        handle.Open()
-        use sql = PolyglotSQLite.Sqlite.WrapConnection(handle)
+        use sql = PolyglotSQLite.Sqlite.OpenFile(arc.DatabasePath)
         sql.ExecuteScript("CREATE TRIGGER reject_recipe BEFORE INSERT ON recipe WHEN instr(NEW.payload,'Rejected')>0 BEGIN SELECT RAISE(ABORT,'injected'); END;")
         let component = Annotation("Pending")
         let replacement = Recipe(name="Rejected",components=[component],id=recipe.Id.Value)
-        Expect.throws (fun () -> arc.Recipe.set(replacement)) "SQL rejects the planned graph"
+        Expect.throws (fun () -> arc.Recipe.upsert(replacement)) "SQL rejects the planned graph"
         Expect.equal recipe.Name (Some "Recipe") "Canonical values restored"
         same recipe.Components original
         Expect.equal recipe.Components.Count 2 "Canonical references preserved"
@@ -309,15 +304,15 @@ let tests = testList "Full base-model management" [
         sql.Execute("DROP TRIGGER reject_recipe")
         arc.save()
         arc.close()
-        sql.Execute("UPDATE session SET schema_version=1")
+        sql.Execute("UPDATE repository SET schema_version=1")
         sql.Close()
-        handle.Close()
         Expect.throws (fun () -> ARC.openFolder(path,"sql") |> ignore) "No silent session migration"
         Expect.throws (fun () -> ARC.openFolder(path,"auto") |> ignore) "Automatic open preserves incompatible SQL"
-        let resumed = ARC.openFolder(path,"yml")
-        Expect.equal resumed.Model.Processes[0].ExecutesRecipe.Value.Components.Count 2 "Explicit reload retains saved graph"
+        Expect.throws (fun () -> ARC.openFolder(path,"yml") |> ignore) "Explicit IO selection does not replace an incompatible repository"
+        use imported = ARCSession.Session.createInMemory()
+        let resumed = ARC.importFolder(imported,path)
+        Expect.equal resumed.Model.Processes[0].ExecutesRecipe.Value.Components.Count 2 "Independent import reads saved graph"
         resumed.close())
-#endif
 
     testCase "re-registering an undone instance reuses its retained identity without aliases" (fun _ ->
         let arc = ARC.create(folder(),fixture())
@@ -354,9 +349,9 @@ let tests = testList "Full base-model management" [
         arc.Entity.setCollectionProperty(custom, "values", [Entity.Object custom; Entity.Object custom; Entity.Text "42"; Entity.Number 0.; Entity.Collection(EntityCollection([]))]) |> ignore
         arc.Entity.setTextProperty(custom, "accepted", "false") |> ignore
         arc.History.undo()
-        match arc.Entity.getProperty(custom, "accepted") with Entity.Bool false -> () | _ -> failwith "Undo bool"
+        match arc.Entity.getProperty(custom, "accepted") with Entity.Bool value -> Expect.isFalse value "Undo bool" | _ -> failwith "Expected Boolean"
         arc.History.redo()
-        match arc.Entity.getProperty(custom, "accepted") with Entity.Text "false" -> () | _ -> failwith "Redo text"
+        match arc.Entity.getProperty(custom, "accepted") with Entity.Text value -> Expect.equal value "false" "Redo text" | _ -> failwith "Expected text"
         Expect.throws (fun () -> arc.Entity.create("Recipe") |> ignore) "Core type requires core class"
         Expect.throws (fun () -> arc.Entity.setProperty(root, "type", Entity.Text "override") |> ignore) "Reserved key"
         Expect.throws (fun () -> arc.Entity.addProperty(custom, "score", Entity.Number 1.) |> ignore) "Duplicate key"
@@ -389,7 +384,7 @@ let tests = testList "Full base-model management" [
         match yaml.Entity.getProperty(loaded, "bytes") with Entity.Blob v -> Expect.equal v.Base64 "AAH//w==" "Blob YAML" | _ -> failwith "Blob"
         match yaml.Entity.getProperty(loaded, "$ref") with Entity.Text v -> Expect.equal v "literal extension key" "Reference-like key remains metadata" | _ -> failwith "Text"
         match yaml.Entity.getProperty(loaded, "emptyBlob") with Entity.Blob v -> Expect.equal v.Base64 "" "Empty blob" | _ -> failwith "Empty blob"
-        match yaml.Entity.getProperty(loaded, "missing") with Entity.Null _ -> () | _ -> failwith "Null"
+        match yaml.Entity.getProperty(loaded, "missing") with Entity.Null value -> Expect.isTrue value.IsNull "Null" | _ -> failwith "Expected null"
         match yaml.Entity.getProperty(loaded, "values") with
         | Entity.Collection vs ->
             Expect.equal vs.Count 5 "Collection count"
@@ -408,21 +403,23 @@ let tests = testList "Full base-model management" [
         Expect.throws (fun () -> arc.save()) "Direct extension mutation detected"
         arc.close())
 
-    testCase "version two sessions upgrade without discarding history" (fun _ ->
+    testCase "unknown repository versions preserve state and history" (fun _ ->
         let path = folder()
-        let arc = ARC.create(path, Dataset(["process-provenance"], ["upgrade"]))
+        let arc = ARC.create(path, Dataset(["process-provenance"], ["version"]))
         arc.Dataset.setTitle(arc.Model, "title") |> ignore
         let dbPath = arc.DatabasePath
         arc.close()
         let database = Store.openDatabase dbPath
-        database.Connection.Execute("DROP TABLE entity_extension")
-        database.Connection.Execute("UPDATE session SET schema_version=2")
+        database.Connection.Execute("UPDATE repository SET schema_version=2")
         database.Close()
-        let reopened = ARC.openFolder(path, "sql")
-        Expect.equal reopened.Model.Title (Some "title") "Working state retained"
+        Expect.throws (fun () -> ARC.openFolder(path,"sql") |> ignore) "Unsupported version rejected"
+        let database = Store.openDatabase dbPath
+        Expect.equal ((database.Connection.Query("SELECT count(*) FROM history")).[0].Get(0).AsInteger()) 1L "History untouched"
+        database.Connection.Execute("UPDATE repository SET schema_version=4")
+        database.Close()
+        let reopened = ARC.openFolder(path,"sql")
         reopened.History.undo()
         Expect.isNone reopened.Model.Title "History retained"
-        reopened.Entity.setNumberProperty(reopened.Model, "score", 0.) |> ignore
         reopened.close())
 
     testCase "plain extension keys and numbers match the Agent Helicopter example" (fun _ ->
@@ -496,13 +493,17 @@ let tests = testList "Full base-model management" [
                     match value key with Entity.Number n -> Expect.equal n expected "Numeric value" | _ -> failwith ("Expected number: " + entity.Type)
                 for key, expected in ["numberText","1000"; "boolText","false"; "nullText","null"; "$ref","custom key"; "a: b","colon key"; "a#b","hash key"; "true","Boolean-like key"; "1000","Numeric-like key"; "lab:altitude","namespaced key"] do
                     match value key with Entity.Text text -> Expect.equal text expected "Text value" | _ -> failwith ("Expected text: " + entity.Type)
-                match value "accepted" with Entity.Bool false -> () | _ -> failwith "Expected Boolean"
-                match value "missing" with Entity.Null _ -> () | _ -> failwith "Expected null"
+                match value "accepted" with Entity.Bool flag -> Expect.isFalse flag "Boolean value" | _ -> failwith "Expected Boolean"
+                match value "missing" with Entity.Null missing -> Expect.isTrue missing.IsNull "Null value" | _ -> failwith "Expected null"
                 match value "blob" with Entity.Blob b -> Expect.equal b.Base64 "AA==" "Blob survives valid tag" | _ -> failwith "Expected blob"
                 match value "values" with
                 | Entity.Collection values ->
                     match values.Get(0), values.Get(1), values.Get(2), values.Get(3) with
-                    | Entity.Number 1000., Entity.Text "1000", Entity.Bool false, Entity.Null _ -> ()
+                    | Entity.Number number, Entity.Text text, Entity.Bool flag, Entity.Null missing ->
+                        Expect.equal number 1000. "Collection number"
+                        Expect.equal text "1000" "Collection text"
+                        Expect.isFalse flag "Collection Boolean"
+                        Expect.isTrue missing.IsNull "Collection null"
                     | _ -> failwith "Mixed collection alternatives"
                 | _ -> failwith "Expected collection"
             loaded.close())

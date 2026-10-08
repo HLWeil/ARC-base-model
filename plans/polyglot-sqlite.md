@@ -21,6 +21,8 @@ Update this plan in **every implementation commit**, recording changes, checks a
 
 ### Commit and verification log
 
+- ARC toolbox integration (2026-10-08): all ARCtrl production and management-test database access now goes through PolyglotSQLite. Disabled pooling for owned .NET file connections so `Close` releases the physical handle, including cleanup after failed ARC creation. Borrowed handles keep their existing ownership rules. Added a Windows exclusive-file-open regression. `TestPolyglotSQLite` passed: 41 .NET tests, 36 JavaScript tests, 36 Python tests, checked native declarations/consumers and packed artifacts, and all nine database writer/reader combinations. The first run stopped at missing installed TypeScript; restoring the existing npm lockfile dependencies resolved it. No dependency was added.
+
 - Planning checkpoint: inspected legacy implementations, dependency compatibility, and build integration. Isolated probes verified the Python representation approach. No tracked implementation changes were made during planning.
 - Repair-register revision: identified the concrete legacy behaviors below and assigned acceptance checks. These findings do not establish that repairs have been implemented.
 - Plan baseline: saved the accepted plan with all implementation milestones and repairs pending. Working tree was clean before creating this document.

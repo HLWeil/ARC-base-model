@@ -1,15 +1,35 @@
 module ManagementPrototype.Tests.Behavior
 
 open System
-open System.IO
+open ARCtrl.Internal
+open Fable.Core
 open ARCBaseModel
 open ARCtrl
 open Fable.Pyxpecto
 
+#if FABLE_COMPILER_PYTHON
+[<Emit("__import__('pathlib').Path($0).is_dir()")>]
+let private directoryExists (_path: string) : bool = nativeOnly
+[<Emit("[str(p) for p in __import__('pathlib').Path($0).glob('.arc-*.tmp') if p.is_file()]")>]
+let private temporaryFiles (_path: string) : string array = nativeOnly
+#else
+#if FABLE_COMPILER
+[<ImportAll("node:fs")>]
+let private fs: obj = nativeOnly
+let private directoryExists (path: string) : bool =
+    JsInterop.emitJsExpr (path, fs) "$1.existsSync($0) && $1.statSync($0).isDirectory()"
+let private temporaryFiles (path: string) : string array =
+    JsInterop.emitJsExpr (path, fs) "$1.readdirSync($0, {withFileTypes:true}).filter(e => e.isFile() && e.name.startsWith('.arc-') && e.name.endsWith('.tmp')).map(e => e.name)"
+#else
+let private directoryExists path = System.IO.Directory.Exists(path)
+let private temporaryFiles path = System.IO.Directory.GetFiles(path, ".arc-*.tmp")
+#endif
+#endif
+
 let private folder () =
-    let root = Path.GetFullPath("build/out/management-prototype/tests")
-    let path = Path.Combine(root, Guid.NewGuid().ToString("N"))
-    Directory.CreateDirectory(path) |> ignore
+    let root = Files.fullPath("build/out/management-prototype/tests")
+    let path = Files.combine root (Files.newId())
+    Files.mkdir(path) |> ignore
     path
 
 let private create () =
@@ -28,22 +48,27 @@ let private output (proc: ARCBaseModel.Process) =
     | _ -> failwith "Expected sample output"
 
 let private withSql path action =
-    let options = Microsoft.Data.Sqlite.SqliteConnectionStringBuilder()
-    options.DataSource <- path
-    options.Pooling <- false
-    use handle = new Microsoft.Data.Sqlite.SqliteConnection(options.ToString())
-    handle.Open()
-    use sql = PolyglotSQLite.Sqlite.WrapConnection(handle)
+    use sql = PolyglotSQLite.Sqlite.OpenFile(path)
     action sql
 
 let private count table path =
     withSql path (fun sql -> sql.Query("SELECT count(*) FROM " + table).[0].Get(0).AsInteger())
 
-let private archives path = Directory.GetFiles(Path.Combine(path, ".arc"), "testing-*.sqlite")
+let private archives path =
+    withSql (Files.combine (Files.combine path ".arc") "testing.sqlite") (fun sql ->
+        sql.Query("SELECT archive_id FROM arc_archive") |> Seq.map (fun row -> row.Get(0).AsText()) |> Seq.toArray)
+let private archivedHistory path archiveId =
+    withSql (Files.combine (Files.combine path ".arc") "testing.sqlite") (fun sql ->
+        sql.Query("SELECT count(*) FROM archived_history WHERE archive_id=$id", [PolyglotSQLite.SqlParameter("id",PolyglotSQLite.SqlValue.Text(archiveId))]).[0].Get(0).AsInteger())
+let private archivedSamples path =
+    withSql (Files.combine (Files.combine path ".arc") "testing.sqlite") (fun sql ->
+        sql.Query("SELECT state FROM arc_archive") |> Seq.exists (fun row ->
+            let state = ARCtrl.Internal.Codec.decodeState(row.Get(0).AsText())
+            state.Entities |> List.exists (fun entity -> entity.Kind = "Sample")))
 
 let private externalTitle path title =
-    let yaml = Path.Combine(path, "arc.yml")
-    File.WriteAllText(yaml, File.ReadAllText(yaml).Replace("title: original", "title: " + title))
+    let yaml = Files.combine path "arc.yml"
+    Files.write yaml (Files.read(yaml).Replace("title: original", "title: " + title))
 
 let tests = testList "Management prototype" [
     testCase "create adopts supplied graph and retains references" <| fun _ ->
@@ -86,7 +111,7 @@ let tests = testList "Management prototype" [
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         arc.Process.setInputSample(proc, sample) |> ignore
         arc.save()
-        let yaml = File.ReadAllText(Path.Combine(path, "arc.yml"))
+        let yaml = Files.read(Files.combine path "arc.yml")
         Expect.isFalse (yaml.Contains("standalone")) "Only the root graph is exported"
         Expect.isFalse arc.IsDirty "Exported graph is saved"
         Expect.isTrue arc.HasSessionOnlyObjects "Standalone registry is tracked separately"
@@ -107,7 +132,7 @@ let tests = testList "Management prototype" [
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         let id = proc.Id.Value
         arc.close()
-        Expect.isFalse (File.Exists(Path.Combine(path, "arc.yml"))) "Close is not save"
+        Expect.isFalse (Files.exists(Files.combine path "arc.yml")) "Close is not save"
         use resumed = ARC.openFolder(path, "auto")
         same (resumed.Process.get(id)) resumed.Model.Processes[0]
         Expect.isTrue resumed.IsDirty "Root graph still awaits export"
@@ -126,7 +151,7 @@ let tests = testList "Management prototype" [
         arc.Process.setInputSample(proc, sample) |> ignore
         arc.Dataset.addProcess(ds, proc) |> ignore
         arc.save()
-        let yaml = File.ReadAllText(Path.Combine(path, "arc.yml"))
+        let yaml = Files.read(Files.combine path "arc.yml")
         Expect.isFalse (yaml.Contains("standalone")) "Entire standalone subgraph stays in SQL"
         let dsId, procId, sampleId = ds.Id.Value, proc.Id.Value, sample.Id.Value
         arc.close()
@@ -338,7 +363,7 @@ let tests = testList "Management prototype" [
         arc.close()
         arc.close()
         Expect.throws (fun () -> operations.create("closed") |> ignore) "Cached service cannot outlive session"
-        Expect.throws (fun () -> operations.set(Sample("closed"))) "Upsert cannot outlive session"
+        Expect.throws (fun () -> operations.upsert(Sample("closed"))) "Upsert cannot outlive session"
         Expect.throws (fun () -> arc.Model |> ignore) "Closed model access rejected"
 
     testCase "automatic selection reloads external YAML only for a clean session" <| fun _ ->
@@ -351,7 +376,7 @@ let tests = testList "Management prototype" [
         Expect.equal resumed.Model.Title (Some "external") "Clean session reloads external YAML"
         Expect.isFalse resumed.History.CanUndo "Reload starts fresh history"
         Expect.equal (archives path).Length 1 "Displaced session archived"
-        Expect.equal (count "history" (archives path).[0]) 1L "Archive preserves old history"
+        Expect.equal (archivedHistory path (archives path).[0]) 1L "Archive preserves old history"
 
     testCase "external changes conflict with pending edits and explicit SQL preserves them" <| fun _ ->
         let path, arc = create()
@@ -367,7 +392,8 @@ let tests = testList "Management prototype" [
         resumed.History.undo()
         Expect.equal resumed.Model.Title (Some "original") "Undo history retained"
         Expect.isTrue resumed.IsDirty "Chosen SQL graph still needs filesystem publication"
-        File.AppendAllText(Path.Combine(path, "arc.yml"), "\n# another external edit\n")
+        let yaml = Files.combine path "arc.yml"
+        Files.write yaml (Files.read yaml + "\n# another external edit\n")
         Expect.throws (fun () -> resumed.save()) "Further external edits reject save"
 
     testCase "two open sessions cannot silently overwrite each other's SQL revision" <| fun _ ->
@@ -385,14 +411,14 @@ let tests = testList "Management prototype" [
         let root = Dataset(["process-provenance"], ["example"], dataFiles = [Data("file", "file.txt")])
         root.DataFiles[0].Path <- Unchecked.defaultof<string>
         Expect.throws (fun () -> ARC.create(path, root) |> ignore) "Invalid initial graph rejected"
-        Expect.isFalse (File.Exists(Path.Combine(path, ".arc", "testing.sqlite"))) "Failed creation removes its own database"
+        Expect.isFalse (Files.exists(Files.combine (Files.combine path ".arc") "testing.sqlite")) "Failed creation removes its own database"
         Expect.isNone root.Id "Failed initial graph leaves root ID optional"
 
     testCase "missing sources and invalid source preferences do not create state" <| fun _ ->
         let path = folder()
         for source in ["auto"; "sql"; "yml"; "invalid"] do
             Expect.throws (fun () -> ARC.openFolder(path, source) |> ignore) "Missing or invalid source rejected"
-        Expect.isFalse (Directory.Exists(Path.Combine(path, ".arc"))) "Read failures do not initialize storage"
+        Expect.isFalse (directoryExists(Files.combine path ".arc")) "Read failures do not initialize storage"
 
     testCase "session-only objects conflict even when the root graph is clean" <| fun _ ->
         let path, arc = create()
@@ -428,13 +454,13 @@ let tests = testList "Management prototype" [
         reloaded.close()
         use second = ARC.openFolder(path, "yml")
         Expect.equal (archives path).Length 2 "Archive names are unique"
-        Expect.isTrue ((archives path) |> Array.exists (fun archive -> count "sample" archive = 1L)) "Standalone data retained in archive"
+        Expect.isTrue (archivedSamples path) "Standalone data retained in archive"
 
     testCase "invalid YAML is validated before archiving a retained session" <| fun _ ->
         let path, arc = create()
         arc.save()
         arc.close()
-        File.WriteAllText(Path.Combine(path, "arc.yml"), "type: Dataset\nunknown: unsupported\n")
+        Files.write (Files.combine path "arc.yml") "type: Dataset\nunknown: unsupported\n"
         Expect.throws (fun () -> ARC.openFolder(path, "yml") |> ignore) "Unsupported YAML rejected"
         Expect.equal (archives path).Length 0 "Original SQL not displaced"
         use retained = ARC.openFolder(path, "sql")
@@ -446,8 +472,8 @@ let tests = testList "Management prototype" [
         use arc = created
         arc.Dataset.setTitle(arc.Model, "original") |> ignore
         arc.save()
-        let yaml = Path.Combine(path, "arc.yml")
-        let baseline = File.ReadAllText(yaml)
+        let yaml = Files.combine path "arc.yml"
+        let baseline = Files.read(yaml)
         arc.Dataset.setTitle(arc.Model, "edited") |> ignore
         withSql arc.DatabasePath (fun sql ->
             sql.ExecuteScript("CREATE TRIGGER fail_save BEFORE UPDATE OF baseline ON session BEGIN SELECT RAISE(ABORT,'injected save failure'); END;"))
@@ -456,7 +482,7 @@ let tests = testList "Management prototype" [
         withSql arc.DatabasePath (fun sql ->
             Expect.equal (sql.Query("SELECT baseline FROM session").[0].Get(0).AsText()) baseline "Checkpoint is not advanced"
             sql.Execute("DROP TRIGGER fail_save"))
-        Expect.equal (Directory.GetFiles(path, ".arc-*.tmp")).Length 0 "Temporary output cleaned up"
+        Expect.equal (temporaryFiles(path)).Length 0 "Temporary output cleaned up"
         Expect.throws (fun () -> arc.save()) "Published file with failed SQL commit requires source reselection"
         arc.close()
         use resumed = ARC.openFolder(path, "sql")
@@ -466,20 +492,20 @@ let tests = testList "Management prototype" [
     testCase "filesystem write failure leaves SQL checkpoint unchanged" <| fun _ ->
         let path, created = create()
         use arc = created
-        Directory.CreateDirectory(Path.Combine(path, "arc.yml")) |> ignore
+        Files.mkdir(Files.combine path "arc.yml") |> ignore
         Expect.throws (fun () -> arc.save()) "Cannot replace a directory with YAML"
         Expect.isTrue arc.IsDirty "Graph remains unsaved"
         withSql arc.DatabasePath (fun sql ->
             Expect.isTrue (sql.Query("SELECT baseline FROM session").[0].Get(0).IsNull) "No checkpoint established")
-        Expect.equal (Directory.GetFiles(path, ".arc-*.tmp")).Length 0 "Temporary output removed"
+        Expect.equal (temporaryFiles(path)).Length 0 "Temporary output removed"
 
-    testCase "sample set inserts with supplied or assigned IDs as one reversible command" <| fun _ ->
+    testCase "sample upsert inserts with supplied or assigned IDs as one reversible command" <| fun _ ->
         let _, created = create()
         use arc = created
         let supplied = Sample("supplied", id = "sample-1", additionalTypes = ["custom"; "custom"])
         let assigned = Sample("assigned")
-        let result: unit = arc.Sample.set(supplied)
-        arc.Sample.set(assigned)
+        let result: unit = arc.Sample.upsert(supplied)
+        arc.Sample.upsert(assigned)
         Expect.equal result () "Upsert returns unit"
         Expect.equal supplied.Id (Some "sample-1") "Supplied ID retained"
         Expect.isSome assigned.Id "Missing ID assigned by Layer 2"
@@ -502,11 +528,11 @@ let tests = testList "Management prototype" [
         same (arc.Sample.get("sample-1")) supplied
         Expect.equal (Seq.toList supplied.AdditionalTypes) ["custom"; "custom"] "Duplicates restored"
 
-    testCase "sample set replaces values while retaining shared references and collection identity" <| fun _ ->
+    testCase "sample upsert replaces values while retaining shared references and collection identity" <| fun _ ->
         let _, created = create()
         use arc = created
         let canonical = Sample("original", id = "sample-1", additionalTypes = ["old"; "old"])
-        arc.Sample.set(canonical)
+        arc.Sample.upsert(canonical)
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         arc.Process.setInputSample(proc, canonical) |> ignore
@@ -514,7 +540,7 @@ let tests = testList "Management prototype" [
         let types = canonical.AdditionalTypes
         let replacement = Sample("updated", id = "sample-1", additionalTypes = ["new"; "new"; "other"])
         let commands = count "history" arc.DatabasePath
-        arc.Sample.set(replacement)
+        arc.Sample.upsert(replacement)
         Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Replacement is one command"
         Expect.equal (arc.Sample.list()).Count 1 "No duplicate registered object"
         same (arc.Sample.get("sample-1")) canonical
@@ -535,22 +561,22 @@ let tests = testList "Management prototype" [
         same (input proc) canonical
         arc.History.redo()
         Expect.equal canonical.Name "updated" "Recorded values, not later caller edits, replayed"
-        arc.Sample.set(Sample("", id = "sample-1"))
+        arc.Sample.upsert(Sample("", id = "sample-1"))
         Expect.equal canonical.Name "" "Empty name preserved"
         Expect.equal canonical.AdditionalTypes.Count 0 "Empty collection clears earlier values"
         arc.History.undo()
         Expect.equal (Seq.toList canonical.AdditionalTypes) ["new"; "new"; "other"] "Clearing is reversible"
 
-    testCase "sample set history and pending edits recover across reopening" <| fun _ ->
+    testCase "sample upsert history and pending edits recover across reopening" <| fun _ ->
         let path, created = create()
         use arc = created
         let sample = Sample("original", id = "sample-1")
-        arc.Sample.set(sample)
+        arc.Sample.upsert(sample)
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         arc.Process.setInputSample(proc, sample) |> ignore
         arc.save()
-        arc.Sample.set(Sample("updated", id = "sample-1", additionalTypes = ["custom"; "custom"]))
+        arc.Sample.upsert(Sample("updated", id = "sample-1", additionalTypes = ["custom"; "custom"]))
         Expect.isTrue arc.IsDirty "Linked sample replacement awaits filesystem export"
         arc.close()
         use resumed = ARC.openFolder(path, "auto")
@@ -569,13 +595,13 @@ let tests = testList "Management prototype" [
         Expect.equal (Seq.toList redone.AdditionalTypes) ["custom"; "custom"] "SQL snapshots retain duplicate values"
         same (input reopened.Model.Processes[0]) redone
 
-    testCase "sample set can reactivate a deleted ID without replacing its retained instance" <| fun _ ->
+    testCase "sample upsert can reactivate a deleted ID without replacing its retained instance" <| fun _ ->
         let _, created = create()
         use arc = created
         let canonical = Sample("original", id = "sample-1")
-        arc.Sample.set(canonical)
+        arc.Sample.upsert(canonical)
         arc.Sample.delete(canonical) |> ignore
-        arc.Sample.set(Sample("replacement", id = "sample-1"))
+        arc.Sample.upsert(Sample("replacement", id = "sample-1"))
         same (arc.Sample.get("sample-1")) canonical
         Expect.equal canonical.Name "replacement" "Deleted ID is inserted again"
         arc.History.undo()
@@ -588,47 +614,47 @@ let tests = testList "Management prototype" [
         same (arc.Sample.get("sample-1")) canonical
         Expect.equal canonical.Name "replacement" "Reactivation redo retains identity"
 
-    testCase "sample set rejects invalid inputs cross-type IDs and direct live mutations" <| fun _ ->
+    testCase "sample upsert rejects invalid inputs cross-type IDs and direct live mutations" <| fun _ ->
         let _, created = create()
         use arc = created
         let canonical = Sample("original", id = "sample-1")
-        arc.Sample.set(canonical)
+        arc.Sample.upsert(canonical)
         let proc = arc.Process.create("measurement")
         let commands = count "history" arc.DatabasePath
-        Expect.throws (fun () -> arc.Sample.set(Sample("collision", id = arc.Model.Id.Value))) "Dataset ID collision rejected"
-        Expect.throws (fun () -> arc.Sample.set(Sample("collision", id = proc.Id.Value))) "Process ID collision rejected"
-        Expect.throws (fun () -> arc.Sample.set(Unchecked.defaultof<Sample>)) "Null input rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(Sample("collision", id = arc.Model.Id.Value))) "Dataset ID collision rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(Sample("collision", id = proc.Id.Value))) "Process ID collision rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(Unchecked.defaultof<Sample>)) "Null input rejected"
         let invalid = Sample("invalid")
         invalid.Name <- Unchecked.defaultof<string>
-        Expect.throws (fun () -> arc.Sample.set(invalid)) "Null name rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(invalid)) "Null name rejected"
         Expect.isNone invalid.Id "Validation failure does not assign an ID"
         let invalid = Sample("invalid", id = "sample-1", additionalProperties = [Annotation("property")])
         invalid.AdditionalProperties[0].Name <- Unchecked.defaultof<string>
-        Expect.throws (fun () -> arc.Sample.set(invalid)) "Invalid nested properties are rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(invalid)) "Invalid nested properties are rejected"
         let invalidTypes = Sample("invalid", id = "sample-1")
         invalidTypes.AdditionalTypes.Add(Unchecked.defaultof<string>)
-        Expect.throws (fun () -> arc.Sample.set(invalidTypes)) "Null collection values rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(invalidTypes)) "Null collection values rejected"
         canonical.Name <- "bypassed"
-        Expect.throws (fun () -> arc.Sample.set(canonical)) "Upsert does not commit direct live edits"
+        Expect.throws (fun () -> arc.Sample.upsert(canonical)) "Upsert does not commit direct live edits"
         canonical.Name <- "original"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed upserts create no history"
         same (arc.Sample.get("sample-1")) canonical
         Expect.equal canonical.Name "original" "Registered values unchanged"
         Expect.throws (fun () -> arc.Sample.register(Sample("duplicate", id = "sample-1")) |> ignore) "Registration still rejects duplicates"
 
-    testCase "sample set SQL failure rolls back updates insertions and assigned IDs" <| fun _ ->
+    testCase "sample upsert SQL failure rolls back updates insertions and assigned IDs" <| fun _ ->
         let _, created = create()
         use arc = created
         let canonical = Sample("original", id = "sample-1", additionalTypes = ["old"])
-        arc.Sample.set(canonical)
+        arc.Sample.upsert(canonical)
         let commands = count "history" arc.DatabasePath
         withSql arc.DatabasePath (fun sql ->
             sql.ExecuteScript("CREATE TRIGGER reject_upsert BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END;"))
-        Expect.throws (fun () -> arc.Sample.set(Sample("reject", id = "sample-1", additionalTypes = ["new"]))) "Replacement SQL failure"
+        Expect.throws (fun () -> arc.Sample.upsert(Sample("reject", id = "sample-1", additionalTypes = ["new"]))) "Replacement SQL failure"
         Expect.equal canonical.Name "original" "Failed update leaves canonical values unchanged"
         Expect.equal (Seq.toList canonical.AdditionalTypes) ["old"] "Failed update restores collection values"
         let pending = Sample("reject")
-        Expect.throws (fun () -> arc.Sample.set(pending)) "Insertion SQL failure"
+        Expect.throws (fun () -> arc.Sample.upsert(pending)) "Insertion SQL failure"
         Expect.isNone pending.Id "Failed insertion restores missing ID"
         Expect.equal (arc.Sample.list()).Count 1 "Failed insertion leaves registry unchanged"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed SQL creates no upsert history"
@@ -637,16 +663,16 @@ let tests = testList "Management prototype" [
         arc.History.undo()
         Expect.equal (arc.Sample.list()).Count 0 "Existing history remains usable"
 
-    testCase "sample set branches history without dirtying a saved standalone root" <| fun _ ->
+    testCase "sample upsert branches history without dirtying a saved standalone root" <| fun _ ->
         let _, created = create()
         use arc = created
         arc.save()
         let sample = Sample("original")
-        arc.Sample.set(sample)
+        arc.Sample.upsert(sample)
         let id = sample.Id.Value
         arc.History.undo()
         Expect.isTrue arc.History.CanRedo "Insertion can be redone"
-        arc.Sample.set(Sample("new branch", id = id))
+        arc.Sample.upsert(Sample("new branch", id = id))
         Expect.isFalse arc.History.CanRedo "New upsert clears the redo branch"
         same (arc.Sample.get(id)) sample
         Expect.equal sample.Name "new branch" "Retained identity reused on the new branch"

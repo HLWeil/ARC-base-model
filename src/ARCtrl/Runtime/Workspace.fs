@@ -1,47 +1,72 @@
 namespace ARCtrl.Internal
 
+open ARCSession.Internal
+
+/// Folder policy belongs to ARC, independently of database opening.
 module internal Workspace =
     let path folder = Files.combine (Files.combine folder ".arc") "testing.sqlite"
-    let create folder state baseline =
-        Model.validate state
-        Files.mkdir folder
-        Files.mkdir (Files.combine folder ".arc")
-        let database = Store.openDatabase (path folder)
-        try Store.initialize database.Connection state baseline; Session(folder, database)
-        with _ -> database.Close(); reraise()
-    let load folder =
-        let database = Store.openDatabase (path folder)
-        try Session(folder, database) with _ -> database.Close(); reraise()
-    let openFolder folder source =
-        let folder = Files.fullPath folder
-        let current = Files.readOptional (Files.combine folder "arc.yml")
-        let hasSql = Files.exists (path folder)
-        let fromYaml () =
-            let state = current |> Option.defaultWith (fun () -> invalidOp "No arc.yml exists in this folder.") |> Codec.decodeGraph
-            Model.validate state
-            if hasSql then
-                Files.replace (path folder) (Files.combine (Files.combine folder ".arc") ("testing-" + Files.newId() + ".sqlite"))
-            create folder state current
-        match source with
-        | "yml" -> fromYaml()
-        | "sql" ->
-            if not hasSql then invalidOp "No SQL session exists in this folder."
-            let session = load folder
+    let bind (context: Session) folder =
+        let folder = Files.fullPath(Model.required "folder" folder)
+        context.Repository.Access(fun () ->
+            context.Check()
+            if context.Folder <> Some folder then
+                if Files.exists(Files.combine folder "arc.yml") then invalidOp "Folder already contains arc.yml. Use ARC.importFolder."
+                context.Repository.Connection.WithTransaction(fun () -> context.SetBinding(folder)))
+    let save (context: Session) =
+        context.Repository.Access(fun () ->
+            context.Check()
+            let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding. Use bindFolder before save.")
+            let rootPath = Files.combine folder "arc.yml"
+            if Files.readOptional rootPath <> context.Baseline then invalidOp "Persistent YAML changed externally. Reopen with an explicit source preference."
+            let graph = Codec.encodeGraph context.State
+            let temporary = Files.combine folder (".arc-" + Files.newId() + ".tmp")
+            Files.mkdir folder
             try
-                session.AcceptPersistentBaseline(current)
-                session
-            with _ -> session.Close(); reraise()
-        | "auto" when not hasSql -> fromYaml()
-        | "auto" ->
-            let database = Store.openDatabase (path folder)
-            let oldBaseline, state, saved =
-                try
-                    let row = Store.metadata database.Connection
-                    Store.optText row "baseline", row.GetByName("state").AsText() |> Codec.decodeState, Store.optText row "saved_graph"
-                finally database.Close()
-            Model.validate state
-            if current = oldBaseline then load folder
-            elif saved <> Some(Codec.encodeGraph state) || Model.sessionOnly state then
-                invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
-            else fromYaml()
-        | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'."
+                context.Repository.Connection.WithTransaction(fun () ->
+                    context.AssertRevision()
+                    Files.write temporary graph
+                    if Files.readOptional rootPath <> context.Baseline then invalidOp "Persistent YAML changed during save."
+                    Files.replace temporary rootPath
+                    context.SetCheckpoint(graph))
+                context.AcceptCheckpoint(graph)
+            finally
+                if Files.exists temporary then Files.remove temporary)
+    let recover (context: Session) source =
+        context.Repository.Access(fun () ->
+            context.Check()
+            let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding.")
+            let current = Files.readOptional(Files.combine folder "arc.yml")
+            let reload () =
+                let yaml = current |> Option.defaultWith (fun () -> invalidOp "No arc.yml exists in this folder.")
+                let state = Codec.decodeGraph yaml
+                Model.validate state
+                context.Reload(state,yaml)
+            match source with
+            | "sql" -> context.AcceptPersistentBaseline(current)
+            | "yml" -> reload()
+            | "auto" when current = context.Baseline -> context.AssertRevision()
+            | "auto" when context.IsDirty || context.HasSessionOnlyObjects -> invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
+            | "auto" -> reload()
+            | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'.")
+    let openFolder folder source =
+        let folder = Files.fullPath(Model.required "folder" folder)
+        if not (List.contains source ["auto";"sql";"yml"]) then invalidArg "source" "Use 'auto', 'sql', or 'yml'."
+        let existing = Files.exists(path folder)
+        if source = "sql" && not existing then invalidOp "No SQL session exists in this folder."
+        if not existing then
+            Files.read(Files.combine folder "arc.yml") |> Codec.decodeGraph |> Model.validate
+            Files.mkdir(Files.combine folder ".arc")
+        let repository = if existing then Repository.OpenFile(path folder) else Repository.CreateFile(path folder)
+        try
+            if not existing then ArcFactory.import repository folder
+            else
+                let rows = repository.Connection.Query("SELECT arc_id,folder FROM session")
+                if rows.Count <> 1 then invalidOp "Folder convenience open requires exactly one ARC entry. Use ARCSession.Session.openFile."
+                if Store.optText rows[0] "folder" <> Some folder then invalidOp "Repository ARC is bound to another folder. Use ARCSession.Session.openFile."
+                let context = ArcFactory.load repository (rows[0].GetByName("arc_id").AsText())
+                recover context source
+                context
+        with _ ->
+            repository.Close()
+            if not existing then Files.remove(path folder)
+            reraise()

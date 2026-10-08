@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type DefinedTermOperations internal (session: Session) =
     member _.create(name: string) = let value = DefinedTerm(name) in session.Register(value,"DefinedTerm"); value
     member _.register(value: DefinedTerm) = session.Register(value,"DefinedTerm"); value
-    member _.set(value: DefinedTerm): unit = session.Set(value,"DefinedTerm")
+    member _.upsert(value: DefinedTerm): unit = session.Set(value,"DefinedTerm")
     member _.get(id: string) = session.Get<DefinedTerm>("DefinedTerm",id)
     member _.list() = session.List<DefinedTerm>("DefinedTerm")
     member _.delete(value: DefinedTerm) = session.Delete(value)

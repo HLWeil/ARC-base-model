@@ -8,7 +8,7 @@ open ARCtrl.Internal
 type ProcessOperations internal (session: Session) =
     member _.create(name: string) = let value = ARCBaseModel.Process(name) in session.Register(value,"Process"); value
     member _.register(value: ARCBaseModel.Process) = session.Register(value,"Process"); value
-    member _.set(value: ARCBaseModel.Process): unit = session.Set(value,"Process")
+    member _.upsert(value: ARCBaseModel.Process): unit = session.Set(value,"Process")
     member _.get(id: string) = session.Get<ARCBaseModel.Process>("Process",id)
     member _.list() = session.List<ARCBaseModel.Process>("Process")
     member _.delete(value: ARCBaseModel.Process) = session.Delete(value)

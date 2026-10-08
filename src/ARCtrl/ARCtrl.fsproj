@@ -10,8 +10,10 @@
     <Compile Include="Internal/Model.fs" />
     <Compile Include="Serialization/YamlCodec.fs" />
     <Compile Include="Storage/SQLiteStore.fs" />
+    <Compile Include="ARCSession/Repository.fs" />
     <Compile Include="AppliedOperation.fs" />
     <Compile Include="Runtime/Session.fs" />
+    <Compile Include="Runtime/ArcFactory.fs" />
     <Compile Include="Runtime/Workspace.fs" />
     <Compile Include="Operations/EntityOperations.fs" />
     <Compile Include="Operations/DatasetOperations.fs" />
@@ -29,6 +31,7 @@
     <Compile Include="Operations/RecipeOperations.fs" />
     <Compile Include="Operations/HistoryOperations.fs" />
     <Compile Include="ARC.fs" />
+    <Compile Include="ARCSession/Session.fs" />
   </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
@@ -38,6 +41,5 @@
     <ProjectReference Include="../PolyglotSQLite/PolyglotSQLite.fsproj" />
     <PackageReference Include="Fable.Core" />
     <PackageReference Include="YAMLicious" />
-    <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
 </Project>
