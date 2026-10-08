@@ -1,5 +1,7 @@
 namespace ARCtrl
 
+open ARCtrl.Helper
+
 open System
 open Fable.Core
 open ARCBaseModel
@@ -57,10 +59,10 @@ type ARC private (session: Session, ownsRepository: bool) =
         context.Repository.Track(context.ArcId,box arc,context.Close)
         arc
     static member create(folder: string, rootDataset: Dataset) =
-        let folder = Files.fullPath(Model.required "folder" folder)
+        let folder = Path.fullPath(Model.required "folder" folder)
         Model.required "rootDataset" rootDataset |> ignore
-        if Files.exists (Workspace.path folder) || Files.exists (Files.combine folder "arc.yml") then invalidOp "Workspace already exists. Use openFolder."
-        Files.mkdir(Files.combine folder ".arc")
+        if Path.pathExists (Workspace.path folder) || Path.pathExists (Path.combineNative folder Path.ARCFileName) then invalidOp "Workspace already exists. Use openFolder."
+        Path.createDirectory(Path.combineNative folder Path.ARCConfigFolderName)
         let repository = Repository.CreateFile(Workspace.path folder)
         try
             let context = ArcFactory.create repository rootDataset
@@ -68,7 +70,7 @@ type ARC private (session: Session, ownsRepository: bool) =
             ARC.Wrap(context,true)
         with _ ->
             repository.Close()
-            Files.remove(Workspace.path folder)
+            Path.deleteFile(Workspace.path folder)
             reraise()
     static member openFolder(folder: string, source: string) = ARC.Wrap(Workspace.openFolder folder source,true)
     /// The native declarations type this compile-order bridge as ARCSession.Session.

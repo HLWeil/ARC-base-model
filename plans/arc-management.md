@@ -2,6 +2,33 @@
 
 Status: ARC toolbox implemented; shared and native verification complete.
 
+## Helper consolidation (2026-10-08)
+
+Copied the ProcessCore Helper folder into internal `ARCtrl.Helper` modules and
+moved `IO/FileSystem.fs` functions into `Path` and `Identifier`. Filesystem
+adapters are shared by synchronous and async helpers, graph adoption, repository
+lifecycle, YAML loading, folder export/recovery, and the shared test suites.
+Collection restoration uses `ResizeArray.replace`; fixture directories and
+portable test file operations no longer duplicate platform adapters.
+
+Added shared helper checks for UTF-8, file/directory listings, exclusive creation,
+replacement, binary values, async IO, collection reference/duplicate preservation,
+IDs, paths and ontology parsing. Existing ARC behavior stays covered. ProcessCore
+is unchanged; spreadsheet adapters needing FsSpreadsheet are omitted, and HTTP
+helpers use platform APIs without new dependencies. CrossAsync uses F# Async
+on every target, avoiding ProcessCore's extra Promise package. Copied legacy identifier
+parsers are not applied to supplied domain IDs.
+
+Python IO adapters preserve exact UTF-8 bytes (including CRLF), qualify the
+built-in byte conversion to avoid caller-name shadowing, and materialize F#
+arrays from native filesystem lists and bytes. These boundaries are checked by
+the shared helper tests.
+
+Verification: `TestARCSession` passed 127/127 shared tests on each of .NET,
+JavaScript and Python, plus handwritten native consumers, declaration checks,
+and locally packed npm/Python packages. The final aggregate completed in 8m45s.
+Local documentation links and `git diff --check` passed.
+
 ## ARC toolbox refactor (2026-10-08)
 
 The current implementation replaces single-workspace resource ownership with two
@@ -72,7 +99,7 @@ session.close()
 
 ### Structure and verification
 
-Latest verification: `TestARCSession` passed all 120 tests on each of .NET,
+Latest verification: `TestARCSession` passed all 127 tests on each of .NET,
 JavaScript and Python, plus native consumers, declarations and packed packages.
 Behavior and SQL suites now use portable file access; no suite is excluded from
 Fable builds. Explicit assertions replace empty literal-pattern success branches

@@ -1,5 +1,7 @@
 namespace ARCSession.Internal
 
+open ARCtrl.Helper
+
 open ARCtrl.Internal
 
 open PolyglotSQLite
@@ -257,7 +259,7 @@ CREATE TABLE archived_journal(archive_id TEXT NOT NULL REFERENCES arc_archive(ar
             mirror db arcId state)
 
     let archive (db: SqliteConnection) arcId =
-        let archiveId = Files.newId()
+        let archiveId = Identifier.newId()
         let bindings = ["archive",text archiveId; "arc",text arcId]
         execute db "INSERT INTO arc_archive SELECT $archive,arc_id,root_id,folder,state,baseline,saved_graph,cursor,revision FROM session WHERE arc_id=$arc" bindings
         execute db "INSERT INTO archived_history SELECT $archive,sequence,operation_id,kind,before_state,after_state FROM history WHERE arc_id=$arc" bindings

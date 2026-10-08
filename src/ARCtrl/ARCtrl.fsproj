@@ -5,7 +5,16 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="IO/FileSystem.fs" />
+    <Compile Include="Helper/CrossAsync.fs" />
+    <Compile Include="Helper/ResizeArray.fs" />
+    <Compile Include="Helper/Option.fs" />
+    <Compile Include="Helper/Path.fs" />
+    <Compile Include="Helper/Regex.fs" />
+    <Compile Include="Helper/Ontology.fs" />
+    <Compile Include="Helper/Identifier.fs" />
+    <Compile Include="Helper/WebRequest/WebRequest.Node.fs" />
+    <Compile Include="Helper/WebRequest/WebRequest.Py.fs" />
+    <Compile Include="Helper/WebRequest/WebRequest.fs" />
     <Compile Include="Internal/State.fs" />
     <Compile Include="Internal/Model.fs" />
     <Compile Include="Serialization/YamlCodec.fs" />

@@ -1,36 +1,19 @@
 module ManagementPrototype.Tests.Behavior
 
+open ARCtrl.Helper
+
 open System
 open ARCtrl.Internal
-open Fable.Core
 open ARCBaseModel
 open ARCtrl
 open Fable.Pyxpecto
 
-#if FABLE_COMPILER_PYTHON
-[<Emit("__import__('pathlib').Path($0).is_dir()")>]
-let private directoryExists (_path: string) : bool = nativeOnly
-[<Emit("[str(p) for p in __import__('pathlib').Path($0).glob('.arc-*.tmp') if p.is_file()]")>]
-let private temporaryFiles (_path: string) : string array = nativeOnly
-#else
-#if FABLE_COMPILER
-[<ImportAll("node:fs")>]
-let private fs: obj = nativeOnly
-let private directoryExists (path: string) : bool =
-    JsInterop.emitJsExpr (path, fs) "$1.existsSync($0) && $1.statSync($0).isDirectory()"
-let private temporaryFiles (path: string) : string array =
-    JsInterop.emitJsExpr (path, fs) "$1.readdirSync($0, {withFileTypes:true}).filter(e => e.isFile() && e.name.startsWith('.arc-') && e.name.endsWith('.tmp')).map(e => e.name)"
-#else
-let private directoryExists path = System.IO.Directory.Exists(path)
-let private temporaryFiles path = System.IO.Directory.GetFiles(path, ".arc-*.tmp")
-#endif
-#endif
+let private folder () = Helpers.folder "behavior"
 
-let private folder () =
-    let root = Files.fullPath("build/out/management-prototype/tests")
-    let path = Files.combine root (Files.newId())
-    Files.mkdir(path) |> ignore
-    path
+let private temporaryFiles path =
+    Path.getSubFiles path |> Array.filter (fun file ->
+        let name = Path.split file |> Array.last
+        name.StartsWith(".arc-") && name.EndsWith(".tmp"))
 
 let private create () =
     let path = folder()
@@ -55,20 +38,20 @@ let private count table path =
     withSql path (fun sql -> sql.Query("SELECT count(*) FROM " + table).[0].Get(0).AsInteger())
 
 let private archives path =
-    withSql (Files.combine (Files.combine path ".arc") "testing.sqlite") (fun sql ->
+    withSql (Path.combineNative (Path.combineNative path Path.ARCConfigFolderName) "testing.sqlite") (fun sql ->
         sql.Query("SELECT archive_id FROM arc_archive") |> Seq.map (fun row -> row.Get(0).AsText()) |> Seq.toArray)
 let private archivedHistory path archiveId =
-    withSql (Files.combine (Files.combine path ".arc") "testing.sqlite") (fun sql ->
+    withSql (Path.combineNative (Path.combineNative path Path.ARCConfigFolderName) "testing.sqlite") (fun sql ->
         sql.Query("SELECT count(*) FROM archived_history WHERE archive_id=$id", [PolyglotSQLite.SqlParameter("id",PolyglotSQLite.SqlValue.Text(archiveId))]).[0].Get(0).AsInteger())
 let private archivedSamples path =
-    withSql (Files.combine (Files.combine path ".arc") "testing.sqlite") (fun sql ->
+    withSql (Path.combineNative (Path.combineNative path Path.ARCConfigFolderName) "testing.sqlite") (fun sql ->
         sql.Query("SELECT state FROM arc_archive") |> Seq.exists (fun row ->
             let state = ARCtrl.Internal.Codec.decodeState(row.Get(0).AsText())
             state.Entities |> List.exists (fun entity -> entity.Kind = "Sample")))
 
 let private externalTitle path title =
-    let yaml = Files.combine path "arc.yml"
-    Files.write yaml (Files.read(yaml).Replace("title: original", "title: " + title))
+    let yaml = Path.combineNative path Path.ARCFileName
+    Path.writeFileText yaml (Path.readFileText(yaml).Replace("title: original", "title: " + title))
 
 let tests = testList "Management prototype" [
     testCase "create adopts supplied graph and retains references" <| fun _ ->
@@ -111,7 +94,7 @@ let tests = testList "Management prototype" [
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         arc.Process.setInputSample(proc, sample) |> ignore
         arc.save()
-        let yaml = Files.read(Files.combine path "arc.yml")
+        let yaml = Path.readFileText(Path.combineNative path Path.ARCFileName)
         Expect.isFalse (yaml.Contains("standalone")) "Only the root graph is exported"
         Expect.isFalse arc.IsDirty "Exported graph is saved"
         Expect.isTrue arc.HasSessionOnlyObjects "Standalone registry is tracked separately"
@@ -132,7 +115,7 @@ let tests = testList "Management prototype" [
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         let id = proc.Id.Value
         arc.close()
-        Expect.isFalse (Files.exists(Files.combine path "arc.yml")) "Close is not save"
+        Expect.isFalse (Path.pathExists(Path.combineNative path Path.ARCFileName)) "Close is not save"
         use resumed = ARC.openFolder(path, "auto")
         same (resumed.Process.get(id)) resumed.Model.Processes[0]
         Expect.isTrue resumed.IsDirty "Root graph still awaits export"
@@ -151,7 +134,7 @@ let tests = testList "Management prototype" [
         arc.Process.setInputSample(proc, sample) |> ignore
         arc.Dataset.addProcess(ds, proc) |> ignore
         arc.save()
-        let yaml = Files.read(Files.combine path "arc.yml")
+        let yaml = Path.readFileText(Path.combineNative path Path.ARCFileName)
         Expect.isFalse (yaml.Contains("standalone")) "Entire standalone subgraph stays in SQL"
         let dsId, procId, sampleId = ds.Id.Value, proc.Id.Value, sample.Id.Value
         arc.close()
@@ -392,8 +375,8 @@ let tests = testList "Management prototype" [
         resumed.History.undo()
         Expect.equal resumed.Model.Title (Some "original") "Undo history retained"
         Expect.isTrue resumed.IsDirty "Chosen SQL graph still needs filesystem publication"
-        let yaml = Files.combine path "arc.yml"
-        Files.write yaml (Files.read yaml + "\n# another external edit\n")
+        let yaml = Path.combineNative path Path.ARCFileName
+        Path.appendFileText yaml "\n# another external edit\n"
         Expect.throws (fun () -> resumed.save()) "Further external edits reject save"
 
     testCase "two open sessions cannot silently overwrite each other's SQL revision" <| fun _ ->
@@ -411,14 +394,14 @@ let tests = testList "Management prototype" [
         let root = Dataset(["process-provenance"], ["example"], dataFiles = [Data("file", "file.txt")])
         root.DataFiles[0].Path <- Unchecked.defaultof<string>
         Expect.throws (fun () -> ARC.create(path, root) |> ignore) "Invalid initial graph rejected"
-        Expect.isFalse (Files.exists(Files.combine (Files.combine path ".arc") "testing.sqlite")) "Failed creation removes its own database"
+        Expect.isFalse (Path.pathExists(Path.combineNative (Path.combineNative path Path.ARCConfigFolderName) "testing.sqlite")) "Failed creation removes its own database"
         Expect.isNone root.Id "Failed initial graph leaves root ID optional"
 
     testCase "missing sources and invalid source preferences do not create state" <| fun _ ->
         let path = folder()
         for source in ["auto"; "sql"; "yml"; "invalid"] do
             Expect.throws (fun () -> ARC.openFolder(path, source) |> ignore) "Missing or invalid source rejected"
-        Expect.isFalse (directoryExists(Files.combine path ".arc")) "Read failures do not initialize storage"
+        Expect.isFalse (Path.directoryExists(Path.combineNative path Path.ARCConfigFolderName)) "Read failures do not initialize storage"
 
     testCase "session-only objects conflict even when the root graph is clean" <| fun _ ->
         let path, arc = create()
@@ -460,7 +443,7 @@ let tests = testList "Management prototype" [
         let path, arc = create()
         arc.save()
         arc.close()
-        Files.write (Files.combine path "arc.yml") "type: Dataset\nunknown: unsupported\n"
+        Path.writeFileText (Path.combineNative path Path.ARCFileName) "type: Dataset\nunknown: unsupported\n"
         Expect.throws (fun () -> ARC.openFolder(path, "yml") |> ignore) "Unsupported YAML rejected"
         Expect.equal (archives path).Length 0 "Original SQL not displaced"
         use retained = ARC.openFolder(path, "sql")
@@ -472,8 +455,8 @@ let tests = testList "Management prototype" [
         use arc = created
         arc.Dataset.setTitle(arc.Model, "original") |> ignore
         arc.save()
-        let yaml = Files.combine path "arc.yml"
-        let baseline = Files.read(yaml)
+        let yaml = Path.combineNative path Path.ARCFileName
+        let baseline = Path.readFileText(yaml)
         arc.Dataset.setTitle(arc.Model, "edited") |> ignore
         withSql arc.DatabasePath (fun sql ->
             sql.ExecuteScript("CREATE TRIGGER fail_save BEFORE UPDATE OF baseline ON session BEGIN SELECT RAISE(ABORT,'injected save failure'); END;"))
@@ -482,7 +465,7 @@ let tests = testList "Management prototype" [
         withSql arc.DatabasePath (fun sql ->
             Expect.equal (sql.Query("SELECT baseline FROM session").[0].Get(0).AsText()) baseline "Checkpoint is not advanced"
             sql.Execute("DROP TRIGGER fail_save"))
-        Expect.equal (temporaryFiles(path)).Length 0 "Temporary output cleaned up"
+        Expect.equal (temporaryFiles path).Length 0 "Temporary output cleaned up"
         Expect.throws (fun () -> arc.save()) "Published file with failed SQL commit requires source reselection"
         arc.close()
         use resumed = ARC.openFolder(path, "sql")
@@ -492,12 +475,12 @@ let tests = testList "Management prototype" [
     testCase "filesystem write failure leaves SQL checkpoint unchanged" <| fun _ ->
         let path, created = create()
         use arc = created
-        Files.mkdir(Files.combine path "arc.yml") |> ignore
+        Path.createDirectory(Path.combineNative path Path.ARCFileName) |> ignore
         Expect.throws (fun () -> arc.save()) "Cannot replace a directory with YAML"
         Expect.isTrue arc.IsDirty "Graph remains unsaved"
         withSql arc.DatabasePath (fun sql ->
             Expect.isTrue (sql.Query("SELECT baseline FROM session").[0].Get(0).IsNull) "No checkpoint established")
-        Expect.equal (temporaryFiles(path)).Length 0 "Temporary output removed"
+        Expect.equal (temporaryFiles path).Length 0 "Temporary output removed"
 
     testCase "sample upsert inserts with supplied or assigned IDs as one reversible command" <| fun _ ->
         let _, created = create()

@@ -1,5 +1,7 @@
 namespace ARCtrl.Internal
 
+open ARCtrl.Helper
+
 open System
 open System.Collections.Generic
 open ARCBaseModel
@@ -101,7 +103,7 @@ type internal Session(repository: Repository, arcId: string, supplied: (string *
     member _.Execute(kind, transform) = repository.Access(fun () ->
         check()
         let next = transform state
-        let operationId = Files.newId()
+        let operationId = Identifier.newId()
         update next (cursor + 1) kind "apply" operationId
         AppliedOperation(operationId, kind))
     member this.Change(entity: obj, key: string, value: Cell option, kind: string) =
@@ -198,7 +200,7 @@ type internal Session(repository: Repository, arcId: string, supplied: (string *
                     | Some item, None -> item.Key
                     | Some item, Some supplied when item.Key <> supplied -> invalidOp "A retained instance cannot change its session identity. Use a detached input."
                     | _, Some supplied -> supplied
-                    | _ -> Files.newId()
+                    | _ -> Identifier.newId()
                 let isRoot = obj.ReferenceEquals(entity,value)
                 if entities.ContainsKey id then
                     let canonical = entities[id]
@@ -229,7 +231,7 @@ type internal Session(repository: Repository, arcId: string, supplied: (string *
             repository.Claim(arcId,value)
             entities.Add(id,value)
         try
-            if next <> state then update next (cursor + 1) operationKind "apply" (Files.newId())
+            if next <> state then update next (cursor + 1) operationKind "apply" (Identifier.newId())
         with _ ->
             for KeyValue(id,row) in replacements do
                 Model.restore (fun id -> entities[id]) row entities[id]

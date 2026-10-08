@@ -25,13 +25,29 @@ src/ARCtrl/
 │   ├── State.fs                   Registry snapshots
 │   └── Model.fs                   Model capture, validation and reachability
 ├── Serialization/YamlCodec.fs     Snapshot and root Dataset YAML codecs
-├── IO/FileSystem.fs               .NET/Node/Python filesystem boundaries
+├── Helper/                        Shared paths, IO, IDs, collections, regex and async utilities
 └── Storage/SQLiteStore.fs          SQLite schema, connection and state mirrors
 ```
 
 The [project file](../../src/ARCtrl/ARCtrl.fsproj) lists dependencies in F# compile
 order. The internal context and operation groups precede ARC; the public Session
 facade follows ARC. Compatibility factories delegate through internal factories.
+
+The internal `ARCtrl.Helper` modules are adapted copies of the ProcessCore
+Helper folder. `Path` owns .NET/Node/Python filesystem adapters; its synchronous
+and async functions share one implementation per runtime. Async helpers use
+F# Async on every target rather than requiring the ProcessCore Promise package.
+Native filesystem joining uses `combineNative`, while `combine` builds
+slash-separated ARC paths.
+`Identifier.newId` provides the existing generated IDs, and `ResizeArray.replace`
+restores collection contents while preserving references, order and duplicates.
+Folder binding, save baselines and recovery policy remain in `Runtime/Workspace`.
+Shared tests use these helpers for fixtures and file access.
+
+Legacy identifier and ontology parsers are available internally for codec work;
+they do not validate or normalize domain IDs. Spreadsheet adapters requiring
+FsSpreadsheet are omitted. HTTP downloads use the existing platform APIs
+(HttpClient, fetch and urllib), with no new dependency or public API.
 
 ## Use and verification
 
@@ -187,8 +203,9 @@ dotnet run --project tests/ManagementPrototype.Tests -c Release -- --demo ./buil
 The [walkthrough](../../tests/ManagementPrototype.Tests/Walkthrough.fs) illustrates
 creation, mutation, undo/redo, export and reopening. Choose a new demo folder.
 The full-model behavior tests are in
-[FullModel.fs](../../tests/ManagementPrototype.Tests/FullModel.fs).
-One test project runs all 120 behavior, core SQL, full-model and toolbox tests
+[FullModel.fs](../../tests/ManagementPrototype.Tests/FullModel.fs); portable helper
+checks are in [Helpers.fs](../../tests/ManagementPrototype.Tests/Helpers.fs).
+One test project runs all 127 helper, behavior, core SQL, full-model and toolbox tests
 on .NET, JavaScript and Python using portable file access. Only the demo
 walkthrough remains .NET-only. `TestManagementPrototype` retains compatibility coverage.
 `TestARCSession` aggregates .NET, JavaScript, Python, native consumers and

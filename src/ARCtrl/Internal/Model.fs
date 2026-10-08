@@ -1,5 +1,7 @@
 namespace ARCtrl.Internal
 
+open ARCtrl.Helper
+
 open System
 open Fable.Core
 open ARCBaseModel
@@ -196,7 +198,7 @@ module internal Model =
         | "Recipe" -> box (Recipe())
         | _ -> box (EntityObject(row.Kind))
     let restore (resolve: string -> obj) row (entity: obj) =
-        let replace (target: ResizeArray<'T>) values = target.Clear(); target.AddRange(values)
+        let replace target values = ResizeArray.replace target values
         let one key = links key row |> List.tryHead |> Option.map resolve
         let endpoint key = one key |> Option.map (function :? Sample as v -> EntityReference.Sample v | :? Data as v -> EntityReference.Data v | _ -> invalidOp "Invalid endpoint")
         setId entity (Some row.Id)

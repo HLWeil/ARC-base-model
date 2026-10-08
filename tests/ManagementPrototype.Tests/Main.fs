@@ -3,6 +3,7 @@ module ManagementPrototype.Tests.Main
 open Fable.Pyxpecto
 
 let tests = testList "ARCtrl" [
+    Helpers.tests
     Behavior.tests
     CoreSql.tests
     FullModel.tests

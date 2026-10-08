@@ -1,5 +1,7 @@
 namespace ARCtrl.Internal
 
+open ARCtrl.Helper
+
 open YAMLicious.YAMLiciousTypes
 open System.Globalization
 open Fable.Core
@@ -55,7 +57,7 @@ module internal Codec =
         if value "type" element <> kind then invalidOp ("Expected type " + kind)
         for key, _ in fields element do
             if not (List.contains key allowed) then invalidOp ("Unsupported " + kind + " property: " + key)
-    let id element = opt "id" element |> Option.defaultWith Files.newId
+    let id element = opt "id" element |> Option.defaultWith Identifier.newId
 #if FABLE_COMPILER_PYTHON
     [<Emit("str(float($0))")>]
     let private numericText (_value: float): string = nativeOnly

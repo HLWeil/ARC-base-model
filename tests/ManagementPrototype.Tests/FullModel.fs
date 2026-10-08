@@ -1,5 +1,7 @@
 module ManagementPrototype.Tests.FullModel
 
+open ARCtrl.Helper
+
 open System
 open ARCtrl.Internal
 open ARCSession.Internal
@@ -7,10 +9,8 @@ open ARCBaseModel
 open ARCtrl
 open Fable.Pyxpecto
 
-let private folder () =
-    let path = Files.fullPath(Files.combine "build/out/management-prototype/full-model" (Files.newId()))
-    Files.mkdir path
-    path
+let private folder () = Helpers.folder "fullmodel"
+
 let private same actual expected = Expect.isTrue (Object.ReferenceEquals(actual,expected)) "Canonical shared reference"
 let private fixture () =
     let ontology = DefinedTermSet("Ontology",identifier="ontology",additionalTypes=["set";"set"])
@@ -52,7 +52,7 @@ let tests = testList "Full base-model management" [
         Expect.equal (arc.Data.list()).Count 2 "Nested fragments registered"
         Expect.isFalse arc.HasSessionOnlyObjects "All registered objects are reachable"
         arc.save()
-        let yaml = Files.read(Files.combine path "arc.yml")
+        let yaml = Path.readFileText(Path.combineNative path Path.ARCFileName)
         Expect.isFalse (yaml.Contains("!<!!")) "No malformed built-in tag syntax"
         Expect.isTrue (yaml.Contains("value: \"42\"")) "Numeric-looking text is quoted"
         arc.close()
@@ -115,7 +115,7 @@ let tests = testList "Full base-model management" [
         let path = folder()
         let arc = ARC.create(path,fixture())
         arc.save()
-        let before = Files.read(Files.combine path "arc.yml")
+        let before = Path.readFileText(Path.combineNative path Path.ARCFileName)
         let root = arc.Model
         let proc = (arc.Process.list() |> Seq.head)
         let sample = (arc.Sample.list() |> Seq.head)
@@ -155,7 +155,7 @@ let tests = testList "Full base-model management" [
         Expect.isTrue arc.HasSessionOnlyObjects "Detached entities remain registered"
         for _ in 1..13 do arc.History.undo()
         arc.save()
-        Expect.equal (Files.read(Files.combine path "arc.yml")) before "All thirteen before-images restored"
+        Expect.equal (Path.readFileText(Path.combineNative path Path.ARCFileName)) before "All thirteen before-images restored"
         for _ in 1..13 do arc.History.redo()
         Expect.equal sample.Name "Replacement" "Canonical instance updated on redo"
         arc.close()
@@ -431,7 +431,7 @@ let tests = testList "Full base-model management" [
         arc.Entity.addObjectProperty(agent, "Gender", helicopter) |> ignore
         arc.Dataset.addAgent(arc.Model, agent) |> ignore
         arc.save()
-        let yaml = Files.read(Files.combine path "arc.yml")
+        let yaml = Path.readFileText(Path.combineNative path Path.ARCFileName)
         Expect.isTrue (yaml.Contains("Gender:")) "Simple object key"
         Expect.isFalse (yaml.Contains("\"Gender\"")) "No unnecessary object key quotes"
         Expect.isTrue (yaml.Contains("altitude: 1000")) "Plain number"
@@ -475,7 +475,7 @@ let tests = testList "Full base-model management" [
             arc.Entity.setCollectionProperty(entity, "values", [Entity.Number 1000.; Entity.Text "1000"; Entity.Bool false; Entity.Null(EntityNull())]) |> ignore
         let ids = entities |> List.map (fun v -> v.Id.Value)
         arc.save()
-        let yaml = Files.read(Files.combine path "arc.yml")
+        let yaml = Path.readFileText(Path.combineNative path Path.ARCFileName)
         Expect.isFalse (yaml.Contains("!<!!")) "No invalid verbatim built-in tags for any scalar alternative"
         Expect.isFalse (yaml.Contains("\"altitude\"")) "Plain keys on all classes"
         Expect.isTrue (yaml.Contains("altitude: 1000")) "Plain integral numbers"

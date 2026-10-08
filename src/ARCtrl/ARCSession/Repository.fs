@@ -1,5 +1,7 @@
 namespace ARCSession.Internal
 
+open ARCtrl.Helper
+
 open System
 open System.Collections.Generic
 open ARCtrl.Internal
@@ -78,13 +80,13 @@ type internal Repository private (database: Database) =
         with _ -> database.Close(); reraise()
     static member CreateInMemory() = Repository.Create(":memory:")
     static member CreateFile(path) =
-        let path = Files.fullPath(Model.required "path" path)
-        Files.createExclusive path
+        let path = Path.fullPath(Model.required "path" path)
+        Path.createFileExclusive path
         try Repository.Create(path)
-        with _ -> Files.remove path; reraise()
+        with _ -> Path.deleteFile path; reraise()
     static member OpenFile(path) =
-        let path = Files.fullPath(Model.required "path" path)
-        if not (Files.exists path) then invalidArg "path" "ARC repository does not exist."
+        let path = Path.fullPath(Model.required "path" path)
+        if not (Path.pathExists path) then invalidArg "path" "ARC repository does not exist."
         let database = Store.openDatabase path
         try Store.validateRepository database.Connection; new Repository(database)
         with _ -> database.Close(); reraise()

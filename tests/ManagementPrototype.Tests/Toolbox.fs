@@ -1,5 +1,7 @@
 module ManagementPrototype.Tests.Toolbox
 
+open ARCtrl.Helper
+
 open System
 open ARCBaseModel
 open ARCtrl
@@ -8,10 +10,8 @@ open ARCSession.Internal
 open PolyglotSQLite
 open Fable.Pyxpecto
 
-let private folder () =
-    let path = Files.fullPath(Files.combine "build/out/arc-session/fixtures" (Files.newId()))
-    Files.mkdir path
-    path
+let private folder () = Helpers.folder "toolbox"
+
 let private root () = Dataset(["process-provenance"],["root"],id="root")
 let private sql (session: ARCSession.Session) = (unbox<ISessionOwner>(box session)).Repository.Connection
 let private same actual expected = Expect.isTrue (Object.ReferenceEquals(actual,expected)) "Shared object reference"
@@ -82,7 +82,7 @@ let tests = testList "ARC toolbox" [
         Expect.throws (fun () -> session.listArcs() |> ignore) "Closed repository")
 
     testCase "file reopening is lazy and retains independent histories" (fun _ ->
-        let path = Files.combine (folder()) "collection.sqlite"
+        let path = Path.combineNative (folder()) "collection.sqlite"
         let session = ARCSession.Session.createFile(path)
         let first,second = session.createArc(root()),session.createArc(root())
         let firstId,secondId = first.ArcId,second.ArcId
@@ -103,20 +103,20 @@ let tests = testList "ARC toolbox" [
         Expect.throws (fun () -> resumed.openArc(secondId) |> ignore) "Invalid graph fails only when opened")
 
     testCase "file factories reject existing missing and unrelated databases" (fun _ ->
-        let path = Files.combine (folder()) "collection.sqlite"
+        let path = Path.combineNative (folder()) "collection.sqlite"
         Expect.throws (fun () -> ARCSession.Session.openFile(path) |> ignore) "Missing file"
-        Expect.isFalse (Files.exists path) "Open never creates"
+        Expect.isFalse (Path.pathExists path) "Open never creates"
         let session = ARCSession.Session.createFile(path)
         session.createArc(root()) |> ignore
         session.close()
         Expect.throws (fun () -> ARCSession.Session.createFile(path) |> ignore) "Existing file"
         use reopened = ARCSession.Session.openFile(path)
         Expect.equal (reopened.listArcs()).Count 1 "No replacement"
-        let unrelated = Files.combine (folder()) "unrelated.sqlite"
+        let unrelated = Path.combineNative (folder()) "unrelated.sqlite"
         use db = Sqlite.OpenFile(unrelated)
         db.Execute("CREATE TABLE unrelated(value TEXT)")
         Expect.throws (fun () -> ARCSession.Session.openFile(unrelated) |> ignore) "Unrelated database"
-        let malformed = Files.combine (folder()) "malformed.sqlite"
+        let malformed = Path.combineNative (folder()) "malformed.sqlite"
         let empty = ARCSession.Session.createFile(malformed)
         empty.close()
         use broken = Sqlite.OpenFile(malformed)
@@ -130,7 +130,7 @@ let tests = testList "ARC toolbox" [
         Expect.throws (fun () -> first.save()) "Binding required"
         let path = folder()
         first.bindFolder(path)
-        Expect.isFalse (Files.exists(Files.combine path "arc.yml")) "Bind does not save"
+        Expect.isFalse (Path.pathExists(Path.combineNative path Path.ARCFileName)) "Bind does not save"
         first.save()
         Expect.isFalse first.IsDirty "Export establishes checkpoint"
         first.close()
@@ -181,8 +181,8 @@ let tests = testList "ARC toolbox" [
         first.save()
         first.Sample.create("standalone") |> ignore
         second.Dataset.setTitle(second.Model,"unaffected") |> ignore
-        let yaml = Files.read(Files.combine path "arc.yml")
-        Files.write (Files.combine path "arc.yml") (yaml.Replace("title: original","title: external"))
+        let yaml = Path.readFileText(Path.combineNative path Path.ARCFileName)
+        Path.writeFileText (Path.combineNative path Path.ARCFileName) (yaml.Replace("title: original","title: external"))
         Expect.throws (fun () -> first.recoverFolder("auto")) "Session-only objects block automatic reload"
         first.recoverFolder("yml")
         Expect.equal first.Model.Title (Some "external") "Replacement graph"
@@ -212,7 +212,7 @@ let tests = testList "ARC toolbox" [
         Expect.equal (db.Query("PRAGMA foreign_key_check")).Count 0 "Foreign keys intact")
 
     testCase "separate connections check revisions per ARC" (fun _ ->
-        let path = Files.combine (folder()) "revision.sqlite"
+        let path = Path.combineNative (folder()) "revision.sqlite"
         use firstSession = ARCSession.Session.createFile(path)
         let first,second = firstSession.createArc(root()),firstSession.createArc(root())
         use otherSession = ARCSession.Session.openFile(path)

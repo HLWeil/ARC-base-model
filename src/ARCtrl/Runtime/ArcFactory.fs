@@ -1,5 +1,7 @@
 namespace ARCtrl.Internal
 
+open ARCtrl.Helper
+
 open ARCBaseModel
 open ARCSession.Internal
 
@@ -10,7 +12,7 @@ module internal ArcFactory =
     let create (repository: Repository) (root: Dataset) =
         Model.required "rootDataset" root |> ignore
         repository.Access(fun () ->
-            let arcId = Files.newId()
+            let arcId = Identifier.newId()
             let objects = ResizeArray<string * obj>()
             let rows = ResizeArray<EntityRow>()
             let rec capture value =
@@ -19,7 +21,7 @@ module internal ArcFactory =
                 match objects |> Seq.tryFind (fun (_,existing) -> obj.ReferenceEquals(existing,value)) with
                 | Some(id,_) -> id
                 | None ->
-                    let id = Model.id value |> Option.defaultWith Files.newId
+                    let id = Model.id value |> Option.defaultWith Identifier.newId
                     if objects |> Seq.exists (fun (existing,_) -> existing = id) then invalidOp ("Session ID collision: " + id)
                     objects.Add(id,value)
                     rows.Add(Model.capture id capture value)
@@ -38,12 +40,12 @@ module internal ArcFactory =
                     Model.setId value id
                 reraise())
     let import (repository: Repository) folder =
-        let folder = Files.fullPath(Model.required "folder" folder)
-        let current = Files.read(Files.combine folder "arc.yml")
+        let folder = Path.fullPath(Model.required "folder" folder)
+        let current = Path.readFileText(Path.combineNative folder Path.ARCFileName)
         let state = Codec.decodeGraph current
         Model.validate state
         repository.Access(fun () ->
-            let arcId = Files.newId()
+            let arcId = Identifier.newId()
             repository.Connection.WithTransaction(fun () ->
                 Store.addArc repository.Connection arcId state (Some folder) (Some current)
                 load repository arcId))

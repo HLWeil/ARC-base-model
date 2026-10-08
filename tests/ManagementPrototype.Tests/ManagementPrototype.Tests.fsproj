@@ -5,6 +5,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Helpers.fs" />
     <Compile Include="CoreSql.fs" />
     <Compile Include="Behavior.fs" />
     <Compile Include="FullModel.fs" />
