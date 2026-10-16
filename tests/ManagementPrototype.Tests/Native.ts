@@ -1,5 +1,5 @@
 import { ARC, Session } from "arc-session";
-import { Dataset, Annotation } from "arc-base-model";
+import { Dataset, Annotation, Sample, Data, EntityObject } from "arc-base-model";
 
 const session = Session.createInMemory();
 const firstRoot = new Dataset(["process-provenance"], ["first"]);
@@ -25,9 +25,9 @@ function check(value: boolean, message: string): void { if (!value) throw new Er
 const folder = `build/out/management/native-js-${Date.now()}`;
 const arc = ARC.create(folder,new Dataset(["process-provenance","semantic-designation","administrative"],["native"]));
 try {
-  const sample=arc.Sample.create("Sample");
-  const data=arc.Data.create("results.csv");
-  const fragment=arc.Data.create("results.csv");
+  const sample=arc.Sample.add(new Sample("Sample"));
+  const data=arc.Data.add(new Data("results.csv"));
+  const fragment=arc.Data.add(new Data("results.csv"));
   arc.Data.setSelector(fragment,"row=1");
   arc.Data.setHasParts(data,[fragment,fragment]);
   const value=arc.Annotation.create("value");
@@ -64,7 +64,7 @@ try {
   arc.Dataset.setCitations(arc.Model,[article]);
   check(Array.isArray(arc.Data.list()),"Native arrays");
   check(data.HasParts[0]===data.HasParts[1],"Shared duplicate target");
-  const quality=arc.Entity.create("QualityAssessment");
+  const quality=arc.Entity.add(new EntityObject("QualityAssessment"));
   arc.Entity.setNumberProperty(quality,"score",0);
   arc.Entity.setBoolProperty(quality,"accepted",false);
   arc.Entity.setNullProperty(quality,"missing");

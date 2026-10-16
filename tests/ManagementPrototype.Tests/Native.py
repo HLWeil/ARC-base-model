@@ -1,14 +1,14 @@
 from pathlib import Path
 from uuid import uuid4
 from arc_session import ARC, Session
-from arc_base_model import Dataset, Annotation, Sample
+from arc_base_model import Dataset, Annotation, Sample, Data, EntityObject
 
 folder = str(Path("build/out/arc-session") / ("native-python-" + uuid4().hex))
 arc = ARC.create(folder, Dataset(["process-provenance", "semantic-designation", "administrative"], ["native"]))
 try:
-    sample = arc.Sample.create("sample")
-    data = arc.Data.create("results.csv")
-    fragment = arc.Data.create("results.csv")
+    sample = arc.Sample.add(Sample("sample"))
+    data = arc.Data.add(Data("results.csv"))
+    fragment = arc.Data.add(Data("results.csv"))
     arc.Data.set_selector(fragment, "row=1")
     arc.Data.set_has_parts(data, [fragment, fragment])
     value = arc.Annotation.create("value")
@@ -45,7 +45,7 @@ try:
     arc.Dataset.set_citations(arc.Model, [article])
     assert type(arc.Data.list()) is list
     assert data.HasParts[0] is data.HasParts[1]
-    quality = arc.Entity.create("QualityAssessment")
+    quality = arc.Entity.add(EntityObject("QualityAssessment"))
     arc.Entity.set_number_property(quality, "score", 0)
     arc.Entity.set_bool_property(quality, "accepted", False)
     arc.Entity.set_null_property(quality, "missing")
@@ -96,10 +96,10 @@ first = session.create_arc(root())
 second = session.create_arc(root())
 sample = Sample("first")
 sample.Id = "same"
-first.Sample.upsert(sample)
+assert first.Sample.add(sample) is sample
 other = Sample("second")
 other.Id = "same"
-second.Sample.upsert(other)
+assert second.Sample.add(other) is other
 numeric = first.Annotation.create("numeric boundary")
 first.Annotation.set_value_number(numeric, 0)
 assert type(numeric.Value) is float

@@ -42,13 +42,13 @@ let tests = testList "ARC toolbox" [
         let sample = first.Sample.create("sample")
         let proc = second.Process.create("process")
         Expect.throws (fun () -> second.Process.setInputSample(proc,sample) |> ignore) "Foreign endpoint"
-        Expect.throws (fun () -> second.Sample.register(sample) |> ignore) "Foreign registration"
+        Expect.throws (fun () -> second.Sample.add(sample) |> ignore) "Foreign registration"
         Expect.throws (fun () -> session.createArc(first.Model) |> ignore) "Foreign root"
         Expect.throws (fun () -> second.Entity.setObjectProperty(second.Model,"foreign",sample) |> ignore) "Foreign extension"
         use otherSession = ARCSession.Session.createInMemory()
         Expect.throws (fun () -> otherSession.createArc(first.Model) |> ignore) "Ownership extends across repositories"
         let other = otherSession.createArc(root())
-        Expect.throws (fun () -> other.Sample.register(sample) |> ignore) "Foreign registration across repositories"
+        Expect.throws (fun () -> other.Sample.add(sample) |> ignore) "Foreign registration across repositories"
         Expect.isNone proc.Input "Failure leaves model untouched")
 
     testCase "SQL foreign keys reject cross ARC targets and typed endpoints" (fun _ ->
@@ -203,7 +203,7 @@ let tests = testList "ARC toolbox" [
         let db = sql session
         db.ExecuteScript("CREATE TRIGGER fail_sample BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected'); END;")
         let rejected = Sample("reject")
-        Expect.throws (fun () -> first.Sample.register(rejected) |> ignore) "Injected write failure"
+        Expect.throws (fun () -> first.Sample.add(rejected) |> ignore) "Injected write failure"
         Expect.isNone rejected.Id "Assigned ID rolled back"
         Expect.equal (first.Sample.list()).Count 0 "Projection rolled back"
         Expect.isFalse first.History.CanUndo "History unchanged"

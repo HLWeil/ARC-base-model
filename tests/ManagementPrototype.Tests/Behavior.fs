@@ -298,7 +298,7 @@ let tests = testList "Management prototype" [
         arc.Dataset.addPart(arc.Model, child) |> ignore
         let commands = count "history" arc.DatabasePath
         Expect.throws (fun () -> arc.Process.setInputSample(proc, foreign) |> ignore) "Foreign object rejected"
-        Expect.throws (fun () -> arc.Sample.register(foreign) |> ignore) "Cross-kind ID collision rejected"
+        Expect.throws (fun () -> arc.Sample.add(foreign) |> ignore) "Cross-kind ID collision rejected"
         Expect.throws (fun () -> arc.Dataset.delete(arc.Model) |> ignore) "Root cannot be deleted"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed commands create no history"
         let fake = ARCBaseModel.Process("fake", id = proc.Id.Value)
@@ -311,7 +311,7 @@ let tests = testList "Management prototype" [
         let sample = Sample("pending")
         let bad = ARCBaseModel.Process("bad", input = EntityReference.Sample sample, executesRecipe = Recipe("recipe"))
         bad.Name <- Unchecked.defaultof<string>
-        Expect.throws (fun () -> arc.Process.register(bad) |> ignore) "Missing required process name rejected"
+        Expect.throws (fun () -> arc.Process.add(bad) |> ignore) "Missing required process name rejected"
         Expect.isNone bad.Id "No process ID assigned on failure"
         Expect.isNone sample.Id "No sample ID assigned on failure"
         Expect.equal (arc.Process.list()).Count 0 "Registry unchanged"
@@ -326,7 +326,7 @@ let tests = testList "Management prototype" [
         Expect.throws (fun () -> arc.Sample.setName(sample, "reject") |> ignore) "SQL failure rejects command"
         Expect.equal sample.Name "original" "Live model rolls back"
         let pending = Sample("reject")
-        Expect.throws (fun () -> arc.Sample.register(pending) |> ignore) "Registration failure"
+        Expect.throws (fun () -> arc.Sample.add(pending) |> ignore) "Registration failure"
         Expect.isNone pending.Id "Failed registration restores optional ID"
         Expect.equal (arc.Sample.list()).Count 1 "Failed registration rolls back registry"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed writes do not journal commands"
@@ -623,7 +623,7 @@ let tests = testList "Management prototype" [
         Expect.equal (count "history" arc.DatabasePath) commands "Failed upserts create no history"
         same (arc.Sample.get("sample-1")) canonical
         Expect.equal canonical.Name "original" "Registered values unchanged"
-        Expect.throws (fun () -> arc.Sample.register(Sample("duplicate", id = "sample-1")) |> ignore) "Registration still rejects duplicates"
+        Expect.throws (fun () -> arc.Sample.add(Sample("duplicate", id = "sample-1")) |> ignore) "Registration still rejects duplicates"
 
     testCase "sample upsert SQL failure rolls back updates insertions and assigned IDs" <| fun _ ->
         let _, created = create()

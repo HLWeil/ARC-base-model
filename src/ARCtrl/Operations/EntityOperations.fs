@@ -11,7 +11,7 @@ type EntityOperations internal (session: Session) =
         let value = EntityObject(entityType)
         session.Register(value, entityType)
         value
-    member _.register(value: EntityObject) = session.Register(value, value.Type); value
+    member _.add(value: EntityObject) = session.Register(value, value.Type); value
     member _.upsert(value: EntityObject): unit = session.Set(value, value.Type)
     member _.get(id: string) = session.GetEntity(id)
     member _.list() = session.ListEntities()

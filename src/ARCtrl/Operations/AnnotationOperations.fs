@@ -7,7 +7,7 @@ open ARCtrl.Internal
 [<AttachMembers>]
 type AnnotationOperations internal (session: Session) =
     member _.create(name: string) = let value = Annotation(name) in session.Register(value,"Annotation"); value
-    member _.register(value: Annotation) = session.Register(value,"Annotation"); value
+    member _.add(value: Annotation) = session.Register(value,"Annotation"); value
     member _.upsert(value: Annotation): unit = session.Set(value,"Annotation")
     member _.get(id: string) = session.Get<Annotation>("Annotation",id)
     member _.list() = session.List<Annotation>("Annotation")

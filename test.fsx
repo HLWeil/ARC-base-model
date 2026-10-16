@@ -12,57 +12,114 @@ open System.IO
 open ARCBaseModel
 open ARCtrl
 
-// A fresh folder each run avoids overwriting an existing session.
-let folder = @"C:\Users\HLWei\Downloads\test"
+// // A fresh folder each run avoids overwriting an existing session.
+// let folder = @"C:\Users\HLWei\Downloads\test"
 
-let arc = ARC.create(folder, Dataset(["process-provenance"], ["example-arc"]))
-
-
-let agent = arc.Agent.create("Looookas")
-let entity = arc.Entity.create("Helicopter")
-
-arc.Entity.addNumberProperty(entity, "altitude", 1000.0) |> ignore
-
-arc.Entity.addObjectProperty(agent, "Gender", entity) |> ignore
-
-// arc.Agent.list()
-
-arc.Dataset.addAgent(arc.Model, arc.Agent.list()[0]) |> ignore
-
-arc.save()
+// let arc = ARC.create(folder, Dataset(["process-provenance"], ["example-arc"]))
 
 
-let sample = arc.Sample.create("leaf")
-let proc = arc.Process.create("measurement")
+// let agent = arc.Agent.create("Looookas")
+// let entity = arc.Entity.create("Helicopter")
 
-arc.Sample.list()
+// arc.Entity.addNumberProperty(entity, "altitude", 1000.0) |> ignore
 
-sample
+// arc.Entity.addObjectProperty(agent, "Gender", entity) |> ignore
 
-arc.Dataset.addProcess(arc.Model, proc) |> ignore
-arc.Process.setInputSample(proc, sample) |> ignore
+// // arc.Agent.list()
 
-arc.Sample.setName(sample, "edited leaf") |> ignore
-printfn "Edited: %s" sample.Name
-arc.History.undo()
-printfn "Undo:   %s" sample.Name
-arc.History.redo()
-printfn "Redo:   %s" sample.Name
-arc.save() // Writes only the root Dataset graph to arc.yml.
+// arc.Dataset.addAgent(arc.Model, arc.Agent.list()[0]) |> ignore
 
-let standalone = arc.Sample.create("session-only sample")
-let id = standalone.Id.Value
-arc.close() // Does not implicitly save.
-
-let resumed = ARC.openFolder(folder, "sql")
-printfn "Resumed: %s" (resumed.Sample.get(id)).Name
-printfn "YAML: %s" (Path.Combine(folder, "arc.yml"))
-printfn "SQLite: %s" resumed.DatabasePath
-
-arc.close()
-
-resumed.save()
+// arc.save()
 
 
+// let sample = arc.Sample.create("leaf")
+// let proc = arc.Process.create("measurement")
 
-resumed.Dataset.setTitle("Resumed Dataset") |> ignore
+// arc.Sample.list()
+
+// sample
+
+// arc.Dataset.addProcess(arc.Model, proc) |> ignore
+// arc.Process.setInputSample(proc, sample) |> ignore
+
+// arc.Sample.setName(sample, "edited leaf") |> ignore
+// printfn "Edited: %s" sample.Name
+// arc.History.undo()
+// printfn "Undo:   %s" sample.Name
+// arc.History.redo()
+// printfn "Redo:   %s" sample.Name
+// arc.save() // Writes only the root Dataset graph to arc.yml.
+
+// let standalone = arc.Sample.create("session-only sample")
+// let id = standalone.Id.Value
+// arc.close() // Does not implicitly save.
+
+// let resumed = ARC.openFolder(folder, "sql")
+// printfn "Resumed: %s" (resumed.Sample.get(id)).Name
+// printfn "YAML: %s" (Path.Combine(folder, "arc.yml"))
+// printfn "SQLite: %s" resumed.DatabasePath
+
+// arc.close()
+
+// resumed.save()
+
+// resumed.Dataset.setTitle("Resumed Dataset") |> ignore
+
+
+let mySession = ARCSession.Session.createInMemory()
+
+
+mySession.openArc("").Dataset.
+
+let myArc = 
+    // mySession.createArc(Dataset(["process-provenance"], ["example-arc"]))
+    ARC.openFolder(@"C:\Users\HLWei\Downloads\test2", "yml")
+
+
+mySession.listArcs()
+
+myArc.Dataset.addAgent(myArc.Model, myArc.Agent.create("MyDude")) |> ignore
+
+myArc.Model.Agents
+
+myArc.bindFolder(@"C:\Users\HLWei\Downloads\test2") |> ignore
+
+// myArc.save()
+
+myArc.Data.upsert(Data)
+
+myArc.Dataset.ad
+
+myArc.Dataset.setIdentifiers(myArc.Model, ["Proteomics_123"])
+
+myArc.Dataset.setTitle(myArc.Model.HasParts[0], "My New Title")
+
+myArc.DatasetOperations.setTitle
+
+myArc.Dataset.create()
+
+
+let d = Dataset(["process-provenance"], ["example-arc"])
+
+myArc.Dataset.setTitle(..)
+
+ARCSession.Dataset.setTitle(myArc, ..)
+
+// myArc.Datasets[0].setTitle("My New Title") |> ignore
+
+// ARC.Dataset.setTitle: (ARC -> string) -> Dataset -> Dataset
+
+ARC.Dataset.setTitle(dataset, "My New Title") myArc
+|> ARC.Sample.setMama(dataset, "Deine")
+
+// myArc.Model.Title <- Some "My New Title"
+
+
+let d = Dataset(["process-provenance"], ["example-arc"])
+
+d.Agents.Add(myArc.Agent.create("MyDude")) |> ignore
+
+myArc.Dataset.add(d)
+
+d.Agents.[0].Name <- "MyDude"
+myArc.Agent.setName(agent)

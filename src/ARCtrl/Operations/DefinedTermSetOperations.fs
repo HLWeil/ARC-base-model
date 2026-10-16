@@ -7,7 +7,7 @@ open ARCtrl.Internal
 [<AttachMembers>]
 type DefinedTermSetOperations internal (session: Session) =
     member _.create(name: string) = let value = DefinedTermSet(name) in session.Register(value,"DefinedTermSet"); value
-    member _.register(value: DefinedTermSet) = session.Register(value,"DefinedTermSet"); value
+    member _.add(value: DefinedTermSet) = session.Register(value,"DefinedTermSet"); value
     member _.upsert(value: DefinedTermSet): unit = session.Set(value,"DefinedTermSet")
     member _.get(id: string) = session.Get<DefinedTermSet>("DefinedTermSet",id)
     member _.list() = session.List<DefinedTermSet>("DefinedTermSet")

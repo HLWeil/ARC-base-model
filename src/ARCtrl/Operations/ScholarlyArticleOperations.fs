@@ -7,7 +7,7 @@ open ARCtrl.Internal
 [<AttachMembers>]
 type ScholarlyArticleOperations internal (session: Session) =
     member _.create(headline: string) = let value = ScholarlyArticle(headline) in session.Register(value,"ScholarlyArticle"); value
-    member _.register(value: ScholarlyArticle) = session.Register(value,"ScholarlyArticle"); value
+    member _.add(value: ScholarlyArticle) = session.Register(value,"ScholarlyArticle"); value
     member _.upsert(value: ScholarlyArticle): unit = session.Set(value,"ScholarlyArticle")
     member _.get(id: string) = session.Get<ScholarlyArticle>("ScholarlyArticle",id)
     member _.list() = session.List<ScholarlyArticle>("ScholarlyArticle")

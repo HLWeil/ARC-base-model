@@ -245,7 +245,7 @@ let tests = testList "Full base-model management" [
         let path = folder()
         let arc = ARC.create(path,fixture())
         let value = Recipe(name="New",components=[Annotation("New component")])
-        arc.Recipe.register(value) |> ignore
+        arc.Recipe.add(value) |> ignore
         let recipeId, annotationId = value.Id.Value, value.Components[0].Id.Value
         arc.History.undo()
         Expect.isNone value.Id "Assigned recipe ID undone"
@@ -255,7 +255,7 @@ let tests = testList "Full base-model management" [
         same (arc.Annotation.get(annotationId)) value.Components[0]
         let bad = Recipe(name="Bad",components=[Annotation("Pending")])
         bad.Components.Add(Annotation("Collision",id=arc.Model.Id.Value))
-        Expect.throws (fun () -> arc.Recipe.register(bad) |> ignore) "Nested cross-type collision rejected"
+        Expect.throws (fun () -> arc.Recipe.add(bad) |> ignore) "Nested cross-type collision rejected"
         Expect.isNone bad.Id "No root ID assigned"
         Expect.isNone bad.Components[0].Id "No nested ID assigned"
         arc.Recipe.setComponents(value,[]) |> ignore
@@ -317,18 +317,18 @@ let tests = testList "Full base-model management" [
     testCase "re-registering an undone instance reuses its retained identity without aliases" (fun _ ->
         let arc = ARC.create(folder(),fixture())
         let data = Data("standalone.csv")
-        arc.Data.register(data) |> ignore
+        arc.Data.add(data) |> ignore
         let id = data.Id.Value
         arc.History.undo()
         Expect.isNone data.Id "Assigned ID undone"
-        arc.Data.register(data) |> ignore
+        arc.Data.add(data) |> ignore
         Expect.equal data.Id (Some id) "Same retained instance receives its reserved identity"
         Expect.isFalse arc.History.CanRedo "Registration starts a new branch"
         same (arc.Data.get(id)) data
         Expect.isTrue arc.HasSessionOnlyObjects "Registry remains consistent"
         arc.History.undo()
         data.Id <- Some "renamed"
-        Expect.throws (fun () -> arc.Data.register(data) |> ignore) "Retained identity cannot alias another key"
+        Expect.throws (fun () -> arc.Data.add(data) |> ignore) "Retained identity cannot alias another key"
         arc.close())
 
     testCase "extensions persist through SQL history and typed YAML" (fun _ ->

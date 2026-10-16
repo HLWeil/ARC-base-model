@@ -19,7 +19,7 @@ module internal Model =
     let number value = value
 #endif
     let required name value = if isNull (box value) then nullArg name else value
-    let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no session ID; register it first.")
+    let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no session ID; add it through ARC operations first.")
     let kind (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Type
     let id (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Id
     let setId (entity: obj) id = (unbox<EntityObject> entity).Id <- id

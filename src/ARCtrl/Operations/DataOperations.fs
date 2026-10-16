@@ -7,7 +7,7 @@ open ARCtrl.Internal
 [<AttachMembers>]
 type DataOperations internal (session: Session) =
     member _.create(path: string) = let value = Data(path) in session.Register(value,"Data"); value
-    member _.register(value: Data) = session.Register(value,"Data"); value
+    member _.add(value: Data) = session.Register(value,"Data"); value
     member _.upsert(value: Data): unit = session.Set(value,"Data")
     member _.get(id: string) = session.Get<Data>("Data",id)
     member _.list() = session.List<Data>("Data")

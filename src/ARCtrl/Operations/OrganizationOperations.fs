@@ -7,7 +7,7 @@ open ARCtrl.Internal
 [<AttachMembers>]
 type OrganizationOperations internal (session: Session) =
     member _.create(name: string) = let value = Organization(name) in session.Register(value,"Organization"); value
-    member _.register(value: Organization) = session.Register(value,"Organization"); value
+    member _.add(value: Organization) = session.Register(value,"Organization"); value
     member _.upsert(value: Organization): unit = session.Set(value,"Organization")
     member _.get(id: string) = session.Get<Organization>("Organization",id)
     member _.list() = session.List<Organization>("Organization")

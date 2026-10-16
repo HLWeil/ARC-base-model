@@ -111,9 +111,15 @@ exactly one ARC entry and the matching folder binding. Explicit `"sql"` and
 ARC exposes `Dataset`, `Process`, `Sample`, `Data`, `Recipe`, `Annotation`,
 `FormalParameter`, `DefinedTerm`, `DefinedTermSet`, `Descriptor`, `Agent`,
 `Organization`, and `ScholarlyArticle` operation groups. Every group has
-`create`, `register`, `get`, `list`, `upsert`, and `delete` methods. Dataset creation
-uses a process-provenance profile by default; register a supplied Dataset to
+`create`, `add`, `get`, `list`, `upsert`, and `delete` methods. Dataset creation
+uses a process-provenance profile by default; use `add(dataset)` to
 choose other profiles. Descriptor creation requires a Sample/Data reference.
+
+`add(value)` adopts a prebuilt object and its referenced graph into the ARC
+registry and returns the supplied instance. It assigns omitted IDs, validates
+the resulting state, and rejects collisions with distinct registered instances.
+Adding the same active instance again is a no-op. Standalone objects remain
+outside the root graph until explicitly attached and survive SQL recovery.
 
 Each group provides setters for every editable model property, clear methods for optional
 scalar properties, and replacement setters for collections. Entity collections
@@ -237,7 +243,7 @@ arc.History.undo()
 arc.History.redo()
 ```
 
-`create`, `register`, `upsert`, `get`, `list`, and `delete` operate through the session registry. Generic objects use custom type names; a core discriminator requires its actual core class. Management assigns omitted IDs as before. Generic registration and full replacement adopt referenced graphs as one command; property setters require object references to be registered in this session first.
+`create`, `add`, `upsert`, `get`, `list`, and `delete` operate through the session registry. Generic objects use custom type names; a core discriminator requires its actual core class. Management assigns omitted IDs as before. Generic registration and full replacement adopt referenced graphs as one command; property setters require object references to be registered in this session first.
 
 `setProperty`, `addProperty`, and `removeProperty` operate on named extension values. `getProperty` and `hasProperty` check ownership and direct mutation. Typed `setNumberProperty`, `setTextProperty`, `setBoolProperty`, `setObjectProperty`, `setCollectionProperty`, `setNullProperty`, and `setBlobProperty` have corresponding `add` methods. Add rejects duplicates; set replaces or inserts; missing removal is a reversible command with no property effect. Core names are reserved and comparisons are case-sensitive. Property enumeration has no guaranteed order.
 

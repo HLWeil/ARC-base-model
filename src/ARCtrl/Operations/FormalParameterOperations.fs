@@ -7,7 +7,7 @@ open ARCtrl.Internal
 [<AttachMembers>]
 type FormalParameterOperations internal (session: Session) =
     member _.create(name: string) = let value = FormalParameter(name) in session.Register(value,"FormalParameter"); value
-    member _.register(value: FormalParameter) = session.Register(value,"FormalParameter"); value
+    member _.add(value: FormalParameter) = session.Register(value,"FormalParameter"); value
     member _.upsert(value: FormalParameter): unit = session.Set(value,"FormalParameter")
     member _.get(id: string) = session.Get<FormalParameter>("FormalParameter",id)
     member _.list() = session.List<FormalParameter>("FormalParameter")
