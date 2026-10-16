@@ -9,7 +9,7 @@ open PolyglotSQLite
 open ARCManagement
 open ARCManagement.Internal
 
-type internal GraphContext(repository: Repository, arcId: string, supplied: (string * obj) list) =
+type GraphContext(repository: Repository, arcId: string, supplied: (string * obj) list) =
     let db = repository.Connection
     let metadata = Store.metadata db arcId
     let mutable state = metadata.GetByName("state").AsText() |> Codec.decodeState

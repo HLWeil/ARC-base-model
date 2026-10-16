@@ -13,7 +13,7 @@ mutation, identity, history, and YAML codecs belong to
 [`ARCManagement`](arc-management.md); this facade handles workspace paths,
 loading, saving, and recovery.
 
-The layout remains `arc.yml` for root-graph export and `.arc/testing.sqlite` for
+The layout remains `arc.yml` for root-graph export and `.arc/arc.sqlite` for
 convenience-created repositories. Project-file dispatch through
 `.arc/project.yml` remains future work described in the
 [management plan](../../plans/arc-management.md) and
@@ -72,7 +72,7 @@ let imported = ARC.importFolder(session, "./existing-export")
 ```
 
 `ARC.create` and `ARC.openFolder` privately own a session at
-`.arc/testing.sqlite`. Closing these facades also closes that session. The folder
+`.arc/arc.sqlite`. Closing these facades also closes that session. The folder
 opener requires exactly one entry with the matching retained binding and accepts
 `"auto"`, `"sql"`, and `"yml"` source preferences.
 

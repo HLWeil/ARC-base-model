@@ -6,8 +6,11 @@ open ARCManagement.Internal
 open ARCtrl.Helper
 
 /// Workspace locations, publication, baselines, and source-selection policy.
-module internal Workspace =
-    let path folder = Path.combineNative (Path.combineNative folder Layout.ARCConfigFolderName) "testing.sqlite"
+module Workspace =
+
+    let databaseFileName = "arc.sqlite"
+
+    let path folder = Path.combineNative (Path.combineNative folder Layout.ARCConfigFolderName) databaseFileName
 
     let import (repository: Repository) folder =
         let folder = Path.fullPath(Model.required "folder" folder)

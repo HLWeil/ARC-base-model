@@ -146,7 +146,7 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   belong to ARC. Closing any wrapper closes its graph and invalidates every
   shared wrapper; only `create`/`openFolder` also close their privately owned
   session. Borrowed sessions and sibling graphs remain usable.
-- Retain `arc.yml`, `.arc/testing.sqlite`, schema version 4, per-entry archives,
+- Retain `arc.yml`, `.arc/arc.sqlite`, schema version 4, per-entry archives,
   and save/recovery checkpoint guarantees. Workspace imports initialize the
   graph, binding, and baseline transactionally. Project-file integration is
   separate future work.

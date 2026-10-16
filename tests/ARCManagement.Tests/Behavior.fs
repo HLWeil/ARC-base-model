@@ -38,13 +38,13 @@ let private count table path =
     withSql path (fun sql -> sql.Query("SELECT count(*) FROM " + table).[0].Get(0).AsInteger())
 
 let private archives path =
-    withSql (Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "testing.sqlite") (fun sql ->
+    withSql (Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "arc.sqlite") (fun sql ->
         sql.Query("SELECT archive_id FROM arc_archive") |> Seq.map (fun row -> row.Get(0).AsText()) |> Seq.toArray)
 let private archivedHistory path archiveId =
-    withSql (Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "testing.sqlite") (fun sql ->
+    withSql (Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "arc.sqlite") (fun sql ->
         sql.Query("SELECT count(*) FROM archived_history WHERE archive_id=$id", [PolyglotSQLite.SqlParameter("id",PolyglotSQLite.SqlValue.Text(archiveId))]).[0].Get(0).AsInteger())
 let private archivedSamples path =
-    withSql (Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "testing.sqlite") (fun sql ->
+    withSql (Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "arc.sqlite") (fun sql ->
         sql.Query("SELECT state FROM arc_archive") |> Seq.exists (fun row ->
             let state = ARCManagement.Internal.Codec.decodeState(row.Get(0).AsText())
             state.Entities |> List.exists (fun entity -> entity.Kind = "Sample")))
@@ -394,7 +394,7 @@ let tests = testList "Management prototype" [
         let root = Dataset(["process-provenance"], ["example"], dataFiles = [Data("file", "file.txt")])
         root.DataFiles[0].Path <- Unchecked.defaultof<string>
         Expect.throws (fun () -> ARC.create(path, root) |> ignore) "Invalid initial graph rejected"
-        Expect.isFalse (Path.pathExists(Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "testing.sqlite")) "Failed creation removes its own database"
+        Expect.isFalse (Path.pathExists(Path.combineNative (Path.combineNative path ARCtrl.Helper.Layout.ARCConfigFolderName) "arc.sqlite")) "Failed creation removes its own database"
         Expect.isNone root.Id "Failed initial graph leaves root ID optional"
 
     testCase "missing sources and invalid source preferences do not create state" <| fun _ ->

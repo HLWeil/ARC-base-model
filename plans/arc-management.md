@@ -180,7 +180,7 @@ Folder operations are independent of repository opening:
   and journal inside the repository. It does not rename or replace the shared
   database, or alter other ARCs.
 - `ARC.create` and `ARC.openFolder` privately own a session at
-  `.arc/testing.sqlite`; closing their ARC closes that session. Convenience
+  `.arc/arc.sqlite`; closing their ARC closes that session. Convenience
   opening requires exactly one ARC with the matching folder binding.
 - Closing any workspace closes its graph and invalidates every wrapper sharing
   it. Only `create` and `openFolder` also close their privately owned session;
