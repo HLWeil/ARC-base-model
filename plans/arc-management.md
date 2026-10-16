@@ -1,11 +1,13 @@
 # ARC Management API
 
-Status: the ARCtrl management layer and multi-ARC repository are implemented.
-Project-file codec integration remains planned. Verification after the public
-`add(value)` rename and the full repository `RunTests` aggregate is pending.
+Status: generic ARCManagement and workspace-specific ARCtrl are separated and
+verified, including detached YAML workflows and renamed native packages.
+`BuildSolution` and repository-wide `RunTests` passed. Project-file codec
+integration remains planned.
 
 This plan tracks the current implementation and remaining work. See the
-[ARCtrl guide](../docs/project/arctrl.md) for API usage and storage details, and
+[management guide](../docs/project/arc-management.md) and
+[ARCtrl workspace guide](../docs/project/arctrl.md) for usage and storage details, and
 [the project-file specification](../docs/spec/project_file.md) for the intended
 workspace format.
 
@@ -20,8 +22,10 @@ The responsibilities are:
 | Component | Responsibility |
 |---|---|
 | `ARCBaseModel` | Mutable domain objects without storage, identity assignment, graph management, or filesystem policy. |
-| `ARCSession.Session` | One owned PolyglotSQLite connection, repository creation/opening, ARC enumeration, and connection lifetime. |
-| `ARCtrl.ARC` | One managed graph, entity registry, operations, history, and optional folder binding/export/recovery. |
+| `ARCManagement.Session` | One owned PolyglotSQLite connection, repository creation/opening, ARC enumeration, and connection lifetime. |
+| `ARCManagement.ManagedGraph` | One managed graph, entity registry, operations, validation, transactions, history, and graph lifetime. |
+| `ARCManagement.DatasetYaml` | Detached Dataset YAML encoding and decoding without identity assignment, ownership, or IO. |
+| `ARCtrl.ARC` | One workspace facade over an existing ManagedGraph; folder binding, export, and recovery. |
 | Persistent IO | Explicit export of the root graph; currently prototype `arc.yml`, eventually resources selected by `.arc/project.yml`. |
 
 SQLite retains committed working state, standalone objects, and undo/redo
@@ -36,21 +40,20 @@ work that cannot be reconstructed from that export.
 
 ```fsharp
 open ARCBaseModel
-open ARCtrl
+open ARCManagement
 
-let session = ARCSession.Session.createInMemory()
+let session = Session.createInMemory()
 // Alternatively: createFile("collection.sqlite") / openFile("collection.sqlite").
-let arc = session.createArc(Dataset(["process-provenance"], ["example"]))
-let sample = arc.Sample.create("sample")
-let process = arc.Process.create("process")
-arc.Process.setInputSample(process, sample) |> ignore
-arc.Dataset.addProcess(arc.Model, process) |> ignore
-arc.History.undo()
-arc.History.redo()
-arc.bindFolder("./arc-a")
-arc.save()
-let arcId = arc.ArcId
-arc.close()
+let graph = session.createArc(Dataset(["process-provenance"], ["example"]))
+let sample = graph.Sample.create("sample")
+let process = graph.Process.create("process")
+graph.Process.setInputSample(process, sample) |> ignore
+graph.Dataset.addProcess(graph.Model, process) |> ignore
+graph.History.undo()
+graph.History.redo()
+let yaml = graph.toYaml()
+let arcId = graph.ArcId
+graph.close()
 let reopened = session.openArc(arcId)
 let entries = session.listArcs()
 session.close()
@@ -65,8 +68,8 @@ session.close()
   different ARCs can contain equal IDs without sharing objects.
 - Opening a repository and listing `ArcInfo` metadata do not hydrate graphs or
   read folders. `openArc` loads only the selected entry and returns its existing
-  facade and objects until that ARC closes.
-- Closing an ARC releases its context; reopening creates a fresh projection.
+  ManagedGraph and objects until that graph closes.
+- Closing a graph releases its context; reopening creates a fresh projection.
   Closing the session invalidates all its handles and releases its connection.
   In-memory storage lasts for that connection. Neither close exports implicitly.
 - Shared mutable entities across live ARCs are rejected, including across
@@ -103,7 +106,7 @@ collection replacement, and typed relationship helpers.
   processes without surviving owners. Required Descriptor targets and surviving
   extension references prevent target deletion; undo restores affected links.
 
-`arc.Entity` also manages generic typed objects and extension properties on all
+`graph.Entity` also manages generic typed objects and extension properties on all
 core classes. Typed helpers cover text, finite binary64 numbers, Boolean, null,
 canonical base64 blobs, object references, and nested ordered collections.
 Missing properties, explicit null, and empty collections remain distinct.
@@ -137,8 +140,8 @@ SQLite still permits only one writer; this is not collaborative editing.
 
 ### SQLite storage
 
-The management schema is owned by ARCtrl and remains separate from the normative
-core SQL profile. ARCtrl uses PolyglotSQLite exclusively; provider code and
+The management schema is owned by ARCManagement and remains separate from the normative
+core SQL profile. ARCManagement uses PolyglotSQLite exclusively; provider code and
 provider dependencies stay inside that library.
 
 Schema version **4** scopes entity and typed rows by `(arc_id, id)`, ordered
@@ -156,6 +159,12 @@ implemented.
 
 Folder operations are independent of repository opening:
 
+- `ARC.bind(graph, folder)` binds an existing ManagedGraph and returns a workspace
+  facade. `ARC.fromGraph(graph)` requires a retained binding and wraps it without
+  inspecting the filesystem. Instance `bindFolder` applies the same binding policy.
+- `arc.ManagedGraph` exposes the exact wrapped graph. Model, operation groups,
+  history, ArcId, database path, and session-only status forward to it.
+  `IsDirty`, binding, saving, and recovery belong only to the workspace facade.
 - `ARC.importFolder(session, folder)` reads prototype `arc.yml` into a new bound
   entry and records its baseline. `bindFolder` establishes a destination without
   reading or writing; a new binding requires absent `arc.yml`.
@@ -170,9 +179,12 @@ Folder operations are independent of repository opening:
 - YAML replacement archives only the displaced ARC's metadata, state, history,
   and journal inside the repository. It does not rename or replace the shared
   database, or alter other ARCs.
-- Compatibility `ARC.create` and `ARC.openFolder` privately own a session at
+- `ARC.create` and `ARC.openFolder` privately own a session at
   `.arc/testing.sqlite`; closing their ARC closes that session. Convenience
   opening requires exactly one ARC with the matching folder binding.
+- Closing any workspace closes its graph and invalidates every wrapper sharing
+  it. Only `create` and `openFolder` also close their privately owned session;
+  borrowed sessions and sibling graphs remain usable.
 
 The current baseline compares the observed `arc.yml` text, including absence.
 Save stages a replacement file and advances the SQL checkpoint only after
@@ -181,28 +193,56 @@ status. Filesystem publication and SQLite commit cannot be atomic together:
 publication followed by checkpoint failure requires explicit source selection
 before retrying. Database-only reopening performs no filesystem reconciliation.
 
-The prototype YAML codec defines shared/circular entities once and uses `$ref`
+Managed root export defines shared/circular entities once and uses `$ref`
 references. It preserves extensions and numeric/text distinctions, emits safe
 keys and numeric scalars plainly, quotes ambiguous keys and text, and uses the
 standard binary tag URI. Older scalar tag forms remain readable. This codec
 contract does not change normative YAML schemas.
 
+### Detached YAML and managed import
+
+`DatasetYaml.encode(dataset)` and `DatasetYaml.decode(yaml)` are attached public
+APIs independent of SQL, filesystem, or ownership. Capture uses object reference
+identity and serialization-local keys. Encode emits deterministic anchors and
+aliases for sharing/cycles and emits IDs only when supplied, without modifying
+the input graph. Decode hydrates references before restoring supplied/absent IDs;
+it preserves distinct objects with equal IDs, extensions, scalar alternatives,
+collection order, and duplicates.
+
+Documents containing anchors or aliases use local-reference decoding. Register
+entity anchors before properties; reject duplicate anchors, unresolved/forward
+aliases, and mixed legacy references. The legacy `id`/`$ref` format remains
+readable; a literal `$ref` extension on a typed entity remains supported.
+
+`Session.importYaml(yaml)` decodes detached objects, then applies ordinary
+management adoption: assign missing IDs, reject distinct-object ID collisions,
+and create a fresh unbound entry with empty history. Workspace imports use a
+shared path-independent factory to initialize the graph, binding, and baseline
+transactionally. `ManagedGraph.toYaml()` retains the root-only legacy output
+without changing checkpoints or history. Snapshot codecs remain private.
+
 ### Portability and layout
 
-The implementation lives in [src/ARCtrl](../src/ARCtrl/):
+The implementation lives in [src/ARCManagement](../src/ARCManagement/):
 
 | Area | Responsibility |
 |---|---|
-| `ARCSession/Repository.fs`, `Session.fs` | Connection ownership, repository lifecycle, public Session and metadata. |
+| Generic repository and public Session | Connection ownership, repository lifecycle, metadata, and graph factories. |
 | `Runtime/Session.fs`, `ArcFactory.fs` | ARC context, snapshots, identity, adoption, hydration, and history. |
-| `Runtime/Workspace.fs` | Binding, export, baselines, and explicit folder recovery. |
-| `Operations/`, `ARC.fs`, `AppliedOperation.fs` | Attached public facade and operation groups. |
+| `ARCtrl/` | Workspace ARC, binding, export, baselines, recovery, fixed layout paths, and workspace-specific identifier/path helpers. |
+| `Operations/`, `ManagedGraph.fs`, `AppliedOperation.fs` | Generic attached facade and operation groups. |
 | `Internal/`, `Serialization/`, `Storage/` | Model capture/validation, YAML codecs, and SQLite schema/mirrors. |
-| `Helper/` | Internal portable paths, IO, IDs, collections, parsing, and async utilities. |
+| `Helper/` | Generic portable filesystem adapters, UUID generation, collections, parsing, and async utilities. |
 
-Native entrypoints are `arc-session` and `arc_session`; domain classes come from
+Generic native entrypoints are `arc-management` and `arc_management`; workspace
+ARC is exported from `arc-management/arctrl` and `arc_management.arctrl`.
+The single project/assembly is `ARCManagement`; generic facades compile before
+workspace code, so `ARC.importFolder(session: Session, folder)` is typed directly.
+Domain classes come from
 `arc-base-model` / `arc_base_model`. Staging keeps shared class definitions and
-curated exports/declarations. Python uses emitted snake_case method names.
+curated exports/declarations. JavaScript entrypoints build together with shared
+chunks; Python uses one implementation tree and emitted snake_case method names.
+No legacy project/package aliases remain.
 Public callers need neither generated implementation imports nor Fable runtime
 helpers. Management consumers apply the existing model Python numeric
 compatibility pass; PolyglotSQLite retains its own representation boundaries.
@@ -213,8 +253,10 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 | Milestone | State | Completion criteria |
 |---|---|---|
 | Repository, full-model operations, extensions, reversible history, and prototype folder IO | Implemented | Preserve the contracts above and their shared/native regression coverage. |
-| Verify the current public API | Pending | Re-run `TestARCSession` after the `add(value)` rename, including declarations and packed consumers. |
-| Repository-wide verification | Pending | Complete `RunTests` after the runtime-lockfile and solution-path repairs. |
+| Separate generic management and workspace APIs | Implemented and verified | Renamed project, tests, targets, and packages; verified exact graph delegation, ownership, both native entrypoints, and class identity. |
+| Detached YAML and public text workflows | Implemented and verified | Verified absent/duplicate IDs, sharing/cycles, scalar types, extensions, legacy input, invalid aliases, managed adoption, and checkpoint-free export. |
+| Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
+| Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
 | Project-file workspace integration | Planned | Resolve `.arc/project.yml`, profiles, rules, and exact codec IDs; prepare root/child bindings and auxiliary outputs before IO. |
 | Project-backed save and recovery | Planned | Export/reload selected resources with conflict checks, per-ARC archives, retained history/session-only objects, and failed-write checkpoint coverage. |
 | Project-backed native API and documentation | Planned | Run shared and handwritten consumers for the new lifecycle and document its supported guarantees. |
@@ -249,24 +291,45 @@ servers remain outside this plan. New production dependencies require approval.
 
 ## Verification and completion criteria
 
-The latest recorded full management run, before the `add` rename, passed
-`TestARCSession`: **127/127 shared tests on each of .NET, JavaScript, and Python**,
+Current separation verification (2026-10-16): `TestARCManagement` passed
+**145/145 shared tests on each of .NET, JavaScript, and Python**, plus handwritten
+TypeScript/JavaScript/Python consumers, declaration checks, packed npm artifacts,
+and Python wheels. Emitted Python classes/stubs were inspected for leaked
+internals and imprecise `Any` signatures; JavaScript declarations passed staging
+checks. `TestBaseModel` passed **25/25 shared tests on each runtime**, plus native
+consumers, declarations, and packed artifacts. Relative links across ten updated
+Markdown documents resolve.
+
+`BuildSolution` passed with the corrected solution path. The repository-wide
+`RunTests` aggregate completed with exit code 0 and `Status: Ok`, including the
+management and base-model checks above. PolyglotSQLite passed 41 .NET, 36
+JavaScript, and 36 Python cases, native/packed checks, and all nine cross-runtime
+database writer/reader combinations. Core SQL passed 63 cases each on Node and
+Python. ProcessCore passed 659 JavaScript and 660 .NET cases, with two ignored
+cases on each runtime. The legacy ProcessCore `runTestsPy` target remains excluded
+by the existing aggregate; it was not run and is not passing Python evidence.
+
+Historical baseline: before the `add` rename and project/API separation, the
+former management aggregate passed:
+**127/127 shared tests on each of .NET, JavaScript, and Python**,
 plus handwritten native consumers, declaration checks, and locally packed npm
-and Python artifacts. That is the established baseline, not verification of
-subsequent changes. After aggregate-build repairs, the recorded `TestCoreSQL`
-run passed 63 cases on both Node and Python; full `RunTests` remains pending.
+and Python artifacts. After earlier aggregate-build repairs, the recorded
+`TestCoreSQL` run passed 63 cases on both Node and Python. These historical
+results are superseded by the current management checks above.
 
 Use the existing targets:
 
 ```powershell
-.\build.cmd TestARCSession
+.\build.cmd TestARCManagement
+.\build.cmd TestBaseModel
 .\build.cmd RunTests
 ```
 
-`TestARCSession` aggregates `TestARCSessionDotNet`, `TestARCSessionJS`,
-`TestARCSessionPy`, and `TestARCSessionNative`; it is included in `RunTests`.
-`TestManagementPrototype` retains compatibility .NET coverage. The consolidated
-[shared tests](../tests/ManagementPrototype.Tests/Main.fs) cover helpers,
+`TestARCManagement` aggregates `TestARCManagementDotNet`, `TestARCManagementJS`,
+`TestARCManagementPy`, and `TestARCManagementNative`; it is included in `RunTests`.
+`TestCoreSQL` depends on `TestARCManagementDotNet`; the duplicate
+`TestManagementPrototype` target is removed. The consolidated
+[shared tests](../tests/ARCManagement.Tests/Main.fs) cover helpers,
 behavior, core SQL, full-model operations, and the multi-ARC toolbox. Only the
 demo walkthrough is .NET-only. Compilation or skipped execution is not a pass.
 
@@ -278,6 +341,12 @@ For implementation changes, retain coverage for:
   failures; direct mutation detection and canonical package class identity.
 - Memory/file parity, lazy hydration, ownership rejection, per-ARC constraints,
   history/revision isolation, and ARC/session closure.
+- Workspace wrappers reuse the exact graph, operation groups, and entities;
+  graph closure invalidates wrappers while borrowed sessions/siblings survive.
+- Detached YAML absent IDs, equal supplied IDs on distinct objects, aliases,
+  cycles, extensions, numeric/text distinctions, legacy documents, and failures.
+- YAML imports assign IDs and reject collisions; text export remains root-only
+  and does not advance checkpoints or history.
 - Root-only export, standalone-object retention, source preferences, unavailable
   sources, conflicts, per-ARC archives, and publication/checkpoint failures.
 - Handwritten JS/TS and Python callers through public entrypoints, strict

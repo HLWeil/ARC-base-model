@@ -14,9 +14,17 @@ The repository now includes F# implementation projects in addition to the markdo
 | Project | Role | Runtime |
 |---------|------|---------|
 | `src/ProcessCore` | In-memory unified ARC RDM model, YAML codecs, SQL profile, graph traversal, and table projection helpers | .NET, JavaScript, Python |
+| `src/ARCManagement` | Portable graph management, repositories, history, detached YAML codecs, and nested ARCtrl workspace APIs | .NET, JavaScript, Python |
+| `tests/ARCManagement.Tests` | Shared management/workspace behavior and native package consumers | .NET, JavaScript, Python |
 | `tests/ProcessCore.Tests` | Shared Pyxpecto tests for core, YAML, and SQL behavior | .NET, JavaScript, Python |
 
 ## ProcessCore User Documentation
+
+Generic management APIs are documented in the [ARCManagement guide](arc-management.md).
+Workspace-specific `ARCtrl.ARC` APIs live in the same assembly and have a separate
+[workspace guide](arctrl.md). Their packages expose `arc-management` /
+`arc_management` for generic management and `arc-management/arctrl` /
+`arc_management.arctrl` for workspace operations.
 
 The F# object model, YAML codec, graph traversal helpers, fragment selector providers, and table views are documented in the [ProcessCore user guide](../core-implementation/overview.md). The public model is unified rather than split into separate runtime models for each base or decoration profile.
 
@@ -29,7 +37,7 @@ The SQL profile artifacts live in `schemas/sql/`:
 - `seeded_core.sqlite` is the generated SQLite database.
 - `design.md` explains the relational design.
 
-The current profile reuses the existing `PolyglotSQLite` infrastructure. A small validation helper lives in `src/ARCtrl/Storage/SQLiteStore.fs`, and focused checks live in `tests/ManagementPrototype.Tests`. The [design and property checklist](../../schemas/sql/design.md) document the representation. Run `.\build.cmd TestCoreSQL` to verify the schema on .NET, Node and Python. The core schema remains separate from the prototype's session tables.
+The current profile reuses the existing `PolyglotSQLite` infrastructure. A small validation helper lives in `src/ARCManagement/Storage/SQLiteStore.fs`, and focused checks live in `tests/ARCManagement.Tests`. The [design and property checklist](../../schemas/sql/design.md) document the representation. Run `.\build.cmd TestCoreSQL` to verify the schema on .NET, Node and Python. The core schema remains separate from the prototype's session tables.
 
 `ProcessCore.SQL` inside the consolidated `ProcessCore` project retains its legacy API and explicit legacy test fixtures; it does not implement the current schema:
 
@@ -41,7 +49,7 @@ The current profile reuses the existing `PolyglotSQLite` infrastructure. A small
 
 ## Runtime Adapters
 
-Current SQL runtime drivers live under `src/PolyglotSQLite/`; ARCtrl reuses them. The legacy drivers remain under `src/ProcessCore/SQL/`:
+Current SQL runtime drivers live under `src/PolyglotSQLite/`; ARCManagement reuses them. The legacy drivers remain under `src/ProcessCore/SQL/`:
 
 - .NET uses `Microsoft.Data.Sqlite`.
 - JavaScript uses `better-sqlite3` after Fable transpilation.

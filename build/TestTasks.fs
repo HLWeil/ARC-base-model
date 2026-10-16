@@ -85,23 +85,17 @@ let runTestsPy = BuildTask.createFn "runTestsPy" [clean] (fun tp ->
 
 )
 
-let testManagementPrototype = BuildTask.createFn "TestManagementPrototype" [] (fun _ ->
-    let output = Path.GetFullPath("build/out/management/dotnet") + "/"
-    let result = DotNet.exec id "run" ("--project tests/ManagementPrototype.Tests/ManagementPrototype.Tests.fsproj --configuration Release --property:OutDir=\"" + output + "\"")
-    if not result.OK then failwith "ARC management prototype tests failed."
-)
-
 let private command executable arguments =
     CreateProcess.fromRawCommand executable arguments
     |> CreateProcess.ensureExitCode
     |> Proc.run
     |> ignore
 
-/// Core DDL checks reuse the prototype's existing SQL implementation and providers.
-let testCoreSQL = BuildTask.create "TestCoreSQL" [testManagementPrototype; PolyglotSQLiteTasks.buildPolyglotSQLiteJS; PolyglotSQLiteTasks.buildPolyglotSQLitePy] {
-    command "node" ["tests/ManagementPrototype.Tests/CoreSql.mjs"]
+/// Core DDL checks reuse the management tests and existing SQLite providers.
+let testCoreSQL = BuildTask.create "TestCoreSQL" [ARCManagementTasks.testARCManagementDotNet; PolyglotSQLiteTasks.buildPolyglotSQLiteJS; PolyglotSQLiteTasks.buildPolyglotSQLitePy] {
+    command "node" ["tests/ARCManagement.Tests/CoreSql.mjs"]
     CreateProcess.fromRawCommand "uv"
-        ["run"; "--no-sync"; "--cache-dir"; "build/out/uv-cache"; "python"; "tests/ManagementPrototype.Tests/CoreSql.py"]
+        ["run"; "--no-sync"; "--cache-dir"; "build/out/uv-cache"; "python"; "tests/ARCManagement.Tests/CoreSql.py"]
     |> CreateProcess.setEnvironmentVariable "PYTHONPATH" (Path.GetFullPath("build/out/polyglot-sqlite/python"))
     |> CreateProcess.ensureExitCode
     |> Proc.run
@@ -111,5 +105,5 @@ let testCoreSQL = BuildTask.create "TestCoreSQL" [testManagementPrototype; Polyg
 
 let runTests =
     // TODO: add back python tests when FsSpreadsheet
-    BuildTask.create "RunTests" [ clean; buildSolution; runTestsDotnet; (*runTestsPy;*) runTestsJs; BaseModelTasks.testBaseModel; PolyglotSQLiteTasks.testPolyglotSQLite; ARCSessionTasks.testARCSession; testCoreSQL ] {
+    BuildTask.create "RunTests" [ clean; buildSolution; runTestsDotnet; (*runTestsPy;*) runTestsJs; BaseModelTasks.testBaseModel; PolyglotSQLiteTasks.testPolyglotSQLite; ARCManagementTasks.testARCManagement; testCoreSQL ] {
     }

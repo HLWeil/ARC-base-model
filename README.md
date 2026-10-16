@@ -11,6 +11,8 @@ Documentation: https://hlweil.github.io/ProcessCore/
 - [Normative specification](docs/spec/index.md)
 - [Specification guide](docs/project/specification.md)
 - [Implementation guide](docs/project/implementation.md)
+- [ARCManagement guide](docs/project/arc-management.md)
+- [ARCtrl workspace guide](docs/project/arctrl.md)
 - [Examples and schemas](docs/project/examples-and-schemas.md)
 - [Reference material](docs/project/references.md)
 - [Prior art notes](docs/project/prior-art.md)

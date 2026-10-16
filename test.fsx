@@ -1,15 +1,16 @@
-// First: dotnet build src/ARCtrl/ARCtrl.fsproj -c Release
+// First: dotnet build src/ARCManagement/ARCManagement.fsproj -c Release
 // Then:  dotnet fsi test.fsx
 #r "nuget: Fable.Core, 5.0.0"
 #r "nuget: YAMLicious, 1.0.2"
 #r "nuget: Microsoft.Data.Sqlite, 10.0.6"
-#r "src/ARCtrl/bin/Release/netstandard2.0/ARCBaseModel.dll"
-#r "src/ARCtrl/bin/Release/netstandard2.0/PolyglotSQLite.dll"
-#r "src/ARCtrl/bin/Release/netstandard2.0/ARCtrl.dll"
+#r "src/ARCManagement/bin/Release/netstandard2.0/ARCBaseModel.dll"
+#r "src/ARCManagement/bin/Release/netstandard2.0/PolyglotSQLite.dll"
+#r "src/ARCManagement/bin/Release/netstandard2.0/ARCManagement.dll"
 
 open System
 open System.IO
 open ARCBaseModel
+open ARCManagement
 open ARCtrl
 
 // // A fresh folder each run avoids overwriting an existing session.
@@ -66,7 +67,7 @@ open ARCtrl
 // resumed.Dataset.setTitle("Resumed Dataset") |> ignore
 
 
-let mySession = ARCSession.Session.createInMemory()
+let mySession = ARCManagement.Session.createInMemory()
 
 
 mySession.openArc("").Dataset.
@@ -103,7 +104,7 @@ let d = Dataset(["process-provenance"], ["example-arc"])
 
 myArc.Dataset.setTitle(..)
 
-ARCSession.Dataset.setTitle(myArc, ..)
+ARCManagement.Dataset.setTitle(myArc, ..)
 
 // myArc.Datasets[0].setTitle("My New Title") |> ignore
 

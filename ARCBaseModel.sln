@@ -35,9 +35,9 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "PolyglotSQLite", "src\Polyg
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "PolyglotSQLite.Tests", "tests\PolyglotSQLite.Tests\PolyglotSQLite.Tests.fsproj", "{BB080312-9639-4221-AF5C-3731A41CC0E0}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ARCtrl", "src\ARCtrl\ARCtrl.fsproj", "{A1B7D1C2-7A89-44C2-9DA4-8EE581C4E117}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ARCManagement", "src\ARCManagement\ARCManagement.fsproj", "{A1B7D1C2-7A89-44C2-9DA4-8EE581C4E117}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ManagementPrototype.Tests", "tests\ManagementPrototype.Tests\ManagementPrototype.Tests.fsproj", "{65FDA0A9-7761-4776-BDFB-BB50F4546458}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ARCManagement.Tests", "tests\ARCManagement.Tests\ARCManagement.Tests.fsproj", "{65FDA0A9-7761-4776-BDFB-BB50F4546458}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

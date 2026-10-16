@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Helper/CrossAsync.fs" />
+    <Compile Include="Helper/ResizeArray.fs" />
+    <Compile Include="Helper/Option.fs" />
+    <Compile Include="Helper/Path.fs" />
+    <Compile Include="Helper/Regex.fs" />
+    <Compile Include="Helper/Ontology.fs" />
+    <Compile Include="Helper/Identifier.fs" />
+    <Compile Include="Helper/WebRequest/WebRequest.Node.fs" />
+    <Compile Include="Helper/WebRequest/WebRequest.Py.fs" />
+    <Compile Include="Helper/WebRequest/WebRequest.fs" />
+    <Compile Include="Internal/State.fs" />
+    <Compile Include="Internal/Model.fs" />
+    <Compile Include="Serialization/YamlCodec.fs" />
+    <Compile Include="Serialization/DatasetYaml.fs" />
+    <Compile Include="Storage/SQLiteStore.fs" />
+    <Compile Include="Storage/Repository.fs" />
+    <Compile Include="AppliedOperation.fs" />
+    <Compile Include="Runtime/Session.fs" />
+    <Compile Include="Runtime/ArcFactory.fs" />
+    <Compile Include="Operations/EntityOperations.fs" />
+    <Compile Include="Operations/DatasetOperations.fs" />
+    <Compile Include="Operations/ProcessOperations.fs" />
+    <Compile Include="Operations/SampleOperations.fs" />
+    <Compile Include="Operations/OrganizationOperations.fs" />
+    <Compile Include="Operations/AgentOperations.fs" />
+    <Compile Include="Operations/ScholarlyArticleOperations.fs" />
+    <Compile Include="Operations/AnnotationOperations.fs" />
+    <Compile Include="Operations/FormalParameterOperations.fs" />
+    <Compile Include="Operations/DefinedTermSetOperations.fs" />
+    <Compile Include="Operations/DefinedTermOperations.fs" />
+    <Compile Include="Operations/DescriptorOperations.fs" />
+    <Compile Include="Operations/DataOperations.fs" />
+    <Compile Include="Operations/RecipeOperations.fs" />
+    <Compile Include="Operations/HistoryOperations.fs" />
+    <Compile Include="ManagedGraph.fs" />
+    <Compile Include="Session.fs" />
+    <Compile Include="ARCtrl/Helper/Layout.fs" />
+    <Compile Include="ARCtrl/Helper/Identifier.fs" />
+    <Compile Include="ARCtrl/Workspace.fs" />
+    <Compile Include="ARCtrl/ARC.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>ARCManagement.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <ProjectReference Include="../ARCBaseModel/ARCBaseModel.fsproj" />
+    <ProjectReference Include="../PolyglotSQLite/PolyglotSQLite.fsproj" />
+    <PackageReference Include="Fable.Core" />
+    <PackageReference Include="YAMLicious" />
+  </ItemGroup>
+</Project>

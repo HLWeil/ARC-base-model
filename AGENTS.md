@@ -28,12 +28,15 @@ ARC-Data-Model/
 ├── src/                          F# implementation projects
 │   ├── ARCBaseModel/             portable Layer 1 domain classes
 │   ├── PolyglotSQLite/           portable SQLite values, drivers, transactions, and CRUD
+│   ├── ARCManagement/            graph management, YAML codecs, and SQLite repositories
+│   │   └── ARCtrl/               ARC workspace binding, save, and recovery
 │   └── ProcessCore/              existing core, YAML, SQL, and Fable projects
 ├── tests/                        Pyxpecto tests
 │   ├── ARCBaseModel.Tests/       shared Layer 1 behavior tests and mapping probe
 │   ├── ARCBaseModel.Native/      handwritten JavaScript, TypeScript, and Python consumers
 │   ├── PolyglotSQLite.Tests/     shared SQLite behavior and database interoperability tests
 │   ├── PolyglotSQLite.Native/    handwritten SQLite package consumers
+│   ├── ARCManagement.Tests/      shared management/workspace tests and native consumers
 │   ├── ProcessCore.Tests/        consolidated core, YAML, and SQL tests
 │   └── SpeedTest/
 └── build/                        FAKE build project and task modules
@@ -108,6 +111,58 @@ Use these as API-design references, not as substitutes for the base specificatio
 - Ordinary statements must not commit a surrounding transaction. Validate one statement before provider preparation, generate nested savepoints internally, and keep scripts separate. Borrowed handles require exclusive use and must be idle before wrapping; borrowed Python detect_types=0 is an explicit caller precondition because sqlite3 cannot expose that flag.
 - Run `TestPolyglotSQLite` for the complete contract: shared tests on all three runtimes, handwritten native callers, declaration checks, local packed artifacts, and every cross-runtime database writer/reader combination. The independent targets are `TestPolyglotSQLiteDotNet`, `TestPolyglotSQLiteJS`, `TestPolyglotSQLitePy`, `TestPolyglotSQLiteNative`, and `TestPolyglotSQLiteInterop`.
 
+## ARCManagement: Graph and Workspace Management
+
+`src/ARCManagement/ARCManagement.fsproj` builds one portable assembly over
+ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
+[the management plan](plans/arc-management.md). The
+[management guide](docs/project/arc-management.md) and
+[workspace guide](docs/project/arctrl.md) document the public boundaries.
+
+- `ARCManagement.Session` owns one connection and creates, opens, imports, and
+  enumerates independently managed entries. `createArc` and `openArc` return
+  `ManagedGraph`; repeated opening returns the same active graph. Keep `ArcInfo`,
+  `ArcId`, and `listArcs` names. Session closure invalidates all its graphs.
+- `ARCManagement.ManagedGraph` owns model access, operation groups, identity,
+  validation, transactions, history, graph lifetime, and root-only `toYaml()`.
+  Preserve supplied references, ordering, duplicates, and stable canonical
+  objects through edits/history. ID assignment belongs here, never Layer 1.
+- `ARCManagement.DatasetYaml.encode/decode` are detached codecs. Preserve absent
+  IDs and distinct objects with equal supplied IDs, sharing, cycles, extensions,
+  and scalar types through serialization-local anchors/aliases. Do not modify
+  supplied objects or perform SQL/filesystem/ownership operations.
+  `Session.importYaml` subsequently applies normal adoption rules, assigning
+  missing IDs and rejecting distinct-object ID collisions in a fresh unbound
+  entry. Managed exports retain root-only `id`/`$ref` output and do not advance
+  checkpoints or history. Snapshot codecs remain private.
+- Top-level `ARCtrl.ARC` lives in the nested `ARCtrl/` folder. Keep workspace
+  policy, fixed layout paths, and workspace-specific identifier/path helpers
+  there. Generic operations, runtime, storage, serialization, UUID generation,
+  and portable filesystem adapters stay outside it. Compile generic APIs first;
+  `ARC.importFolder` takes a typed `ARCManagement.Session`.
+- `ARC.bind(graph, folder)` applies binding policy; `ARC.fromGraph(graph)` requires
+  a retained binding without reading files. Forward `Model`, operation groups,
+  and `History` to the exact exposed `ManagedGraph`. Folder APIs and `IsDirty`
+  belong to ARC. Closing any wrapper closes its graph and invalidates every
+  shared wrapper; only `create`/`openFolder` also close their privately owned
+  session. Borrowed sessions and sibling graphs remain usable.
+- Retain `arc.yml`, `.arc/testing.sqlite`, schema version 4, per-entry archives,
+  and save/recovery checkpoint guarantees. Workspace imports initialize the
+  graph, binding, and baseline transactionally. Project-file integration is
+  separate future work.
+- Generic native entrypoints are `arc-management` / `arc_management`; workspace
+  entrypoints are `arc-management/arctrl` / `arc_management.arctrl`. Use shared
+  JavaScript chunks and one Python implementation tree so model, SQLite, and
+  management class identity is common. Keep curated declarations and the
+  existing model Python numeric compatibility handling. Do not retain legacy
+  project/package aliases or introduce production dependencies.
+- Run `TestARCManagement` for shared .NET/JS/Python behavior, handwritten native
+  consumers, declarations, and packed artifacts. Independent targets are
+  `TestARCManagementDotNet`, `TestARCManagementJS`, `TestARCManagementPy`, and
+  `TestARCManagementNative`. `TestCoreSQL` reuses the .NET target. Also run
+  `TestBaseModel` and `RunTests` for changes to these boundaries; a skipped or
+  failed target is not a passing check.
+
 ## Commands
 
 ```powershell
@@ -116,6 +171,7 @@ Use these as API-design references, not as substitutes for the base specificatio
 .\build.cmd TestBaseModel
 .\build.cmd BuildPolyglotSQLite
 .\build.cmd TestPolyglotSQLite
+.\build.cmd TestARCManagement
 .\build.cmd RunTests
 .\build.cmd runTestsJS
 .\build.cmd runTestsPy

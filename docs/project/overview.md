@@ -28,6 +28,7 @@ ARC-Data-Model/
 - [Specification](specification.md) describes the three ARC RDM base profiles and their decoration profiles.
 - [Examples and schemas](examples-and-schemas.md) explains the current schema drafts and example status.
 - [Implementation](implementation.md) explains the F# projects, SQL profile, runtime adapters, and build commands.
+- [ARCManagement](arc-management.md) covers graph mutation, repositories, history, and YAML codecs; [ARCtrl](arctrl.md) covers ARC workspace binding and recovery.
 - [Reference material](references.md) lists upstream profiles and preserved implementation notes.
 - [Prior art notes](prior-art.md) summarizes the ARCtrl and query model background that shaped this repo.
 

@@ -91,10 +91,10 @@ and the appropriate declarations for process, descriptor and administrative
 properties. Additional classification strings are permitted. Each child is
 validated independently; no root containment or ownership policy is imposed.
 
-The existing `src/ARCtrl/Storage/SQLiteStore.fs` provides a small validation helper
+The existing `src/ARCManagement/Storage/SQLiteStore.fs` provides a small validation helper
 over `PolyglotSQLite`. It remains separate from the prototype's session schema.
 There is no parallel row API or duplicated SQLite infrastructure. Tests live in
-`tests/ManagementPrototype.Tests`, reuse the existing store/provider, and execute
+`tests/ARCManagement.Tests`, reuse the existing store/provider, and execute
 the same SQL cases on .NET, Node and Python.
 
 ## Compatibility and artifacts
@@ -105,7 +105,7 @@ flattened term sets, string-only Annotation values, fragment-derived uniqueness
 and DefinedTerm defaults are removed. No implicit migration is supplied.
 
 The existing `ProcessCore.SQL` API is retired and does not implement this new
-profile. Core SQL tests live in `tests/ManagementPrototype.Tests`, with portable
+profile. Core SQL tests live in `tests/ARCManagement.Tests`, with portable
 driver and generic repository tests in `tests/PolyglotSQLite.Tests`. Normative profiles and YAML schemas are unchanged. Decoration-specific
 tables remain outside this revision.
 
@@ -115,7 +115,7 @@ shared references, duplicates, defaults, components and scalar alternatives.
 Rebuild the committed example database and run checks with:
 
 ```powershell
-uv run --no-sync python tests/ManagementPrototype.Tests/CoreSql.py --rebuild
+uv run --no-sync python tests/ARCManagement.Tests/CoreSql.py --rebuild
 .\build.cmd TestCoreSQL
 ```
 
