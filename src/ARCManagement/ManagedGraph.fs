@@ -24,6 +24,8 @@ type ManagedGraph private (context: GraphContext) =
     let historyOperations = HistoryOperations(context)
     member internal _.Context = context
     member _.Model = context.Model
+    member _.Revision = context.Revision
+    member _.readModel() = context.ReadModel()
     member _.Entity = entityOperations
     member _.Dataset = datasetOperations
     member _.Process = processOperations
@@ -43,9 +45,7 @@ type ManagedGraph private (context: GraphContext) =
     member _.DatabasePath = context.DatabasePath
     member _.HasSessionOnlyObjects = context.HasSessionOnlyObjects
     member _.toYaml() =
-        context.Repository.Access(fun () ->
-            context.Check()
-            Codec.encodeGraph context.State)
+        context.Export()
     member _.close() =
         if not context.IsClosed then context.Repository.Access(context.Close)
     static member internal Wrap(context: GraphContext) =

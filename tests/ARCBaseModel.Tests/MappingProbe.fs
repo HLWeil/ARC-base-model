@@ -107,8 +107,7 @@ type MappingProbe() =
         | Some _, Some _ -> invalidArg "row" "Term-set columns contain both alternatives."
 
     static member AssignSampleId(sample: Sample, id: string option) =
-        sample.Id <- id
-        sample
+        match id with Some value -> Sample.withId(sample,value) | None -> Sample.clearId(sample)
 
     static member ReadSampleId(sample: Sample) = sample.Id
 
@@ -127,6 +126,10 @@ type MappingProbe() =
         | Entity.Number _ -> true
         | _ -> false
 
-    static member FillExtensionNumbers(target: EntityObject, values: EntityCollection) =
-        target.SetEntityProperty("wrapped", Entity.Number 1.25)
-        values.Add(Entity.Number 2.5)
+    static member CreateNumericExtension() =
+        EntityObject.withEntityProperty(EntityObject("QualityAssessment"),"wrapped",Entity.Number 1.25)
+
+    static member CreateNumericCollection() = EntityCollection([Entity.Number 2.5])
+
+    static member DatasetCount(value:Dataset) = value.HasParts.Count
+    static member DatasetFirst(value:Dataset) = value.HasParts[0]

@@ -1,9 +1,14 @@
-from pathlib import Path
-from uuid import uuid4
-import arc_management
-from arc_management import DatasetYaml, ManagedGraph, Session
+﻿from arc_management import Session, DatasetYaml, ManagedGraph, RevisionConflictException
 from arc_management.arctrl import ARC
-from arc_base_model import Dataset, Annotation, Sample, Data, EntityObject, EntityCollection
+from arc_management import SampleOperations
+from arc_base_model import Dataset, Sample, Process, ModelBuilder
+from pathlib import Path
+from time import time_ns
+
+
+def check(value, message):
+    if not value:
+        raise AssertionError(message)
 
 
 def rejects(action):
@@ -14,176 +19,66 @@ def rejects(action):
     raise AssertionError("Expected rejection")
 
 
-assert not hasattr(arc_management, "ARC")
-detached = Dataset(["process-provenance"], ["detached"])
-shared = Dataset(["administrative"], ["shared"])
-same_id = Dataset(["semantic-designation"], ["distinct"])
-shared.Id = same_id.Id = "same"
-shared.Title = ""
-detached.HasParts = [shared, shared, same_id, detached]
-zero = Annotation("zero")
-zero.Value = 0
-detached.AdditionalProperties = [zero, zero]
-detached.SetEntityProperty("self", detached)
-detached_yaml = DatasetYaml.encode(detached)
-assert detached.Id is None and zero.Id is None
-decoded = DatasetYaml.decode(detached_yaml)
-assert isinstance(decoded, Dataset) and decoded.Id is None
-assert decoded.HasParts[0] is decoded.HasParts[1]
-assert decoded.HasParts[0] is not decoded.HasParts[2] and decoded.HasParts[2].Id == "same"
-assert decoded.HasParts[3] is decoded and decoded.EntityProperties.Get("self") is decoded
-assert decoded.HasParts[0].Title == ""
-assert decoded.AdditionalProperties[0] is decoded.AdditionalProperties[1]
-assert decoded.AdditionalProperties[0].Value == 0 and type(decoded.AdditionalProperties[0].Value) is float
-rejects(lambda: DatasetYaml.decode("not: [valid YAML"))
-rejects(lambda: DatasetYaml.decode("type: Sample\nname: invalid root\n"))
-recursive_collection = EntityCollection([])
-recursive_collection.Add(recursive_collection)
-detached.SetEntityProperty("bad", recursive_collection)
-rejects(lambda: DatasetYaml.encode(detached))
-detached.RemoveEntityProperty("bad")
-
-folder = str(Path("build/out/arc-management") / ("native-python-" + uuid4().hex))
-arc = ARC.create(folder, Dataset(["process-provenance", "semantic-designation", "administrative"], ["native"]))
+session = Session.create_in_memory()
+graph = session.create_arc(Dataset(["process-provenance"], ["native-python"]))
+check(isinstance(graph, ManagedGraph), "Public graph wrapper")
+check(session.open_arc(graph.ArcId) is graph, "Cached facade")
+check(isinstance(graph.Sample, SampleOperations), "Operation facade preserves instance checks")
+source = Sample("A")
+added = graph.Sample.add(graph.read_model().Revision, source)
+check(source.Id is None and added.Value.Id is not None, "Assigned copies only")
+check(isinstance(added.Value, Sample), "Canonical model class")
+rejects(lambda: setattr(added.Value, "Name", "bad"))
+rejects(lambda: setattr(added.Value, "_name", "bad"))
+rejects(lambda: setattr(added, "Changed", False))
+rejects(lambda: setattr(added.Revision, "_revision", 0))
+changed = graph.Sample.set_name(added.Revision, added.Value.Id, "B")
+check(changed.Value.Name == "B" and added.Value.Name == "A", "Old snapshots unchanged")
 try:
-    sample = arc.Sample.add(Sample("sample"))
-    data = arc.Data.add(Data("results.csv"))
-    fragment = arc.Data.add(Data("results.csv"))
-    arc.Data.set_selector(fragment, "row=1")
-    arc.Data.set_has_parts(data, [fragment, fragment])
-    value = arc.Annotation.create("value")
-    arc.Annotation.set_value_number(value, 0)
-    assert value.Value == 0 and type(value.Value) is float
-    parameter = arc.FormalParameter.create("parameter")
-    arc.FormalParameter.set_default_value(parameter, value)
-    arc.Annotation.set_instance_of(value, parameter)
-    recipe = arc.Recipe.create("recipe")
-    arc.Recipe.set_parameters(recipe, [parameter, parameter])
-    arc.Recipe.set_components(recipe, [value, value])
-    termset = arc.DefinedTermSet.create("ontology")
-    term = arc.DefinedTerm.create("term")
-    arc.DefinedTerm.set_in_defined_term_set_entity(term, termset)
-    arc.Recipe.set_intended_use_term(recipe, term)
-    proc = arc.Process.create("process")
-    arc.Process.set_input_sample(proc, sample)
-    arc.Process.set_output_data(proc, data)
-    arc.Process.set_executes_recipe(proc, recipe)
-    descriptor = arc.Descriptor.create(sample)
-    arc.Descriptor.set_annotations(descriptor, [value, value])
-    organization = arc.Organization.create("organization")
-    agent = arc.Agent.create("agent")
-    arc.Agent.set_affiliations(agent, [organization, organization])
-    arc.Agent.set_job_titles(agent, [term])
-    article = arc.ScholarlyArticle.create("article")
-    arc.ScholarlyArticle.set_authors(article, [agent, agent])
-    child = arc.Dataset.create("child")
-    arc.Dataset.set_has_parts(arc.Model, [child, child])
-    arc.Dataset.set_processes(arc.Model, [proc])
-    arc.Dataset.set_data_files(arc.Model, [data, fragment, data])
-    arc.Dataset.set_descriptors(arc.Model, [descriptor])
-    arc.Dataset.set_agents(arc.Model, [agent])
-    arc.Dataset.set_citations(arc.Model, [article])
-    assert type(arc.Data.list()) is list
-    assert data.HasParts[0] is data.HasParts[1]
-    quality = arc.Entity.add(EntityObject("QualityAssessment"))
-    arc.Entity.set_number_property(quality, "score", 0)
-    arc.Entity.set_bool_property(quality, "accepted", False)
-    arc.Entity.set_null_property(quality, "missing")
-    arc.Entity.set_blob_property(quality, "bytes", "AA==")
-    arc.Entity.set_collection_property(quality, "values", [0, False, ""])
-    arc.Entity.set_object_property(arc.Model, "quality", quality)
-    assert arc.Entity.get_property(quality, "score") == 0
-    assert arc.Entity.get_property(quality, "accepted") is False
-    assert arc.Entity.has_property(quality, "missing")
-    replacement = Annotation("replaced")
-    replacement.Id = value.Id
-    replacement.Value = ""
-    arc.Annotation.upsert(replacement)
-    assert value.Value == "" and value is not replacement
-    arc.save()
-    arc.close()
-    resumed = ARC.open_folder(folder, "sql")
-    try:
-        assert resumed.Model.HasParts[0] is resumed.Model.HasParts[1]
-        recovered_quality = resumed.Entity.get(quality.Id)
-        assert resumed.Entity.get_property(resumed.Model, "quality") is recovered_quality
-        assert resumed.Entity.get_property(recovered_quality, "score") == 0
-        resumed.History.undo()
-        restored = resumed.Annotation.get(value.Id)
-        assert restored.Value == 0 and type(restored.Value) is float
-        assert restored.InstanceOf.DefaultValue is restored
-    finally:
-        resumed.close()
-finally:
-    arc.close()
-print("Native Python management checks passed.")
-
-def root():
-    value = Dataset(["process-provenance"], ["native"])
-    value.Id = "root"
-    return value
-
-path = str(Path(folder) / "collection.sqlite")
-session = Session.create_file(path)
-first = session.create_arc(root())
-second = session.create_arc(root())
-assert isinstance(first, ManagedGraph)
-assert not hasattr(first, "save") and not hasattr(first, "bind_folder")
-rejects(lambda: session.import_yaml(detached_yaml))
-sample = Sample("first")
-sample.Id = "same"
-assert first.Sample.add(sample) is sample
-other = Sample("second")
-other.Id = "same"
-assert second.Sample.add(other) is other
-numeric = first.Annotation.create("numeric boundary")
-first.Annotation.set_value_number(numeric, 0)
-assert type(numeric.Value) is float
-rejects(lambda: first.Annotation.set_value_number(numeric, False))
-rejects(lambda: first.Entity.set_number_property(first.Model, "bad", False))
-process = first.Process.create("process")
-rejects(lambda: first.Process.set_input_sample(process, other))
-first.Process.set_input_sample(process, sample)
-first.Dataset.add_process(first.Model, process)
-first.Sample.set_name(sample, "changed")
-first.History.undo()
-assert sample.Name == "first" and other.Name == "second"
-assert session.open_arc(first.ArcId) is first
-assert len(session.list_arcs()) == 2
-assert session.list_arcs()[0].RootEntityId == "root"
-assert session.list_arcs()[0].Folder is None
-destination = str(Path(folder) / "export")
-workspace = ARC.bind(first, destination)
-assert workspace.ManagedGraph is first and workspace.Sample is first.Sample
-assert ARC.from_graph(first).ManagedGraph is first
-assert not (Path(destination) / "arc.yml").exists()
-workspace.save()
-first_id, second_id = first.ArcId, second.ArcId
-workspace.close()
-rejects(lambda: first.Sample.create("closed"))
-second.Sample.set_name(other, "independent")
+    graph.Sample.set_name(added.Revision, added.Value.Id, "stale")
+except RevisionConflictException as error:
+    check(error.Expected.Value == added.Revision.Value, "Structured expected revision")
+else:
+    raise AssertionError("Expected revision conflict")
+unchanged = graph.Sample.upsert(changed.Revision, changed.Value)
+check(not unchanged.Changed and unchanged.Operation is None, "Explicit no-op")
+check(unchanged.Revision.Value == changed.Revision.Value, "No-op revision")
+proc = graph.Process.add(unchanged.Revision, Process("p"))
+linked = graph.Process.set_input_sample(proc.Revision, proc.Value.Id, added.Value.Id)
+check(isinstance(linked.Value.Input, Sample), "Native erased alternative")
+read = graph.read_model()
+root = graph.Dataset.upsert(read.Revision, Dataset.with_processes(read.Value, [linked.Value, linked.Value]))
+check(isinstance(root.Value.Processes, tuple), "Immutable native tuple")
+check(root.Value.Processes[0] is root.Value.Processes[1], "Duplicate sharing")
+rejects(lambda: root.Value.Processes.append(linked.Value))
+rejects(lambda: graph.Dataset.upsert(root.Revision, root.Value, True))
+rejects(lambda: graph.Dataset.upsert(root.Revision, root.Value, recursive=1))
+rejects(lambda: graph.Dataset.upsert(root.Revision, root.Value, recursively=True))
+nested_sample = Sample.with_name(changed.Value, "C")
+nested_process = Process.with_input(linked.Value, nested_sample)
+replacement = Dataset.with_processes(root.Value, [nested_process, nested_process])
+rejects(lambda: graph.Dataset.upsert(root.Revision, replacement))
+recursive = graph.Dataset.upsert(root.Revision, replacement, recursive=True)
+check(graph.Sample.get(added.Value.Id).Name == "C", "Recursive update")
+builder = ModelBuilder()
+token = builder.clone_graph(recursive.Value)
+builder.Dataset.set_title(token, "builder edit")
+built = builder.finish().get(token)
+saved = graph.Dataset.upsert(recursive.Revision, built, recursive=True)
+check(saved.Value.Title == "builder edit", "Native builder")
+yaml = graph.to_yaml()
+decoded = DatasetYaml.decode(yaml)
+check(isinstance(decoded, Dataset), "Codec canonical class")
+check(decoded.Processes[0] is decoded.Processes[1], "Codec sharing")
+folder = str(Path("build/out/arc-management") / f"native-python-{time_ns()}")
+arc = ARC.bind(graph, folder)
+check(arc.ManagedGraph is graph and arc.Dataset is graph.Dataset, "Forwarded native identity")
+arc.save()
+check(not arc.IsDirty, "Saved checkpoint")
+rejects(lambda: graph.Entity.set_bool_property(graph.read_model().Revision, graph.Model.Id, "flag", 1))
+rejects(lambda: graph.Entity.set_number_property(graph.read_model().Revision, graph.Model.Id, "number", False))
+held = graph.Sample.get(added.Value.Id)
+arc.close()
 session.close()
-session = Session.open_file(path)
-resumed = session.open_arc(first_id)
-assert resumed.Model.Processes[0].Input is resumed.Sample.get("same")
-resumed.History.redo()
-assert resumed.Sample.get("same").Name == "changed"
-assert session.open_arc(second_id).Sample.get("same").Name == "independent"
-rejects(lambda: Session.create_file(path))
-import_root = Dataset(["process-provenance"], ["import"])
-import_child = Dataset(["administrative"], ["child"])
-import_root.HasParts = [import_child, import_child]
-imported_graph = session.import_yaml(DatasetYaml.encode(import_root))
-assert import_root.Id is None and import_child.Id is None
-assert imported_graph.Model.Id is not None
-assert imported_graph.Model.HasParts[0] is imported_graph.Model.HasParts[1]
-exported = DatasetYaml.decode(session.open_arc(imported_graph.ArcId).to_yaml())
-assert exported.HasParts[0] is exported.HasParts[1]
-imported_graph.close()
-memory = Session.create_in_memory()
-imported = ARC.import_folder(memory, destination)
-assert imported.Model.Processes[0].Input.Name == "first"
-memory.close()
-session.close()
-rejects(lambda: resumed.Sample.list())
-print("Native Python management and workspace checks passed.")
+check(held.Name == "C", "Snapshot lifetime")
+print("Immutable Python management consumer passed")

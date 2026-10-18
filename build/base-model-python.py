@@ -34,6 +34,7 @@ MODULE_CLASSES = {
     "descriptor": ("Descriptor",),
     "administrative": ("Organization", "Agent", "ScholarlyArticle"),
     "dataset": ("Dataset",),
+    "model_builder": ('ModelBuilder', 'ModelToken', 'ModelValue', 'BuiltModel', 'EntityDraftOperations', 'DefinedTermSetDraftOperations', 'DefinedTermDraftOperations', 'AnnotationDraftOperations', 'FormalParameterDraftOperations', 'SampleDraftOperations', 'DataDraftOperations', 'RecipeDraftOperations', 'ProcessDraftOperations', 'DescriptorDraftOperations', 'OrganizationDraftOperations', 'AgentDraftOperations', 'ScholarlyArticleDraftOperations', 'DatasetDraftOperations'),
 }
 
 # These are the only type facts lost by the pinned Python compiler. Everything
@@ -46,6 +47,16 @@ ALIASES = {
     "DefinedTermSetReference": ("defined_term", "str | DefinedTermSet"),
 }
 ERASED_FIELDS = {
+    ('EntityCollection', 'withValues'): "Entity",
+    **{(name, "withEntityProperty"): "Entity" for name in ['EntityObject', 'DefinedTermSet', 'DefinedTerm', 'Annotation', 'FormalParameter', 'Sample', 'Data', 'Recipe', 'Process', 'Descriptor', 'Organization', 'Agent', 'ScholarlyArticle', 'Dataset']},
+    ("ModelValue", "object_value"): "T",
+    ("Annotation", "withValue"): "AnnotationValue",
+    ("Process", "withInput"): "EntityReference",
+    ("Process", "withOutput"): "EntityReference",
+    ("Descriptor", "withDescribes"): "EntityReference",
+    ("Recipe", "withIntendedUse"): "RecipeIntendedUse",
+    ("DefinedTerm", "withInDefinedTermSet"): "DefinedTermSetReference",
+    ("AnnotationDraftOperations", "setValue"): "AnnotationValue",
     ("MappingProbe", "ClassifyExtension"): "Entity",
     ("MappingProbe", "IsExtensionNumber"): "Entity",
     **{(owner, field): "Entity" for owner, fields in {
@@ -71,6 +82,11 @@ ERASED_FIELDS = {
     ("MappingProbe", "IsText"): "AnnotationValue",
     ("MappingProbe", "ClassifyNumberFirst"): "AnnotationValue",
 }
+
+HIDDEN_MEMBERS = {"Reserve", "check", "ReserveProperties", "ValidateInternal", "ValidateOwned", "SealInternal", "AssignInternal", "SetExtensionInternal", "RemoveExtensionInternal", "Copy", "WithReserved", "With", "Without", "State", "States", "Build", "CheckState", "Edit", "Scalar", "CheckKind", "ValidateValue", "check_state", "state_of"}
+PRIVATE_CONSTRUCTORS = {'DataDraftOperations', 'OrganizationDraftOperations', 'ProcessDraftOperations', 'SampleDraftOperations', 'ScholarlyArticleDraftOperations', 'EntityDraftOperations', 'FormalParameterDraftOperations', 'ModelToken', 'DescriptorDraftOperations', 'DefinedTermDraftOperations', 'AnnotationDraftOperations', 'AgentDraftOperations', 'ModelValue', 'BuiltModel', 'DefinedTermSetDraftOperations', 'RecipeDraftOperations', 'DatasetDraftOperations'}
+COLLECTION_FIELDS = {'DefinedTermSet': {}, 'DefinedTerm': {}, 'Annotation': {}, 'FormalParameter': {}, 'Sample': {'AdditionalProperties': 'Annotation'}, 'Data': {'HasParts': 'Data', 'AdditionalProperties': 'Annotation'}, 'Recipe': {'Parameters': 'FormalParameter', 'AdditionalProperties': 'Annotation', 'Components': 'Annotation'}, 'Process': {'ParameterValues': 'Annotation'}, 'Descriptor': {'Annotations': 'Annotation'}, 'Organization': {}, 'Agent': {'Emails': 'string', 'Affiliations': 'Organization', 'Identifiers': 'string', 'AdditionalProperties': 'Annotation', 'JobTitles': 'DefinedTerm'}, 'ScholarlyArticle': {'Identifiers': 'string', 'Authors': 'Agent', 'AdditionalProperties': 'Annotation'}, 'Dataset': {'ConformsTo': 'string', 'Identifiers': 'string', 'HasParts': 'Dataset', 'DataFiles': 'Data', 'Agents': 'Agent', 'Citations': 'ScholarlyArticle', 'Processes': 'Process', 'Descriptors': 'Descriptor', 'AdditionalProperties': 'Annotation'}, 'EntityObject': {'AdditionalTypes': 'str'}, 'EntityPropertyBag': {'Keys': 'str'}}
+
 CLASS_MODULES = {
     name: module for module, names in MODULE_CLASSES.items() for name in names
 }
@@ -258,6 +274,10 @@ def annotation_text(annotation: ast.expr | None, class_name: str, field: str) ->
                 if replacement is None:
                     raise ValueError(f"Unmapped erased type in {class_name}.{field}")
                 return ast.Name(id=replacement, ctx=ast.Load())
+            if node.id == "ModelToken_1":
+                return ast.Name(id="ModelToken", ctx=ast.Load())
+            if node.id == "IReadOnlyList_1":
+                return ast.Name(id="tuple", ctx=ast.Load())
             if node.id == "IEnumerable_1":
                 return ast.Name(id="Iterable", ctx=ast.Load())
             if node.id == "int32":
@@ -296,63 +316,62 @@ def constructor_stub(class_node: ast.ClassDef, constructor: ast.FunctionDef) -> 
 
 
 def class_stub(class_node: ast.ClassDef) -> str:
+    name = class_node.name.removesuffix("_1") if class_node.name == "ModelToken_1" else class_node.name
     base = "(EntityObject)" if any(dotted_name(b) == "EntityObject" for b in class_node.bases) else ""
-    lines = [f"class {class_node.name}{base}:"]
+    generic = "[T: EntityObject]" if name == "ModelToken" else ""
+    lines = [f"class {name}{generic}{base}:"]
     if base:
-        lines.extend(("    @property", f'    def Type(self) -> Literal["{class_node.name}"]: ...'))
+        lines.extend(("    @property", f'    def Type(self) -> Literal["{name}"]: ...'))
     for member in class_node.body:
-        if not isinstance(member, ast.FunctionDef):
+        if not isinstance(member, ast.FunctionDef) or member.name in HIDDEN_MEMBERS:
             continue
         if member.name == "__init__":
-            lines.append(constructor_stub(class_node, member))
-            continue
-        is_getter = any(
-            isinstance(decorator, ast.Name) and decorator.id == "property"
-            for decorator in member.decorator_list
-        )
-        is_setter = any(
-            isinstance(decorator, ast.Attribute) and decorator.attr == "setter"
-            for decorator in member.decorator_list
-        )
-        if is_getter:
-            if member.name == "Type" and class_node.name != "EntityObject":
-                if not any(
-                    isinstance(statement, ast.Return)
-                    and isinstance(statement.value, ast.Constant)
-                    and statement.value.value == class_node.name
-                    for statement in member.body
-                ):
-                    raise ValueError(f"Unexpected fixed Type for {class_node.name}")
-                annotation = f'Literal["{class_node.name}"]'
+            if name in PRIVATE_CONSTRUCTORS:
+                lines.append("    def __init__(self, _internal: Never) -> None: ...")
+            elif name == "EntityPropertyBag":
+                lines.append("    def __init__(self) -> None: ...")
             else:
-                annotation = annotation_text(member.returns, class_node.name, member.name)
+                lines.append(constructor_stub(class_node, member))
+            continue
+        if member.name.startswith("_"):
+            continue
+        is_getter = any(isinstance(d, ast.Name) and d.id == "property" for d in member.decorator_list)
+        is_static = any(isinstance(d, ast.Name) and d.id == "staticmethod" for d in member.decorator_list)
+        if is_getter:
+            element = COLLECTION_FIELDS.get(name, {}).get(member.name)
+            if element:
+                annotation = "tuple[" + ("str" if element == "string" else element) + ", ...]"
+            elif member.name == "Type" and base:
+                annotation = f'Literal["{name}"]'
+            else:
+                annotation = annotation_text(member.returns, name, member.name)
             lines.extend(("    @property", f"    def {member.name}(self) -> {annotation}: ..."))
-        elif is_setter:
-            if member.name == "Type":
-                raise ValueError(f"Type must be read-only on {class_node.name}")
-            if len(member.args.args) != 2:
-                raise ValueError(f"Unexpected setter shape for {class_node.name}.{member.name}")
-            annotation = annotation_text(
-                member.args.args[1].annotation, class_node.name, member.name
-            )
-            lines.extend((
-                f"    @{member.name}.setter",
-                f"    def {member.name}(self, value: {annotation}) -> None: ...",
-            ))
-        elif not member.name.startswith("_") and member.name not in {"Reserve", "check"}:
-            parameters = ["self"]
-            for argument in member.args.args[1:]:
-                parameters.append(f"{argument.arg}: {annotation_text(argument.annotation, class_node.name, member.name)}")
-            result = annotation_text(member.returns, class_node.name, member.name)
-            lines.append(f"    def {member.name}({', '.join(parameters)}) -> {result}: ...")
-    if not any(isinstance(node, ast.FunctionDef) and node.name == "__init__" for node in class_node.body):
-        raise ValueError(f"Missing constructor for {class_node.name}")
+            continue
+        parameters = []
+        defaults = [None] * (len(member.args.args)-len(member.args.defaults)) + member.args.defaults
+        for argument, default in zip(member.args.args, defaults):
+            if argument.arg == "__unit":
+                continue
+            if argument.arg == "self":
+                parameters.append("self")
+                continue
+            parameter = f"{argument.arg}: {annotation_text(argument.annotation, name, member.name)}"
+            if default is not None and not (isinstance(default, ast.Name) and default.id == "UNIT"):
+                parameter += " = None"
+            parameters.append(parameter)
+        returns = annotation_text(member.returns, name, member.name)
+        type_parameters = "[" + ", ".join(ast.unparse(t) for t in member.type_params) + "]" if member.type_params else ""
+        if is_static:
+            lines.append("    @staticmethod")
+        lines.append(f"    def {member.name}{type_parameters}({', '.join(parameters)}) -> {returns}: ...")
+    if len(lines) == 1:
+        lines.append("    ...")
     return "\n".join(lines)
 
 
 def module_stub(module: str, parsed: ast.Module) -> str:
     classes = {
-        node.name: node for node in parsed.body if isinstance(node, ast.ClassDef)
+        ("ModelToken" if node.name == "ModelToken_1" else node.name): node for node in parsed.body if isinstance(node, ast.ClassDef)
     }
     expected = MODULE_CLASSES[module]
     missing = set(expected) - classes.keys()
@@ -370,7 +389,7 @@ def module_stub(module: str, parsed: ast.Module) -> str:
     imports = ["from __future__ import annotations"]
     if "Iterable" in names:
         imports.append("from collections.abc import Iterable")
-    typing_names = sorted(names & {"Literal", "TypeAlias"})
+    typing_names = sorted(names & {"Literal", "TypeAlias", "Never"})
     if typing_names:
         imports.append(f"from typing import {', '.join(typing_names)}")
     for other_module, other_classes in MODULE_CLASSES.items():
@@ -399,7 +418,7 @@ def package_entrypoint(stub: bool) -> str:
     lines = ["from __future__ import annotations", "from typing import TypeAlias", ""]
     for module, classes in MODULE_CLASSES.items():
         # Explicit same-name aliases make re-exports visible to static checkers.
-        exports = ", ".join(f"{name} as {name}" for name in classes)
+        exports = ", ".join(f'{"ModelToken_1" if name == "ModelToken" else name} as {name}' for name in classes)
         lines.append(f"from .{module} import {exports}")
     lines.append("")
     for alias, (_, expression) in ALIASES.items():
@@ -438,7 +457,7 @@ def stage(source: Path, destination: Path) -> None:
 
 def probe_stub(parsed: ast.Module) -> str:
     row_names = ("AnnotationColumns", "EntityColumns", "IntendedUseColumns", "TermSetColumns")
-    classes = {node.name: node for node in parsed.body if isinstance(node, ast.ClassDef)}
+    classes = {("ModelToken" if node.name == "ModelToken_1" else node.name): node for node in parsed.body if isinstance(node, ast.ClassDef)}
     bodies = [class_stub(classes[name]) for name in row_names]
     methods = ["class MappingProbe:"]
     for member in classes["MappingProbe"].body:

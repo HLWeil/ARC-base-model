@@ -1,4 +1,4 @@
-# Project Context
+﻿# Project Context
 
 ARC Data Model is the specification and implementation workspace for the ARC process data model. It contains the normative markdown spec, derived SQL/YAML schema artifacts, examples, reference material, fsdocs documentation, and F# libraries for ProcessCore and the SQL profile.
 
@@ -68,24 +68,24 @@ Layer 1 represents the base specification as one shared F# domain model for .NET
 - Implement the shared entities and all three base profiles faithfully, with one Dataset type covering their combined properties. Preserve the specified value alternatives, cardinalities, and recursive mixed-profile nesting.
 - Every entity's `id` is optional. Do not require, generate, or infer IDs, including from names, paths, or other identifiers. This does not make separately required properties such as Dataset `identifiers` optional.
 - SQLite is one possible Layer 2 implementation. Such implementations may require or assign domain IDs and use them extensively for keys, relationships, and identity resolution; their policies do not make IDs mandatory in Layer 1. A separate SQL surrogate-key system is not required by the base model.
-- Preserve supplied values, object references, collection order, and duplicates. Constructors, setters, and collection helpers must not deduplicate, merge, register, canonicalize, or infer identity. Do not reuse existing equality/hash policies to equate entities by name or ID.
-- Keep graph indexes, back-edge maintenance, traversal, fragment resolution, normalization, codecs, persistence, and filesystem/network operations outside Layer 1. Existing ProcessCore behavior is reference material, not a requirement to carry those policies into the base model.
+- Preserve supplied values, object references, collection order, and duplicates. Constructors, pure copies, and builders must not deduplicate, merge, register, canonicalize, or infer identity. Do not reuse existing equality/hash policies to equate entities by name or ID.
+- Keep graph indexes, back-edge maintenance, fragment resolution, normalization, codecs, persistence, and filesystem/network operations outside Layer 1. Detached `ModelBuilder` cloning may traverse references by object identity, and the internal allocation/link/seal bridge supports builders and external hydration without introducing persistence policy. Existing ProcessCore behavior is reference material, not a requirement to carry those policies into the base model.
 
 ### Public API Shape
 
 - Use classes, not F# records, for public domain entities and value wrappers. Apply `[<AttachMembers>]` to public portable classes so native callers can use their instance and static members.
 - Use domain-named `[<Erase; RequireQualifiedAccess>]` unions for spec alternatives: `AnnotationValue`, `EntityReference`, `RecipeIntendedUse`, and `DefinedTermSetReference`. Do not expose generic `U2` signatures, ordinary emitted F# union wrappers, `Choice`, or `Result`. F# callers use meaningful cases; JS/Python callers use direct values. Verify each alternative across all targets as its supporting types are implemented, including transpiled F# pattern matching on native-created values. Cases must remain distinguishable at runtime; mapper and caller must share the same entity class definitions. Native consumers must not construct Fable union tags/fields or invoke runtime helpers.
-- Use explicit mutable backing fields such as `_name` with public getters/setters; avoid public auto-properties (`member val`) and constructor-parameter shadowing. Inspect output for leaked backing names such as `Name@`.
-- Keep required constructor arguments small and spec-driven; use optional arguments for optional fields. Give class-owned factories and operations distinct names and tupled argument lists. Avoid public overloads, curried calling conventions, and requiring detached compiler-generated functions. Do not assume F# named optional arguments become a JavaScript options object or usable Python keyword arguments without checking the output. Common calls should not require long runs of `undefined`/`None` placeholders; use a small constructor plus properties, named factories, or a tested facade.
-- Prefer `ResizeArray<T>` for mutable model collections: Fable documents JavaScript arrays and Python lists for this shape. Keep F# lists, maps, and sets internal. Accept native collections at the API boundary; consume any `seq<T>` input into stored collections without filtering or replacing its entity references. Verify F# array representations separately, especially on Python.
+- Publish getter-only properties backed by private storage; avoid public auto-properties (`member val`) and constructor-parameter shadowing. Seal canonical instances and backing containers on native targets. Static with/clear copies share unchanged immutable storage; ordinary field or backing-field mutation must fail.
+- Keep required constructor arguments small and spec-driven; use optional arguments for optional fields. Give class-owned factories and operations distinct names and tupled argument lists. Avoid public overloads, curried calling conventions, and requiring detached compiler-generated functions. Do not assume F# named optional arguments become a JavaScript options object or usable Python keyword arguments without checking the output. Common calls should not require long runs of `undefined`/`None` placeholders; use a small constructor plus pure copy methods, builders, named factories, or a tested facade.
+- Expose immutable `IReadOnlyList<T>` model collections: read-only containers on .NET, frozen arrays on JavaScript, immutable tuples on Python. Keep F# lists, maps, and sets internal. Eagerly consume native iterable inputs once without filtering or replacing entity references. Verify pinned count/index protocols from transpiled F# as well as native callers; collection getters must not allocate.
 - Simple F# options are acceptable when native callers can supply, read, and clear them through ordinary target-language absence values. Avoid nested options or option wrappers in the public contract. Test omission and clearing explicitly, including that `0`, `false`, and empty text are not treated as absent where applicable.
 - Preserve spec strings (including URLs, paths, dates, and open-ended profile classifications) without introducing .NET-only wrappers or closed enums. Verify native numeric inputs and outputs for Number fields; do not convert numbers into text to simplify interop.
 - Keep stable, curated exports in the native entrypoints. For Layer 1, `build/base-model.mjs` stages `build/out/base-model/js/node_modules/arc-base-model`; `build/base-model-python.py` stages `build/out/base-model/python/arc_base_model`, including `__init__.py`, precise `.pyi` stubs, and `py.typed`. The existing ProcessCore entrypoints remain separate. Export every intended public type with documented names. Staging restores Python erased alternatives emitted as `Any` and hides implementation-only declaration details. Thin native facades may adapt call syntax, but must not duplicate domain logic or require callers to import generated implementation files or Fable runtime helpers.
-- Keep shared source and compile order aligned across target projects. Use the repository's pinned Fable toolchain; keep target-specific interop at explicit boundaries and verify behavior before adopting newer compiler features.
+- Keep shared source and compile order aligned across target projects. Use the repository's pinned Fable toolchain; keep target-specific interop at explicit boundaries and verify behavior before adopting newer compiler features. The actual compiler pin is Fable 5.20.0; preserve it.
 
 ### Pinned Python Numeric Compatibility
 
-Fable 5.6.0's [numeric type test](https://github.com/fable-compiler/Fable/blob/e504757ef7f32c6d72aedda604967343e24d24a0/src/Fable.Transforms/Python/Fable2Python.Reflection.fs#L362) checks the `float64` wrapper, so ordinary Python ints/floats can fail erased-union pattern matches. The [Python numeric compatibility documentation](https://fable.io/docs/python/compatibility.html#numeric-types) describes that wrapper representation. Successful raw transpilation is insufficient for the native numeric contract.
+The original Fable 5.6.0 [numeric type test](https://github.com/fable-compiler/Fable/blob/e504757ef7f32c6d72aedda604967343e24d24a0/src/Fable.Transforms/Python/Fable2Python.Reflection.fs#L362) checks the `float64` wrapper, so ordinary Python ints/floats can fail erased-union pattern matches. The [Python numeric compatibility documentation](https://fable.io/docs/python/compatibility.html#numeric-types) describes that wrapper representation. The current pin is Fable 5.20.0 and the compatibility pass covers both representations. Successful raw transpilation is insufficient for the native numeric contract.
 
 - `build/base-model-python.py` applies a focused AST compatibility pass to generated Python modules. Numeric type checks accept native `int`/`float` and Fable `float64`, excluding `bool`. Public `Annotation.Value` and test-probe numeric return boundaries convert wrapper values to native floats; this is representation adaptation, not normalization of domain values or IDs.
 - Future transpiled F# Python consumers must apply `python build/base-model-python.py compat <generated-dir>` and import the same staged model classes. Package staging applies the pass automatically to model and test consumers. Do not rely on case reordering, replace entity classes, or monkeypatch the shared Fable runtime.
@@ -125,14 +125,13 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   `ArcId`, and `listArcs` names. Session closure invalidates all its graphs.
 - `ARCManagement.ManagedGraph` owns model access, operation groups, identity,
   validation, transactions, history, graph lifetime, and root-only `toYaml()`.
-  Preserve supplied references, ordering, duplicates, and stable canonical
-  objects through edits/history. ID assignment belongs here, never Layer 1.
+  Reads return immutable revisioned snapshots preserving sharing, ordering and duplicates. Previously returned values remain unchanged through edits/history and graph closure. ID assignment applies only to persisted copies here, never Layer 1.
 - `ARCManagement.DatasetYaml.encode/decode` are detached codecs. Preserve absent
   IDs and distinct objects with equal supplied IDs, sharing, cycles, extensions,
   and scalar types through serialization-local anchors/aliases. Do not modify
   supplied objects or perform SQL/filesystem/ownership operations.
   `Session.importYaml` subsequently applies normal adoption rules, assigning
-  missing IDs and rejecting distinct-object ID collisions in a fresh unbound
+  missing IDs to persisted copies and rejecting distinct-object ID collisions in a fresh unbound
   entry. Managed exports retain root-only `id`/`$ref` output and do not advance
   checkpoints or history. Snapshot codecs remain private.
 - Top-level `ARCtrl.ARC` lives in the nested `ARCtrl/` folder. Keep workspace
@@ -146,10 +145,10 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   belong to ARC. Closing any wrapper closes its graph and invalidates every
   shared wrapper; only `create`/`openFolder` also close their privately owned
   session. Borrowed sessions and sibling graphs remain usable.
-- Retain `arc.yml`, `.arc/arc.sqlite`, schema version 4, per-entry archives,
+- Retain `arc.yml`, `.arc/arc.sqlite`, per-entry archives,
   and save/recovery checkpoint guarantees. Workspace imports initialize the
   graph, binding, and baseline transactionally. Project-file integration is
-  separate future work.
+  separate future work. Experimental normalized SQL storage has no schema-version or migration mechanism; opening still validates all required tables and constraints.
 - Generic native entrypoints are `arc-management` / `arc_management`; workspace
   entrypoints are `arc-management/arctrl` / `arc_management.arctrl`. Use shared
   JavaScript chunks and one Python implementation tree so model, SQLite, and
@@ -172,6 +171,7 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
 .\build.cmd BuildPolyglotSQLite
 .\build.cmd TestPolyglotSQLite
 .\build.cmd TestARCManagement
+.\build.cmd BenchmarkARCManagement
 .\build.cmd RunTests
 .\build.cmd runTestsJS
 .\build.cmd runTestsPy
@@ -202,4 +202,8 @@ For portable domain API changes, run the shared behavioral tests on .NET, JavaSc
 
 The [Layer 1 guide](docs/project/base-model.md) documents construction, native values, build artifacts, and Layer 2 identity policies. The FAKE targets `TestBaseModelDotNet`, `TestBaseModelJS`, `TestBaseModelPy`, and `TestBaseModelNative` can also run independently with their required build dependencies.
 
-Add handwritten JavaScript/TypeScript and Python consumer tests alongside the shared F# tests. Import through the public entrypoints and exercise construction, property reads/writes, optional values, native arrays/lists, spec alternatives, duplicate preservation, and shared entity references. Type-check TypeScript callers as well as running JavaScript and Python callers. When package artifacts are produced, run these consumers against the packed artifacts too; this catches export and dependency defects that transpiled F# tests cannot detect.
+Add handwritten JavaScript/TypeScript and Python consumer tests alongside the shared F# tests. Import through the public entrypoints and exercise construction, getter reads, pure copies, optional clearing, native iterable inputs and immutable array/tuple outputs, spec alternatives, duplicate preservation, and shared entity references. Type-check TypeScript callers as well as running JavaScript and Python callers. When package artifacts are produced, run these consumers against the packed artifacts too; this catches export and dependency defects that transpiled F# tests cannot detect.
+
+## Immutable mutation and persistence contract
+
+The accepted [immutable redesign](plans/mutation_safety_immutable.md) replaces prior mutable-management guarantees. All graph writes require an expected revision. `upsert` is full replacement with optional named `recursive=false`; differing existing children fail unless enabled. `delete` defaults to rejecting incoming references; named `cascade=true` follows the plan's shared-descendant and required/extension safeguards. No-op edits preserve revision/history/redo. Focused setters return updated immutable values. SQL current state and history are incremental; no full-registry snapshot rewrite belongs in a normal edit. Native options must reject positional Booleans and unknown names. Layer 1 cyclic editing uses `ModelBuilder.cloneGraph`; ID generation and adoption remain management-only.

@@ -23,7 +23,11 @@ const modelExports = {
   Descriptor: ["Descriptor"],
   Administrative: ["Organization", "Agent", "ScholarlyArticle"],
   Dataset: ["Dataset"],
+  ModelBuilder: ["ModelBuilder", "ModelToken", "ModelValue", "BuiltModel", "EntityDraftOperations", "DefinedTermSetDraftOperations", "DefinedTermDraftOperations", "AnnotationDraftOperations", "FormalParameterDraftOperations", "SampleDraftOperations", "DataDraftOperations", "RecipeDraftOperations", "ProcessDraftOperations", "DescriptorDraftOperations", "OrganizationDraftOperations", "AgentDraftOperations", "ScholarlyArticleDraftOperations", "DatasetDraftOperations"],
 };
+const collectionFields = {"DefinedTermSet": {}, "DefinedTerm": {}, "Annotation": {}, "FormalParameter": {}, "Sample": {"AdditionalProperties": "Annotation"}, "Data": {"HasParts": "Data", "AdditionalProperties": "Annotation"}, "Recipe": {"Parameters": "FormalParameter", "AdditionalProperties": "Annotation", "Components": "Annotation"}, "Process": {"ParameterValues": "Annotation"}, "Descriptor": {"Annotations": "Annotation"}, "Organization": {}, "Agent": {"Emails": "string", "Affiliations": "Organization", "Identifiers": "string", "AdditionalProperties": "Annotation", "JobTitles": "DefinedTerm"}, "ScholarlyArticle": {"Identifiers": "string", "Authors": "Agent", "AdditionalProperties": "Annotation"}, "Dataset": {"ConformsTo": "string", "Identifiers": "string", "HasParts": "Dataset", "DataFiles": "Data", "Agents": "Agent", "Citations": "ScholarlyArticle", "Processes": "Process", "Descriptors": "Descriptor", "AdditionalProperties": "Annotation"}, "EntityObject": {"AdditionalTypes": "string"}, "EntityPropertyBag": {"Keys": "string"}};
+const hiddenMembers = new Set(["Reserve", "check", "ReserveProperties", "ValidateInternal", "ValidateOwned", "SealInternal", "AssignInternal", "SetExtensionInternal", "RemoveExtensionInternal", "Copy", "WithReserved", "With", "Without", "State", "States", "Build", "CheckState", "Edit", "Scalar", "CheckKind", "ValidateValue", "checkState", "stateOf"]);
+const privateConstructors = new Set(["ModelToken", "ModelValue", "BuiltModel", "EntityDraftOperations", "DefinedTermSetDraftOperations", "DefinedTermDraftOperations", "AnnotationDraftOperations", "FormalParameterDraftOperations", "SampleDraftOperations", "DataDraftOperations", "RecipeDraftOperations", "ProcessDraftOperations", "DescriptorDraftOperations", "OrganizationDraftOperations", "AgentDraftOperations", "ScholarlyArticleDraftOperations", "DatasetDraftOperations"]);
 const alternativeNames = new Set([
   "AnnotationValue", "EntityReference", "RecipeIntendedUse", "DefinedTermSetReference", "Entity",
 ]);
@@ -56,7 +60,7 @@ function diagnosticsOrThrow(diagnostics) {
 // reflection functions, and private backing fields are intentionally not exported.
 function declarations(inputFiles, expectedNames, modelImports = false) {
   const f = ts.factory;
-  const publicNames = new Set([...modelNames, ...probeNames, "Iterable"]);
+  const publicNames = new Set([...modelNames, ...probeNames, "Iterable", "T"]);
   const foundNames = new Set();
   const statements = [];
   const exportModifier = f.createModifier(ts.SyntaxKind.ExportKeyword);
@@ -66,7 +70,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
     if (!node) throw new Error("Generated public API has a missing type annotation.");
     if (ts.isTypeReferenceNode(node)) {
       if (!ts.isIdentifier(node.typeName)) throw new Error("Unexpected qualified public type.");
-      const name = node.typeName.text;
+      const name = node.typeName.text.replace(/\$1$/, "");
       const args = node.typeArguments?.map(publicType);
       if (name === "Option") {
         if (args?.length !== 1) throw new Error("Unexpected Option signature.");
@@ -102,7 +106,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
     diagnosticsOrThrow(parsed.parseDiagnostics);
     for (const statement of parsed.statements) {
       if (!ts.isClassDeclaration(statement) && !ts.isTypeAliasDeclaration(statement)) continue;
-      const name = statement.name?.text;
+      const name = statement.name?.text.replace(/\$1$/, "");
       if (!expectedNames.has(name)) continue;
       if (foundNames.has(name)) throw new Error(`Duplicate public type ${name}.`);
       foundNames.add(name);
@@ -110,16 +114,19 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         statements.push(f.createTypeAliasDeclaration([exportModifier], name, undefined, publicType(statement.type)));
         continue;
       }
-      if (statement.heritageClauses?.some(clause => clause.types.some(t => t.expression.getText(parsed) !== "EntityObject"))) throw new Error(`Unexpected public inheritance on ${name}.`);
+      const heritage = statement.heritageClauses?.filter(clause => clause.types.every(t => t.expression.getText(parsed) === "EntityObject"));
       const members = [];
-      if (statement.heritageClauses?.length) members.push(f.createGetAccessorDeclaration(undefined, "Type", [], f.createLiteralTypeNode(f.createStringLiteral(name)), undefined));
+      if (name === "ModelToken") members.push(f.createPropertyDeclaration([f.createModifier(ts.SyntaxKind.PrivateKeyword), f.createModifier(ts.SyntaxKind.ReadonlyKeyword)], "__entityType", undefined, f.createTypeReferenceNode("T"), undefined));
+      if (heritage?.length) members.push(f.createGetAccessorDeclaration(undefined, "Type", [], f.createLiteralTypeNode(f.createStringLiteral(name)), undefined));
       for (const member of statement.members) {
-        if (ts.isPropertyDeclaration(member) && member.name.getText(parsed).startsWith("_")) continue;
+        if (ts.isPropertyDeclaration(member)) continue;
+        if (hiddenMembers.has(member.name?.getText(parsed))) continue;
         if (ts.isConstructorDeclaration(member)) {
-          members.push(f.createConstructorDeclaration(undefined, member.parameters.map(parameter), undefined));
+          members.push(f.createConstructorDeclaration(privateConstructors.has(name) ? [f.createModifier(ts.SyntaxKind.PrivateKeyword)] : undefined, name === "EntityPropertyBag" || privateConstructors.has(name) ? [] : member.parameters.map(parameter), undefined));
         } else if (ts.isGetAccessorDeclaration(member)) {
           const property = member.name.getText(parsed);
-          let propertyType = publicType(member.type);
+          const element = collectionFields[name]?.[property];
+          let propertyType = element ? f.createTypeOperatorNode(ts.SyntaxKind.ReadonlyKeyword, f.createArrayTypeNode(element === "string" ? f.createKeywordTypeNode(ts.SyntaxKind.StringKeyword) : f.createTypeReferenceNode(element))) : publicType(member.type);
           if (property === "Type" && name !== "EntityObject") {
             const body = member.body?.statements;
             const expression = body?.length === 1 && ts.isReturnStatement(body[0]) ? body[0].expression : undefined;
@@ -134,13 +141,13 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         } else if (ts.isMethodDeclaration(member)) {
           if (["Reserve", "check"].includes(member.name.getText(parsed))) continue;
           const modifiers = member.modifiers?.filter(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword);
-          members.push(f.createMethodDeclaration(modifiers, undefined, member.name.getText(parsed), undefined, undefined,
+          members.push(f.createMethodDeclaration(modifiers, undefined, member.name.getText(parsed), undefined, member.typeParameters,
             member.parameters.map(parameter), publicType(member.type), undefined));
         } else {
           throw new Error(`Unexpected public member in ${name}; review the generated API before staging.`);
         }
       }
-      statements.push(f.createClassDeclaration([exportModifier, declareModifier], name, undefined, statement.heritageClauses, members));
+      statements.push(f.createClassDeclaration([exportModifier, declareModifier], name, statement.typeParameters, heritage, members));
     }
   }
   for (const name of expectedNames) {
@@ -156,7 +163,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
 function packageManifest(name) {
   return JSON.stringify({
     name, version: "0.0.0", private: true, type: "module",
-    exports: { ".": { types: "./index.d.ts", import: "./index.js" } },
+    exports: { ".": { types: "./index.d.ts", import: "./index.js" }, "./_internal": "./internal.js" },
     types: "./index.d.ts", main: "./index.js",
   }, null, 2) + "\n";
 }
@@ -205,11 +212,13 @@ async function stage(includeTests) {
   write(modelIndex, Object.entries(modelExports).map(([module, names]) => {
     const classes = names.filter(name => !alternativeNames.has(name));
     const aliases = names.filter(name => alternativeNames.has(name));
-    return `export { ${classes.join(", ")} } from "./${module}.ts";\n`
+    return `export { ${classes.map(name => name === "ModelToken" ? "ModelToken$1 as ModelToken" : name).join(", ")} } from "./${module}.ts";\n`
       + (aliases.length ? `export type { ${aliases.join(", ")} } from "./${module}.ts";\n` : "");
   }).join(""));
 
-  const entries = { "node_modules/arc-base-model/index": modelIndex };
+  const internalIndex = path.join(source, "internal-index.ts");
+  write(internalIndex, 'export { ImmutableObject, ImmutableCollections } from "./Internal.ts";\nexport { ModelHydration } from "./ModelHydration.ts";\n');
+  const entries = { "node_modules/arc-base-model/index": modelIndex, "node_modules/arc-base-model/internal": internalIndex };
   let probeTypes;
   if (includeTests) {
     const probe = path.join(testSource, "MappingProbe.ts");

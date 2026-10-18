@@ -7,11 +7,16 @@
   <ItemGroup>
     <Compile Include="Helpers.fs" />
     <Compile Include="CoreSql.fs" />
+    <Compile Include="StorageBehavior.fs" />
+    <Compile Include="Performance.fs" />
     <Compile Include="Behavior.fs" />
+    <Compile Include="Safety.fs" />
     <Compile Include="FullModel.fs" />
     <Compile Include="Toolbox.fs" />
     <Compile Include="Yaml.fs" />
     <Compile Include="Walkthrough.fs" />
+    <Compile Include="Interop.fs" />
+    <Compile Include="Benchmark.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>
   <ItemGroup>

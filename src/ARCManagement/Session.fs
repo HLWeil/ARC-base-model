@@ -8,9 +8,11 @@ open ARCManagement.Internal
 /// Lightweight metadata; enumeration does not deserialize or hydrate a graph.
 [<AttachMembers>]
 type ArcInfo internal (arcId: string, rootEntityId: string, folder: string option) =
+    inherit ImmutableObject()
     let _arcId = arcId
     let _rootEntityId = rootEntityId
     let _folder = folder
+    do base.SealObject()
     member _.ArcId = _arcId
     member _.RootEntityId = _rootEntityId
     member _.Folder = _folder
@@ -32,7 +34,7 @@ type Session private (repository: Repository) =
         repository.Access(fun () ->
             repository.Connection.Query("SELECT arc_id,root_id,folder FROM session ORDER BY rowid")
             |> Seq.map (fun row -> ArcInfo(row.GetByName("arc_id").AsText(),row.GetByName("root_id").AsText(),Store.optText row "folder"))
-            |> ResizeArray)
+            |> ImmutableCollections.OfSeq)
     member _.close() = repository.Close()
     static member createInMemory() = new Session(Repository.CreateInMemory())
     static member createFile(path: string) = new Session(Repository.CreateFile(path))

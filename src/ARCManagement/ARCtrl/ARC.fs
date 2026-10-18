@@ -14,6 +14,8 @@ open ARCtrl.Internal
 type ARC private (graph: ManagedGraph, ownedSession: ARCManagement.Session option) =
     member _.ManagedGraph = graph
     member _.Model = graph.Model
+    member _.Revision = graph.Revision
+    member _.readModel() = graph.readModel()
     member _.Entity = graph.Entity
     member _.Dataset = graph.Dataset
     member _.Process = graph.Process

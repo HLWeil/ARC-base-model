@@ -1,4 +1,4 @@
----
+﻿---
 title: ARCtrl Workspaces
 category: Project
 categoryindex: 2
@@ -29,10 +29,11 @@ open ARCtrl
 let session = Session.createFile("collection.sqlite")
 let graph = session.createArc(Dataset(["process-provenance"], ["example"]))
 let arc = ARC.bind(graph, "./arc-a")
-let sample = arc.Sample.create("sample")
-let proc = arc.Process.create("process")
-arc.Process.setInputSample(proc, sample) |> ignore
-arc.Dataset.addProcess(arc.Model, proc) |> ignore
+let graph = arc.ManagedGraph
+let sample = arc.Sample.create(graph.readModel().Revision, "sample")
+let proc = arc.Process.create(sample.Revision, "process")
+let linked = arc.Process.setInputSample(proc.Revision, proc.Value.Id.Value, sample.Value.Id.Value)
+arc.Dataset.addProcess(linked.Revision, graph.Model.Id.Value, proc.Value.Id.Value) |> ignore
 arc.save()
 let arcId = graph.ArcId
 arc.close()
@@ -49,7 +50,7 @@ nor writes files. Instance `bindFolder(folder)` applies the same policy.
 reconciling filesystem changes.
 
 `arc.ManagedGraph` is the supplied graph. `Model`, all entity operation groups,
-`Entity`, and `History` forward to that exact graph and its existing objects.
+`Entity`, and `History` forward to that exact graph and its operation objects. Domain reads return immutable snapshots.
 `ArcId`, `DatabasePath`, and `HasSessionOnlyObjects` also forward to it. Workspace
 properties `FolderBinding`, `Folder`, and `IsDirty` describe the binding and save
 baseline. `IsDirty` tracks export changes; `HasSessionOnlyObjects` reports
@@ -84,8 +85,7 @@ without a workspace, use `session.importYaml(text)`.
 
 ## Save and recover
 
-`save()` requires a binding. It checks unsupported direct mutations and external
-file changes, then exports only the graph rooted at `Model`. Registered objects
+`save()` requires a binding. It checks the fresh SQL revision and external file changes, then exports only the graph rooted at `Model`. Registered objects
 outside that graph and all undo/redo history remain in SQLite. Export uses the
 prototype `id`/`$ref` format, defining shared/circular entities once and preserving
 extensions and scalar alternatives. `ManagedGraph.toYaml()` produces the same
@@ -105,7 +105,7 @@ and checkpoint commit fails, explicitly select a source before retrying.
 
 `recoverFolder(source)` performs reconciliation explicitly. Opening a database or
 wrapping a bound graph does not inspect files. YAML replacement archives only the
-selected entry's metadata, state, history, and journal inside the existing
+selected entry's metadata, normalized state, incremental history, and journal inside the existing
 repository. It preserves sibling entries and the shared database file.
 
 Losing the database and its archives loses unsaved and session-only work that

@@ -16,13 +16,35 @@ module internal Model =
         if not (validNumber value) then invalidArg "value" "Number requires a numeric value, excluding Boolean values."
         nativeNumber value
 #else
-    let number value = value
+#if FABLE_COMPILER
+    [<Emit("typeof $0 === 'number'")>]
+    let private validNumber (_value:float):bool = jsNative
+    let number value =
+        if not (validNumber value) then invalidArg "value" "Number requires a numeric value, excluding Boolean values."
+        value
+#else
+    let number (value:float) = value
 #endif
+#endif
+#if FABLE_COMPILER_PYTHON
+    [<Emit("type($0) is bool")>]
+    let private validBoolean (_value:bool):bool = nativeOnly
+#else
+#if FABLE_COMPILER
+    [<Emit("typeof $0 === 'boolean'")>]
+    let private validBoolean (_value:bool):bool = jsNative
+#else
+    let private validBoolean (_value:bool) = true
+#endif
+#endif
+    let boolean value =
+        if not (validBoolean value) then invalidArg "value" "Expected a Boolean."
+        value
     let required name value = if isNull (box value) then nullArg name else value
     let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no session ID; add it through ARC operations first.")
     let kind (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Type
     let id (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Id
-    let setId (entity: obj) id = (unbox<EntityObject> entity).Id <- id
+    let setId (entity: obj) id = ModelHydration.SetProperty(unbox<EntityObject> entity, "id", box id)
     let captureExtension (reference: obj -> string) value =
         let rec capture ancestors value =
             match value with
@@ -180,129 +202,111 @@ module internal Model =
     let text key row = match Map.tryFind key row.Properties with Some(Text v) -> Some v | None -> None | _ -> invalidOp ("Expected text: " + key)
     let texts key row = match Map.tryFind key row.Properties with Some(Texts v) -> v | None -> [] | _ -> invalidOp ("Expected text collection: " + key)
     let links key row = match Map.tryFind key row.Properties with Some(Links v) -> v | None -> [] | _ -> invalidOp ("Expected entity reference: " + key)
-    let create row : obj =
-        let name key = text key row |> Option.defaultWith (fun () -> invalidOp ("Missing " + key))
-        match row.Kind with
-        | "Organization" -> box (Organization(name "name"))
-        | "Agent" -> box (Agent(name "name"))
-        | "ScholarlyArticle" -> box (ScholarlyArticle(name "headline"))
-        | "Annotation" -> box (Annotation(name "name"))
-        | "FormalParameter" -> box (FormalParameter())
-        | "Dataset" -> box (Dataset(texts "conformsTo" row, texts "identifiers" row))
-        | "DefinedTermSet" -> box (DefinedTermSet(name "name"))
-        | "DefinedTerm" -> box (DefinedTerm(name "name"))
-        | "Descriptor" -> box (Descriptor(EntityReference.Sample(Sample("pending"))))
-        | "Sample" -> box (Sample(name "name"))
-        | "Data" -> box (Data(name "path"))
-        | "Process" -> box (ARCBaseModel.Process(name "name"))
-        | "Recipe" -> box (Recipe())
-        | _ -> box (EntityObject(row.Kind))
+    let create row : obj = box (ModelHydration.Allocate(row.Kind))
     let restore (resolve: string -> obj) row (entity: obj) =
-        let replace target values = ResizeArray.replace target values
         let one key = links key row |> List.tryHead |> Option.map resolve
         let endpoint key = one key |> Option.map (function :? Sample as v -> EntityReference.Sample v | :? Data as v -> EntityReference.Data v | _ -> invalidOp "Invalid endpoint")
         setId entity (Some row.Id)
         match entity with
         | :? Organization as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Url <- text "url" row
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row |> Option.get))
+            ModelHydration.SetProperty(v, "url", box (text "url" row))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? Agent as v ->
-            v.Name <- text "name" row |> Option.get
-            v.GivenName <- text "givenName" row
-            v.FamilyName <- text "familyName" row
-            replace v.Emails (texts "emails" row)
-            replace v.Affiliations (links "affiliations" row |> List.map (resolve >> unbox<Organization>))
-            replace v.Identifiers (texts "identifiers" row)
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.JobTitles (links "jobTitles" row |> List.map (resolve >> unbox<DefinedTerm>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row |> Option.get))
+            ModelHydration.SetProperty(v, "givenName", box (text "givenName" row))
+            ModelHydration.SetProperty(v, "familyName", box (text "familyName" row))
+            ModelHydration.SetProperty(v, "emails", box ((texts "emails" row)))
+            ModelHydration.SetProperty(v, "affiliations", box ((links "affiliations" row |> List.map (resolve >> unbox<Organization>))))
+            ModelHydration.SetProperty(v, "identifiers", box ((texts "identifiers" row)))
+            ModelHydration.SetProperty(v, "additionalProperties", box ((links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "jobTitles", box ((links "jobTitles" row |> List.map (resolve >> unbox<DefinedTerm>))))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? ScholarlyArticle as v ->
-            v.Headline <- text "headline" row |> Option.get
-            replace v.Identifiers (texts "identifiers" row)
-            replace v.Authors (links "authors" row |> List.map (resolve >> unbox<Agent>))
-            v.CreativeWorkStatus <- one "creativeWorkStatus" |> Option.map unbox<DefinedTerm>
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "headline", box (text "headline" row |> Option.get))
+            ModelHydration.SetProperty(v, "identifiers", box ((texts "identifiers" row)))
+            ModelHydration.SetProperty(v, "authors", box ((links "authors" row |> List.map (resolve >> unbox<Agent>))))
+            ModelHydration.SetProperty(v, "creativeWorkStatus", box (one "creativeWorkStatus" |> Option.map unbox<DefinedTerm>))
+            ModelHydration.SetProperty(v, "additionalProperties", box ((links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? Annotation as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Value <- Map.tryFind "value" row.Properties |> Option.map (function Text x -> AnnotationValue.Text x | Number x -> AnnotationValue.Number x | _ -> invalidOp "Invalid Annotation value")
-            v.Unit <- text "unit" row
-            v.NameTAN <- text "nameTAN" row
-            v.ValueTAN <- text "valueTAN" row
-            v.UnitTAN <- text "unitTAN" row
-            v.InstanceOf <- one "instanceOf" |> Option.map unbox<FormalParameter>
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row |> Option.get))
+            ModelHydration.SetProperty(v, "value", box (Map.tryFind "value" row.Properties |> Option.map (function Text x -> AnnotationValue.Text x | Number x -> AnnotationValue.Number x | _ -> invalidOp "Invalid Annotation value")))
+            ModelHydration.SetProperty(v, "unit", box (text "unit" row))
+            ModelHydration.SetProperty(v, "nameTAN", box (text "nameTAN" row))
+            ModelHydration.SetProperty(v, "valueTAN", box (text "valueTAN" row))
+            ModelHydration.SetProperty(v, "unitTAN", box (text "unitTAN" row))
+            ModelHydration.SetProperty(v, "instanceOf", box (one "instanceOf" |> Option.map unbox<FormalParameter>))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? FormalParameter as v ->
-            v.Name <- text "name" row
-            v.NameTAN <- text "nameTAN" row
-            v.DefaultValue <- one "defaultValue" |> Option.map unbox<Annotation>
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row))
+            ModelHydration.SetProperty(v, "nameTAN", box (text "nameTAN" row))
+            ModelHydration.SetProperty(v, "defaultValue", box (one "defaultValue" |> Option.map unbox<Annotation>))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? Dataset as v ->
-            replace v.ConformsTo (texts "conformsTo" row)
-            replace v.Identifiers (texts "identifiers" row)
-            v.Title <- text "title" row
-            v.Description <- text "description" row
-            v.License <- text "license" row
-            v.DatePublished <- text "datePublished" row
-            v.DateCreated <- text "dateCreated" row
-            v.DateModified <- text "dateModified" row
-            replace v.HasParts (links "hasParts" row |> List.map (resolve >> unbox<Dataset>))
-            replace v.DataFiles (links "dataFiles" row |> List.map (resolve >> unbox<Data>))
-            replace v.Agents (links "agents" row |> List.map (resolve >> unbox<Agent>))
-            replace v.Citations (links "citations" row |> List.map (resolve >> unbox<ScholarlyArticle>))
-            replace v.Processes (links "processes" row |> List.map (resolve >> unbox<ARCBaseModel.Process>))
-            replace v.Descriptors (links "descriptors" row |> List.map (resolve >> unbox<Descriptor>))
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "conformsTo", box ((texts "conformsTo" row)))
+            ModelHydration.SetProperty(v, "identifiers", box ((texts "identifiers" row)))
+            ModelHydration.SetProperty(v, "title", box (text "title" row))
+            ModelHydration.SetProperty(v, "description", box (text "description" row))
+            ModelHydration.SetProperty(v, "license", box (text "license" row))
+            ModelHydration.SetProperty(v, "datePublished", box (text "datePublished" row))
+            ModelHydration.SetProperty(v, "dateCreated", box (text "dateCreated" row))
+            ModelHydration.SetProperty(v, "dateModified", box (text "dateModified" row))
+            ModelHydration.SetProperty(v, "hasParts", box ((links "hasParts" row |> List.map (resolve >> unbox<Dataset>))))
+            ModelHydration.SetProperty(v, "dataFiles", box ((links "dataFiles" row |> List.map (resolve >> unbox<Data>))))
+            ModelHydration.SetProperty(v, "agents", box ((links "agents" row |> List.map (resolve >> unbox<Agent>))))
+            ModelHydration.SetProperty(v, "citations", box ((links "citations" row |> List.map (resolve >> unbox<ScholarlyArticle>))))
+            ModelHydration.SetProperty(v, "processes", box ((links "processes" row |> List.map (resolve >> unbox<ARCBaseModel.Process>))))
+            ModelHydration.SetProperty(v, "descriptors", box ((links "descriptors" row |> List.map (resolve >> unbox<Descriptor>))))
+            ModelHydration.SetProperty(v, "additionalProperties", box ((links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? DefinedTermSet as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Identifier <- text "identifier" row
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row |> Option.get))
+            ModelHydration.SetProperty(v, "identifier", box (text "identifier" row))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? DefinedTerm as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Identifier <- text "identifier" row
-            v.TAN <- text "tan" row
-            v.InDefinedTermSet <- Map.tryFind "inDefinedTermSet" row.Properties |> Option.map (function Text x -> DefinedTermSetReference.Url x | Links [x] -> DefinedTermSetReference.TermSet(unbox (resolve x)) | _ -> invalidOp "Invalid alternative")
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row |> Option.get))
+            ModelHydration.SetProperty(v, "identifier", box (text "identifier" row))
+            ModelHydration.SetProperty(v, "tan", box (text "tan" row))
+            ModelHydration.SetProperty(v, "inDefinedTermSet", box (Map.tryFind "inDefinedTermSet" row.Properties |> Option.map (function Text x -> DefinedTermSetReference.Url x | Links [x] -> DefinedTermSetReference.TermSet(unbox (resolve x)) | _ -> invalidOp "Invalid alternative")))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? Descriptor as v ->
-            v.Describes <- endpoint "describes" |> Option.get
-            replace v.Annotations (links "annotations" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "describes", box (endpoint "describes" |> Option.get))
+            ModelHydration.SetProperty(v, "annotations", box ((links "annotations" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? Sample as v ->
-            v.Name <- text "name" row |> Option.get
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row |> Option.get))
+            ModelHydration.SetProperty(v, "additionalProperties", box ((links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? Data as v ->
-            v.Path <- text "path" row |> Option.get
-            v.Selector <- text "selector" row
-            v.SelectorFormat <- text "selectorFormat" row
-            v.EncodingFormat <- text "encodingFormat" row
-            replace v.HasParts (links "hasParts" row |> List.map (resolve >> unbox<Data>))
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "path", box (text "path" row |> Option.get))
+            ModelHydration.SetProperty(v, "selector", box (text "selector" row))
+            ModelHydration.SetProperty(v, "selectorFormat", box (text "selectorFormat" row))
+            ModelHydration.SetProperty(v, "encodingFormat", box (text "encodingFormat" row))
+            ModelHydration.SetProperty(v, "hasParts", box ((links "hasParts" row |> List.map (resolve >> unbox<Data>))))
+            ModelHydration.SetProperty(v, "additionalProperties", box ((links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? ARCBaseModel.Process as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Input <- endpoint "input"
-            v.Output <- endpoint "output"
-            v.ExecutesRecipe <- one "executesRecipe" |> Option.map unbox<Recipe>
-            replace v.ParameterValues (links "parameterValues" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row |> Option.get))
+            ModelHydration.SetProperty(v, "input", box (endpoint "input"))
+            ModelHydration.SetProperty(v, "output", box (endpoint "output"))
+            ModelHydration.SetProperty(v, "executesRecipe", box (one "executesRecipe" |> Option.map unbox<Recipe>))
+            ModelHydration.SetProperty(v, "parameterValues", box ((links "parameterValues" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | :? Recipe as v ->
-            v.Name <- text "name" row
-            replace v.Parameters (links "parameters" row |> List.map (resolve >> unbox<FormalParameter>))
-            v.Description <- text "description" row
-            v.IntendedUse <- Map.tryFind "intendedUse" row.Properties |> Option.map (function Text x -> RecipeIntendedUse.Text x | Links [x] -> RecipeIntendedUse.Term(unbox (resolve x)) | _ -> invalidOp "Invalid alternative")
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.Components (links "components" row |> List.map (resolve >> unbox<Annotation>))
-            v.Version <- text "version" row
-            v.Url <- text "url" row
-            replace v.AdditionalTypes (texts "additionalTypes" row)
-        | :? EntityObject as v -> replace v.AdditionalTypes (texts "additionalTypes" row)
+            ModelHydration.SetProperty(v, "name", box (text "name" row))
+            ModelHydration.SetProperty(v, "parameters", box ((links "parameters" row |> List.map (resolve >> unbox<FormalParameter>))))
+            ModelHydration.SetProperty(v, "description", box (text "description" row))
+            ModelHydration.SetProperty(v, "intendedUse", box (Map.tryFind "intendedUse" row.Properties |> Option.map (function Text x -> RecipeIntendedUse.Text x | Links [x] -> RecipeIntendedUse.Term(unbox (resolve x)) | _ -> invalidOp "Invalid alternative")))
+            ModelHydration.SetProperty(v, "additionalProperties", box ((links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "components", box ((links "components" row |> List.map (resolve >> unbox<Annotation>))))
+            ModelHydration.SetProperty(v, "version", box (text "version" row))
+            ModelHydration.SetProperty(v, "url", box (text "url" row))
+            ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
+        | :? EntityObject as v -> ModelHydration.SetProperty(v, "additionalTypes", box ((texts "additionalTypes" row)))
         | _ -> invalidArg "entity" "Expected a typed entity object."
         let value = unbox<EntityObject> entity
-        for key in value.EntityProperties.Keys do value.RemoveEntityProperty(key) |> ignore
-        for KeyValue(key, cell) in row.Extensions do value.SetEntityProperty(key, restoreExtension resolve cell)
+        for KeyValue(key, cell) in row.Extensions do ModelHydration.SetExtension(value, key, restoreExtension resolve cell)
     let specifications kind =
         match kind with
         | "Organization" -> ["name", "text", "", true; "url", "text", "", false; "additionalTypes", "strings", "", false]
@@ -319,13 +323,8 @@ module internal Model =
         | "Process" -> ["name", "text", "", true; "input", "alternative", "Sample|Data", false; "output", "alternative", "Sample|Data", false; "executesRecipe", "link", "Recipe", false; "parameterValues", "links", "Annotation", false; "additionalTypes", "strings", "", false]
         | "Recipe" -> ["name", "text", "", false; "parameters", "links", "FormalParameter", false; "description", "text", "", false; "intendedUse", "alternative", "DefinedTerm", false; "additionalProperties", "links", "Annotation", false; "components", "links", "Annotation", false; "version", "text", "", false; "url", "text", "", false; "additionalTypes", "strings", "", false]
         | _ -> ["additionalTypes", "strings", "", false]
-    let validate state =
-        let ids = state.Entities |> List.map (fun row -> row.Id)
-        if (List.distinct ids).Length <> ids.Length then invalidOp "Different entities cannot share a session ID."
-        let rows = state.Entities |> List.map (fun row -> row.Id, row) |> Map.ofList
-        let root = Map.tryFind state.Root rows |> Option.defaultWith (fun () -> invalidOp "Root Dataset is missing.")
-        if root.Kind <> "Dataset" then invalidOp "Root Dataset is missing."
-        for row in state.Entities do
+    let validateRows (resolve: string -> EntityRow option) (values: seq<EntityRow>) =
+        for row in values do
             required "id" row.Id |> ignore
             let spec = specifications row.Kind
             for key, cell in Map.toList row.Properties do
@@ -339,34 +338,46 @@ module internal Model =
                         shape = "strings"
                     | Links vs ->
                         for id in vs do
-                            let target = Map.tryFind id rows |> Option.defaultWith (fun () -> invalidOp ("Unknown reference: " + id))
+                            let target = resolve id |> Option.defaultWith (fun () -> invalidOp ("Unknown reference: " + id))
                             if not (targets.Split('|') |> Array.contains target.Kind) then invalidOp ("Wrong reference type: " + key)
                         shape = "links" || ((shape = "link" || shape = "alternative") && vs.Length = 1)
                 if not valid then invalidOp ("Invalid property: " + key)
-            let probe = unbox<EntityObject> (create row)
             let rec validateExtension = function
                 | ExtensionNumber v when Double.IsNaN v || Double.IsInfinity v -> invalidOp "Non-finite extension number."
-                | ExtensionObject id when not (Map.containsKey id rows) -> invalidOp ("Unknown extension reference: " + id)
+                | ExtensionObject id when not ((resolve id).IsSome) -> invalidOp ("Unknown extension reference: " + id)
                 | ExtensionCollection values -> List.iter validateExtension values
                 | ExtensionBlob v -> EntityBlob(v) |> ignore
                 | _ -> ()
             for KeyValue(key, cell) in row.Extensions do
                 if key = "type" || key = "id" || spec |> List.exists (fun (name,_,_,_) -> name = key) then
                     invalidArg "key" "Reserved core property name."
-                probe.SetEntityProperty(key, Entity.Null(EntityNull()))
+                required "key" key |> ignore
+                if key = "" then invalidArg "key" "An extension key must not be empty."
                 validateExtension cell
             for key, _, _, mandatory in spec do
                 if mandatory && not (Map.containsKey key row.Properties) then invalidOp ("Missing required property: " + key)
             if row.Kind = "Dataset" then Dataset(texts "conformsTo" row, texts "identifiers" row) |> ignore
-    let reachable state =
+    let validate state =
         let rows = state.Entities |> List.map (fun row -> row.Id, row) |> Map.ofList
-        let rec visit seen id =
-            if Set.contains id seen then seen
-            else
-                let seen = Set.add id seen
-                let row = rows[id]
-                let seen = row.Properties |> Map.toList |> List.fold (fun seen (_,cell) ->
-                    match cell with Links ids -> List.fold visit seen ids | _ -> seen) seen
-                row.Extensions |> Map.toList |> List.collect (snd >> extensionReferences) |> List.fold visit seen
-        visit Set.empty state.Root
+        if rows.Count <> state.Entities.Length then invalidOp "Different entities cannot share a session ID."
+        if not (Map.tryFind state.Root rows |> Option.exists (fun row -> row.Kind = "Dataset")) then
+            invalidOp "Root Dataset is missing."
+        validateRows (fun id -> Map.tryFind id rows) state.Entities
+    let reachable state =
+        let rows=state.Entities |> List.map (fun row -> row.Id,row) |> Map.ofList
+        let seen=System.Collections.Generic.HashSet<string>()
+        let pending=ResizeArray<string>([state.Root])
+        while pending.Count>0 do
+            let index=pending.Count-1
+            let id=pending[index]
+            pending.RemoveAt(index)
+            if seen.Add id then
+                let row=rows[id]
+                for _,cell in Map.toList row.Properties do
+                    match cell with
+                    | Links ids -> for target in ids do pending.Add target
+                    | _ -> ()
+                for _,cell in Map.toList row.Extensions do
+                    for target in extensionReferences cell do pending.Add target
+        Set.ofSeq seen
     let sessionOnly state = (reachable state).Count < state.Entities.Length

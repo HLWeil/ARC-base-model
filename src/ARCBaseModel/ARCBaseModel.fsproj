@@ -15,8 +15,12 @@
     <Compile Include="Descriptor.fs" />
     <Compile Include="Administrative.fs" />
     <Compile Include="Dataset.fs" />
+    <Compile Include="ModelHydration.fs" />
+    <Compile Include="ModelBuilder.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Fable.Core" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute"><_Parameter1>ARCManagement</_Parameter1></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute"><_Parameter1>ARCBaseModel.Tests</_Parameter1></AssemblyAttribute>
   </ItemGroup>
 </Project>

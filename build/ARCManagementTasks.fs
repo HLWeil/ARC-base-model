@@ -59,6 +59,39 @@ let testARCManagementNative = BuildTask.create "TestARCManagementNative" [buildJ
     command "node" ["build/arc-management.mjs"; "pack-test"]
     python ["build/arc-management-python.py"; "pack-test"]
 }
+
+let private generatedDirectory directory =
+    let path = Path.GetFullPath(Path.Combine(outputRoot,directory))
+    if not (path.StartsWith(outputRoot+string Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)) then
+        invalidArg "directory" "Generated output must stay beneath build/out/arc-management."
+    if Directory.Exists(path) then Directory.Delete(path,true)
+    Directory.CreateDirectory(path) |> ignore
+    path
+
+let private runtimeRunners () =
+    [ "dotnet",(fun arguments -> command "dotnet" (["run";"--project";"tests/ARCManagement.Tests/ARCManagement.Tests.fsproj";"-c";configuration;"--no-build";"--"] @ arguments))
+      "javascript",(fun arguments -> command "node" (["build/out/arc-management/js/tests.js"] @ arguments))
+      "python",(fun arguments -> pythonWithPackages (["build/out/arc-management/tests-py/main.py"] @ arguments)) ]
+
+let testARCManagementInterop = BuildTask.create "TestARCManagementInterop" [testARCManagementDotNet;buildJS;buildPyTests] {
+    let directory = generatedDirectory "interop"
+    let runners = runtimeRunners()
+    for writerName,writeFixture in runners do
+        let fixture = Path.Combine(directory,writerName+".sqlite")
+        writeFixture ["--write-fixture";fixture]
+        for readerName,readFixture in runners do
+            Trace.tracefn "Reading %s management database with %s" writerName readerName
+            readFixture ["--read-fixture";fixture]
+}
+
+/// Explicit profiling target: measurements are artifacts, never timing assertions.
+let benchmarkARCManagement = BuildTask.create "BenchmarkARCManagement" [testARCManagementDotNet;buildJS;buildPyTests] {
+    let directory = generatedDirectory "benchmarks"
+    for runtime,run in runtimeRunners() do
+        run ["--benchmark";Path.Combine(directory,runtime+".csv")]
+    command "node" ["build/check-arc-benchmarks.mjs";directory]
+}
+
 let testARCManagement =
     BuildTask.createEmpty "TestARCManagement"
-        [testARCManagementDotNet;testARCManagementJS;testARCManagementPy;testARCManagementNative]
+        [testARCManagementDotNet;testARCManagementJS;testARCManagementPy;testARCManagementNative;testARCManagementInterop]

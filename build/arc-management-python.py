@@ -25,17 +25,21 @@ GROUPS = ("entity", "dataset", "process", "sample", "data", "recipe", "annotatio
           "formal_parameter", "defined_term", "defined_term_set", "descriptor", "agent",
           "organization", "scholarly_article", "history")
 PUBLIC = {"ManagedGraph": "managed_graph.py", "AppliedOperation": "applied_operation.py",
+          **{name: "applied_operation.py" for name in ("RevisionToken", "RevisionConflictException", "ReadResult", "WriteResult", "CommandResult")},
           "Session": "session.py", "ArcInfo": "session.py",
           "DatasetYaml": "Serialization/dataset_yaml.py",
           **{''.join(word.title() for word in group.split('_')) + "Operations":
              f"Operations/{group}_operations.py" for group in GROUPS}}
 WORKSPACE_PUBLIC = {"ARC": "ARCtrl/arc.py"}
-HIDDEN = {"__init__", "Wrap", "Dispose", "Repository", "Context"}
+HIDDEN = {"__init__", "Wrap", "Dispose", "Repository", "Context", "Scope", "Arc", "Number"}
 
 spec = importlib.util.spec_from_file_location("model_staging", REPOSITORY / "build/base-model-python.py")
 compat = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(compat)
 MODEL_NAMES = tuple(compat.CLASS_MODULES) + tuple(compat.ALIASES)
+
+def implementation_name(name: str) -> str:
+    return name + "_1" if name in ("ReadResult", "WriteResult") else name
 
 def clean(directory: Path) -> None:
     directory = directory.resolve()
@@ -81,24 +85,34 @@ def public_annotation(node: ast.expr | None, owner: str, method: str, field: str
         ("DefinedTermOperations", "set_in_defined_term_set"): "DefinedTermSetReference",
     }.get((owner, method))
     class Types(ast.NodeTransformer):
+        def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
+            if isinstance(node.value, ast.Name) and node.value.id == "IReadOnlyList_1":
+                return ast.Subscript(value=ast.Name(id="tuple", ctx=ast.Load()),
+                                     slice=ast.Tuple(elts=[self.visit(node.slice), ast.Constant(value=Ellipsis)], ctx=ast.Load()), ctx=ast.Load())
+            return self.generic_visit(node)
+
         def visit_Name(self, name: ast.Name) -> ast.expr:
             if name.id == "Any":
                 if erased is None:
                     raise ValueError(f"Unmapped erased type: {owner}.{method}.{field}")
                 return ast.Name(id=erased, ctx=ast.Load())
-            return ast.Name(id={"IEnumerable_1": "Iterable", "int32": "int", "float64": "float"}.get(name.id, name.id), ctx=ast.Load())
+            return ast.Name(id={"IEnumerable_1": "Iterable", "ReadResult_1": "ReadResult", "WriteResult_1": "WriteResult", "int32": "int", "float64": "float"}.get(name.id, name.id), ctx=ast.Load())
     return ast.unparse(ast.fix_missing_locations(Types().visit(ast.parse(ast.unparse(node), mode="eval").body)))
 
 def declarations(source: Path, public: dict[str, str], workspace: bool = False) -> str:
     classes = []
     for name, module in public.items():
         parsed = ast.parse((source / module).read_text(encoding="utf-8"))
-        node = next((item for item in parsed.body if isinstance(item, ast.ClassDef) and item.name == name), None)
+        node = next((item for item in parsed.body if isinstance(item, ast.ClassDef) and item.name == implementation_name(name)), None)
         if node is None:
             raise ValueError(f"Missing generated class {name}")
-        lines = [f"class {name}:", "    def __init__(self, _internal: Never) -> None: ..."]
+        generic = "[T]" if name in ("ReadResult", "WriteResult") else ""
+        base = "(Exception)" if name == "RevisionConflictException" else ""
+        lines = [f"class {name}{generic}{base}:", "    def __init__(self, _internal: Never) -> None: ..."]
         for member in node.body:
             if not isinstance(member, ast.FunctionDef) or member.name in HIDDEN:
+                continue
+            if name == "RevisionToken" and member.name != "Value":
                 continue
             decorators = [ast.unparse(decorator) for decorator in member.decorator_list]
             if any(decorator not in ("staticmethod", "property") for decorator in decorators):
@@ -114,13 +128,16 @@ def declarations(source: Path, public: dict[str, str], workspace: bool = False) 
                     parameters.append("self")
                     continue
                 annotation = public_annotation(argument.annotation, name, member.name, argument.arg)
+                if member.name in ("upsert", "delete") and argument.arg in ("recursive", "cascade"):
+                    parameters.extend(("*", f"{argument.arg}: bool = ..."))
+                    continue
                 parameters.append(f"{argument.arg}: {annotation}" + (" = ..." if default else ""))
             result = public_annotation(member.returns, name, member.name, "return")
             lines.extend(f"    @{decorator}" for decorator in decorators)
             lines.append(f"    def {member.name}({', '.join(parameters)}) -> {result}: ...")
         classes.append("\n".join(lines))
     shared = f"from . import {', '.join(PUBLIC)}\n" if workspace else ""
-    result = ("from __future__ import annotations\nfrom collections.abc import Iterable\nfrom typing import Never\n"
+    result = ("from __future__ import annotations\nfrom collections.abc import Iterable, Sequence\nfrom typing import Never\n"
               f"from arc_base_model import {', '.join(MODEL_NAMES)}\n{shared}\n" + "\n\n".join(classes) + "\n")
     ast.parse(result)
     if "Any" in result or "__unit" in result:
@@ -144,10 +161,11 @@ def stage() -> None:
         target = implementation / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(rewrite_imports(filename.read_text(encoding="utf-8"), relative), encoding="utf-8")
-    entry = "\n".join(f"from ._impl.{module[:-3].replace('/', '.')} import {name} as {name}" for name, module in PUBLIC.items()) + "\n"
+    shutil.copyfile(REPOSITORY / "build/arc-management-native.py", package / "_native.py")
+    entry = "\n".join(f"from ._impl.{module[:-3].replace('/', '.')} import {implementation_name(name)} as {name}" for name, module in PUBLIC.items() if name not in ("Session", "ManagedGraph")) + "\nfrom ._native import Session as Session, ManagedGraph as ManagedGraph\n"
     (package / "__init__.py").write_text(entry, encoding="utf-8")
     (package / "__init__.pyi").write_text(stub, encoding="utf-8")
-    workspace_entry = "\n".join(f"from ._impl.{module[:-3].replace('/', '.')} import {name} as {name}" for name, module in WORKSPACE_PUBLIC.items()) + "\n"
+    workspace_entry = "from ._native import ARC as ARC\n"
     (package / "arctrl.py").write_text(workspace_entry, encoding="utf-8")
     (package / "arctrl.pyi").write_text(workspace_stub, encoding="utf-8")
     (package / "py.typed").touch()

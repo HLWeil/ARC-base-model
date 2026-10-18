@@ -1,4 +1,4 @@
----
+﻿---
 title: ARCManagement
 category: Project
 categoryindex: 2
@@ -7,199 +7,72 @@ index: 10
 
 # ARCManagement
 
-ARCManagement manages portable ARCBaseModel graphs in memory or in a retained
-SQLite repository. It owns connections, graph mutation, identity, validation,
-history, and YAML codecs. Workspace operations live in the nested ARCtrl part of
-the same assembly; see the [workspace guide](arctrl.md). The
-[management plan](../../plans/arc-management.md) records actual verification.
+ARCManagement owns SQLite connections, ARC entries, identity assignment, validation, revision checks, history and detached YAML codecs. Domain values are immutable snapshots; workspace policy lives in [ARCtrl](arctrl.md). The [implementation plan](../../plans/mutation_safety_immutable.md) specifies write and deletion scope precisely.
 
-## Repository and graph lifecycle
+## Sessions and reads
+
+`Session.createInMemory`, `createFile` and `openFile` create/open repositories. `createArc`, `importYaml` and `openArc` return `ManagedGraph`; repeated opening retains the active facade. Entries have independent `ArcId`, ID namespace, revision and history. Input values may be reused across entries because management never mutates them.
 
 ```fsharp
-open ARCBaseModel
-open ARCManagement
-
-let session = Session.createInMemory()
-// Alternatively: Session.createFile("collection.sqlite")
-// or Session.openFile("collection.sqlite").
+use session = Session.createInMemory()
 let graph = session.createArc(Dataset(["process-provenance"], ["example"]))
-let sample = graph.Sample.create("sample")
-let proc = graph.Process.create("process")
-graph.Process.setInputSample(proc, sample) |> ignore
-graph.Dataset.addProcess(graph.Model, proc) |> ignore
-graph.History.undo()
-graph.History.redo()
-let yaml = graph.toYaml()
-let arcId = graph.ArcId
-graph.close()
-let reopened = session.openArc(arcId)
-let metadata = session.listArcs()
-session.close()
+let observed = graph.readModel()
+let inserted = graph.Sample.add(observed.Revision, Sample("before"))
+let changed = graph.Sample.setName(inserted.Revision, inserted.Value.Id.Value, "after")
 ```
 
-`Session` owns one PolyglotSQLite connection. `createFile` exclusively creates a
-new database. `openFile` requires an existing schema-version-4 repository and
-validates its columns, keys, and constraints; it never initializes or migrates
-it. In-memory storage lasts until its session closes. Access is synchronous and
-serialized.
+`readModel`, entity `read(id)` and `readAll()` return a value and opaque `Revision`. Missing entity reads still return a revision with absent Value. `get(id)` requires existence. `Model`, `get` and `list` are convenience reads; use versioned reads when editing.
 
-`createArc` returns a `ManagedGraph` and adopts the supplied graph: it preserves
-supplied IDs, assigns missing IDs, and rejects distinct objects with the same
-ID. Generated repository `ArcId` is independent of the root Dataset ID. Equal
-domain IDs in different entries identify independent objects. Sharing a mutable
-entity between live entries is rejected, including across separate repositories.
+A result preserves sharing/cycles within its graph. Separate reads have no object-identity guarantee. Old values remain unchanged and usable after edits, history transitions and graph/session closure. Closing a graph invalidates further operations; closing a session invalidates all its graphs.
 
-Opening a database and listing `ArcInfo` metadata do not hydrate graphs or read
-folders. Metadata contains `ArcId`, `RootEntityId`, and optional `Folder`.
-`openArc` loads the selected entry and returns the same active `ManagedGraph`,
-objects, and operation groups on repeated opens. Closing a graph releases its
-context; reopening creates a fresh projection. Closing the session invalidates
-all its graphs and releases its connection. No close implicitly exports files.
+## Edits and revisions
 
-`ManagedGraph` exposes `Model`, `ArcId`, `DatabasePath`,
-`HasSessionOnlyObjects`, `History`, the operation groups, `toYaml()`, and
-`close()`. Folder binding, saving, recovery, and `IsDirty` belong to
-[`ARCtrl.ARC`](arctrl.md).
+Every edit takes an expected revision and IDs for its stored targets. Focused setters return `WriteResult` with the updated immutable `Value`, `Revision`, `Changed` and optional `Operation`. Deletion/undo/redo return `CommandResult` without Value. A no-op returns `Changed=false`, no Operation, and preserves revision/history/redo.
 
-## Entity operations and history
+Stale or foreign tokens fail; do not refresh a token and blindly resubmit an old edit. Read current state and reapply intent. Revisions remain exact opaque strings across runtimes; SQLite locking failures are distinct from revision conflicts.
 
-The entity groups are `Dataset`, `Process`, `Sample`, `Data`, `Recipe`,
-`Annotation`, `FormalParameter`, `DefinedTerm`, `DefinedTermSet`, `Descriptor`,
-`Agent`, `Organization`, and `ScholarlyArticle`, alongside generic `Entity` and
-`History`. Entity groups provide `create`, `add`, `get`, `list`, `upsert`, and
-`delete`, property setters, optional-value clear methods, collection replacement,
-and typed relationship helpers. Dataset creation defaults to process provenance;
-use `add(dataset)` for other profiles. Descriptor creation requires Sample/Data.
+`create`/`add` are strict insertion. `upsert` inserts an unknown root ID or fully replaces an existing same-kind entity. Empty collections clear links. A changed/cleared copied ID is insertion intent, not rename. Dataset upsert does not change the ARC's designated root.
 
-`add(value)` recursively adopts a supplied graph and returns its supplied
-instance. It validates state, assigns omitted IDs, and rejects collisions with
-distinct instances. Adding the same active instance again is a no-op.
-Registration does not attach an object to the root. Standalone registered
-objects survive SQL recovery and contribute to `HasSessionOnlyObjects`.
+```javascript
+const read = graph.Sample.read("s");
+const edited = Sample.withName(read.Value, "after");
+const saved = graph.Sample.upsert(read.Revision, edited);
+```
 
-`upsert(value): unit` performs full replacement by ID using detached input.
-Unknown IDs adopt the supplied graph. Existing same-type IDs update the retained
-canonical instance and collection containers; empty collections clear values.
-References to managed entities must use registered instances. Cross-type
-collisions are rejected. ID assignment belongs to management, never Layer 1;
-identity is not inferred from names, paths, or equal values.
-
-Collection edits preserve order, duplicates, and shared references. Removal
-deletes one occurrence without unregistering its target. `movePart` and
-`moveProcess` require at most one membership; replacement setters support shared
-or repeated members. Process endpoints remain optional and singular. Typed
-helpers such as `setInputSample`, `setOutputData`, `setValueText`,
-`setValueNumber`, `setIntendedUseTerm`, and `setInDefinedTermSetUrl` avoid native
-union wrappers. Text, absence, empty text, zero, and fractional numbers remain
-distinguishable.
-
-Edits validate a planned snapshot, then transactionally update SQL mirrors, the
-live projection, history/cursor, journal, and graph revision. Failures restore
-SQL and the previous projection. Mutations return attached `AppliedOperation`
-values. Undo/redo is linear and persisted; editing after undo discards redo.
-Hydration and history restoration preserve canonical objects and collection
-containers. Undoing a registration restores originally absent IDs; redo restores
-assigned IDs. Saving preserves history and standalone objects.
-
-Root deletion is rejected. Dataset deletion cascades only to descendants and
-processes without surviving owners. Required Descriptor targets and surviving
-extension references prevent deletion. Undo restores affected links.
-
-Direct property or collection edits on managed objects are unsupported. Commands
-and exports compare the projection with its retained snapshot and reject detected
-changes. Close and reopen to restore committed state. Revisions are entry-local:
-another entry's edits do not invalidate a graph; stale writes to the same entry
-through another connection require close and reopen. SQLite permits one writer.
-
-## YAML workflows
+By default, existing nested definitions must equal stored values, including descendants. Changed children fail instead of being silently ignored. Enable `recursive=true` to replace every supplied reachable definition:
 
 ```fsharp
-let detached = Dataset(["process-provenance"], ["detached"])
-let text = DatasetYaml.encode(detached)
-let decoded = DatasetYaml.decode(text)
-let imported = session.importYaml(text)
-let managedText = imported.toYaml()
+graph.Dataset.upsert(read.Revision, edited, recursive = true)
 ```
 
-`DatasetYaml.encode` and `decode` perform no database/filesystem work and assign
-no domain IDs. Encoding does not modify supplied objects. Each distinct entity
-receives a deterministic serialization-local YAML anchor; repeated references
-and cycles use aliases. `id` is emitted only when supplied. Decode preserves
-absent IDs, distinct objects with equal supplied IDs, order, duplicates, shared
-references, cycles, extensions, and scalar alternatives.
-
-Documents with anchors or aliases use local-reference decoding. Entity anchors
-are registered before reading their properties. Duplicate anchors, unresolved or
-forward aliases, and mixed legacy reference syntax are rejected. Legacy prototype
-`id`/`$ref` documents remain readable. A literal `$ref` extension property on a
-typed entity is supported.
-
-`session.importYaml(yaml)` decodes detached objects, then adopts them through
-ordinary management rules: missing IDs are assigned and distinct-object ID
-collisions rejected. It creates a fresh unbound entry with empty history.
-
-`graph.toYaml()` exports only the graph reachable from `Model` using the
-prototype `id`/`$ref` format also used by workspace saves. Shared/circular
-entities are defined once; standalone registered objects remain SQL-only.
-Exporting text changes no files, save checkpoints, or history. Snapshot codecs
-remain private. These prototype formats do not revise normative YAML schemas.
-
-## Extensions and storage
-
-`graph.Entity` manages extensions on core classes and generic typed
-`EntityObject` values through the same transaction/history pipeline. Typed
-helpers cover text, finite binary64 numbers, Boolean, null, canonical padded
-base64 blobs, object references, and nested ordered collections. Missing
-properties, explicit null, and empty collections are distinct. Core property
-names are reserved and comparisons are case-sensitive. Set replaces or inserts;
-add rejects duplicate properties. Removing a missing property is reversible with
-no property effect. Property enumeration has no guaranteed order.
-
-Object references preserve canonical identity and support cycles, including
-through collections. Self-containing collection containers are rejected; express
-cycles through typed objects. Reachability follows extension references.
-
-Schema version **4** remains separate from the normative core SQL profile.
-Entity and typed rows use `(arc_id, id)`. Values/references retain order;
-extensions additionally use nested paths. Composite foreign keys enforce entry
-scope for typed, generic, and extension references. History, journals, revisions,
-baselines, saved graphs, and archives are entry-local. Commands currently rebuild
-only their entry's rows. There is no extra entity surrogate-key system, public
-cross-entry search API, or legacy migration. PolyglotSQLite owns all providers.
-
-## Layout, packages, and verification
-
-The [project](../../src/ARCManagement/ARCManagement.fsproj) builds one
-`ARCManagement` assembly. Generic facades, `Operations/`, `Runtime/`, `Internal/`,
-`Serialization/`, `Storage/`, and portable `Helper/` code compile before workspace
-APIs in `ARCtrl/`. Workspace policy, fixed paths, and workspace-specific
-identifier/path helpers stay in that nested folder. UUID generation and general
-filesystem adapters remain generic.
-
-| Runtime | Generic APIs | Workspace API |
-|---|---|---|
-| F#/.NET | `ARCManagement.Session`, `ManagedGraph`, `DatasetYaml` | `ARCtrl.ARC` |
-| JavaScript/TypeScript | `arc-management` | `arc-management/arctrl` |
-| Python | `arc_management` | `arc_management.arctrl` |
-
-Import domain classes from `arc-base-model` / `arc_base_model`. Entrypoints share
-one implementation and canonical model/SQLite classes; callers need no generated
-implementation imports or runtime helpers. Python methods use emitted snake_case
-names such as `create_in_memory`, `create_arc`, `import_yaml`, and `to_yaml`.
-Staging keeps curated exports and precise declarations. Management consumers use
-the existing model Python numeric compatibility pass; PolyglotSQLite retains its
-own representation boundaries. Keep the pinned toolchain.
-
-```powershell
-.\build.cmd TestARCManagement
-.\build.cmd TestBaseModel
-.\build.cmd RunTests
+```javascript
+graph.Dataset.upsert(read.Revision, edited, { recursive: true });
 ```
 
-`TestARCManagement` aggregates `TestARCManagementDotNet`, `TestARCManagementJS`,
-`TestARCManagementPy`, and `TestARCManagementNative`, including handwritten
-JS/TS/Python consumers, declaration checks, and packed artifacts. The
-[shared tests](../../tests/ARCManagement.Tests/Main.fs) are portable; only the
-[demo walkthrough](../../tests/ARCManagement.Tests/Walkthrough.fs) is .NET-only.
-See the [plan](../../plans/arc-management.md) for actual results. Compilation and
-skipped execution are not passing runtime evidence.
+```python
+graph.Dataset.upsert(read.Revision, edited, recursive=True)
+```
+
+Unknown option names, truthy substitutes and native positional Boolean options fail. Newly adopted values receive IDs in persisted copies only. Distinct writable objects sharing an ID fail. For cyclic edits use `ModelBuilder.cloneGraph`, which rewires self-references and sharing. Omitted registered objects remain stored; clearing a relationship does not delete its old target.
+
+## Deletion and history
+
+`delete(revision, id)` rejects incoming references and always protects the ARC root. Outgoing targets remain registered. Optional `cascade=true` detaches optional incoming core links and deletes exclusively contained Dataset/process descendants. Shared descendants survive. Required surviving relationships and extension references block the entire deletion until explicitly edited. See the plan for the precise preservation algorithm.
+
+Every changed command is one atomic history operation. Operation metadata includes `Action` (`apply`, `undo`, or `redo`). Undo/redo require current revision tokens, advance revision, and restore exact ordering, duplicate links, IDs and standalone registrations without changing old values. A changed edit after undo discards redo; a no-op retains it.
+
+## SQL and YAML boundaries
+
+The experimental database uses authoritative normalized entity/property/reference/extension rows and incremental reversible history. There is no schema-version or migration mechanism. Opening validates required tables/constraints and does not initialize unrelated files. The normative core SQL fixture is separate.
+
+Cached reads check SQL revision; remote commits invalidate hydration. Focused edits update affected cells/history rather than rewriting the registry. Returning a complete Dataset still requires materializing its reachable graph. Export and dirty checks do not run on every setter.
+
+`DatasetYaml.encode/decode` are detached and assign no IDs; aliases preserve sharing and cycles, including distinct detached objects with equal IDs. `Session.importYaml` persists a fresh independent entry under normal collision rules. `toYaml()` exports only the reachable root, leaving standalone objects/history in SQL and changing no checkpoint.
+
+## Native packages and verification
+
+Generic entrypoints are `arc-management` / `arc_management`; workspace entrypoints are `arc-management/arctrl` / `arc_management.arctrl`. Model classes come from the base-model package. Python methods use snake_case; properties retain their documented names. Syntax adapters contain no domain/persistence policy.
+
+Run `TestARCManagement`, `TestBaseModel` and `RunTests`; native declarations and consumers are checked against staged and packed artifacts. The management plan records actual verification.
+
+Run `BenchmarkARCManagement` for repeatable .NET, JavaScript and Python measurements at 100, 1,000 and 10,000 processes. CSV files under `build/out/arc-management/benchmarks/` include cold/cached reads, focused edits, no-ops, recursive upserts, large collection appends and undo/redo. Query, row, write, history and hydration counters accompany timings. The target checks all 117 measurement rows with `node build/check-arc-benchmarks.mjs`; that command can also recheck existing artifacts. Python memory measurements enable `tracemalloc`; timings include its overhead and should be compared across sizes within that runtime. Structural tests enforce work bounds without asserting machine-dependent timing limits.

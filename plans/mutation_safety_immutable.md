@@ -1,101 +1,108 @@
-# Immutable ARCBaseModel with SQL-backed management
+﻿# Immutable model with safe, incremental persistence
 
-## Summary
+Status: implemented and verified across .NET, JavaScript and Python on 2026-10-18. This is an intentional breaking redesign of the experimental API and database layout. Existing databases are not supported or migrated. No schema-version mechanism, production dependency or compiler upgrade is introduced. The pinned compiler is Fable 5.20.0.
 
-Replace mutable domain objects with immutable attached classes. ARCManagement remains responsible for current SQLite state, validation, revisions and persisted history. Reads return immutable values representing the database state observed by that read.
+## Portable immutable model
 
-This is a breaking API change. Preserve the existing package names, specification vocabulary, SQL schema version 4, YAML formats and history data. Add no production dependencies or compiler upgrade. Public management batches remain outside this change.
+Public domain values remain attached classes with domain-named erased alternatives. IDs remain optional in Layer 1. Constructors, copies and builders preserve reference identity, collection order, duplicates, scalar alternatives and entity cycles without identity inference.
 
-## Immutable model and graph construction
+- Publish getter-only properties and static tupled `with<Property>` / `clear<Property>` methods returning the concrete type. Scalar copies share unchanged immutable storage and references rather than traversing graphs.
+- Eagerly consume external constructor/replacement iterables once. Enforce the same local invariants in constructors, copies, builder completion and hydration.
+- Use read-only .NET collections, frozen JavaScript arrays and immutable Python tuples, with constant-time count/indexing for both native and transpiled F# callers. Explicit pinned-toolchain protocol adapters belong at this boundary.
+- Seal every published entity, extension container, token and result, including backing storage. Ordinary assignment/deletion and collection mutation fail. Reflection and deliberate low-level runtime bypasses are outside the contract.
+- Preserve canonical class definitions across packages. Internal allocation/link/seal is an explicit friend/package bridge, excluded from curated root exports and declarations.
 
-- Keep the existing entity classes, common `EntityObject` base and erased alternatives. Preserve optional IDs, reference identity, ordering, duplicates and all specified value alternatives.
-- Make every public property getter-only. Add tupled static `with<Property>(value, replacement)` methods returning the same concrete entity type, plus `clear<Property>(value)` for optional properties. Include common properties and extension operations.
-- Copy methods preserve unchanged entity references. They do not assign IDs, rewrite incoming references or persist anything. Copying a self-referencing object retains references to the original object unless explicitly rebuilt.
-- Expose collection properties as `seq<T>` backed by owned immutable storage: read-only containers on .NET, frozen arrays in JavaScript, and tuples in Python. Accept ordinary native iterables as construction/copy inputs and consume them eagerly.
-- Replace mutable extension bags and `EntityCollection` operations with immutable storage and static copy operations. Preserve reserved-name checks and rejection of collection-container cycles.
-- Enforce runtime immutability on every published model value. Freeze JavaScript instances and owned containers after derived initialization; guard Python attribute assignment/deletion after construction. Keep deliberate Python low-level bypasses outside the supported contract.
-- Preserve short constructors. Use private construction machinery and thin native constructor adapters where necessary, retaining the same underlying entity classes for erased-union matching.
+`ModelBuilder` supports `draft(value)`, `reference(value)`, `cloneGraph(root)` and `draftFor(original)`. Cloning creates one draft per original reference and rewires every internal core/extension object reference. Typed setters/clearers validate token owner, kind and writability. `finish()` privately allocates, links, validates and seals; failure publishes nothing and remains correctable, success consumes the builder. `finish().get(token)` preserves concrete typing. SQL and YAML hydration reuse this machinery.
 
-Add a typed `ModelBuilder` for detached cyclic construction:
+## Management API
+
+| Type | Public properties |
+| --- | --- |
+| RevisionToken | Value: opaque exact string, privately bound to repository/ARC |
+| ReadResult<T> | Value, Revision |
+| WriteResult<T> | Value, Revision, Changed, optional Operation |
+| CommandResult | Revision, Changed, optional Operation |
+
+`read(id)` returns a versioned optional value, including revision on absence; `get(id)` rejects absence. `readAll()` returns one immutable collection/revision. `Model`, `get` and `list` remain convenience reads. Focused edits take revision, target ID and scalar/target-ID inputs and return the updated complete immutable value. Delete and undo/redo return command metadata.
+
+Keep `upsert`; do not add `replace`. Named options have equivalent semantics:
 
 ```fsharp
-let builder = ModelBuilder()
-let root = builder.draft(Dataset(["process-provenance"], ["example"]))
-builder.Dataset.setHasParts(root, [root])
-
-let built = builder.finish()
-let dataset = built.get(root)
+graph.Dataset.upsert(revision, edited, recursive = true)
+graph.Dataset.delete(revision, datasetId, cascade = true)
 ```
-
-- `draft(value)` creates a distinct future entity, retaining prototype values and relationships until explicitly replaced. `reference(value)` supplies a read-only token for an existing immutable entity.
-- Builder relationship setters accept typed tokens and reject foreign-builder tokens, wrong entity kinds and edits to reference tokens.
-- Provide immutable builder-only `ModelValue` factories for primitives, object tokens and nested extension collections.
-- `finish()` validates definitions, then allocates, links and seals unpublished objects without invoking application callbacks. Successful completion consumes the builder; failed completion publishes nothing and permits correction.
-- Reuse the private allocation/link/seal mechanism for SQL and YAML hydration. Preserve sharing, arbitrary entity cycles, absent IDs and distinct detached objects with equal IDs.
-
-## SQL reads, writes and public API
-
-Introduce attached result classes:
-
-- `RevisionToken`: internally constructed, ARC-scoped, with an exact opaque string value.
-- `ReadResult<T>`: `Value` and `Revision`.
-- `WriteResult<T>`: `Value`, `Revision` and `Operation`.
-- `CommandResult`: `Revision` and `Operation`, for deletion and history transitions.
-
-The primary workflow becomes:
 
 ```javascript
-const read = graph.Sample.read("s1");
-const edited = Sample.withName(read.Value, "B");
-const saved = graph.Sample.upsert(read.Revision, edited);
+graph.Dataset.upsert(revision, edited, { recursive: true });
+graph.Dataset.delete(revision, datasetId, { cascade: true });
 ```
 
-**Reads**
+```python
+graph.Dataset.upsert(revision, edited, recursive=True)
+graph.Dataset.delete(revision, dataset_id, cascade=True)
+```
 
-- Keep `Model`, `get(id)` and `list()` as convenient current-state reads. Add `readModel()`, `read(id)` and `readAll()` returning versioned results.
-- Load persisted state and revision together on every operation. Materialize each read consistently, using a temporary identity map to preserve sharing and cycles within its result.
-- Remove retained canonical entities, tombstones, object-ownership registration and direct-mutation scans. Retain no additional long-lived graph snapshot for undo/redo.
-- Promise no reference identity across separate reads. Returned values remain readable and unchanged after later edits, undo/redo, graph closure or session closure.
+Native adapters only adapt syntax. Reject unknown names, non-Boolean flags and native positional Boolean options. Preserve one shared domain/persistence implementation.
 
-**Writes**
+## Adoption and write scope
 
-- Require the expected revision as the first argument to graph-edit and history methods.
-- Keep focused operations, targeting IDs: for example, `setName(revision, sampleId, name)` and `setInputSample(revision, processId, sampleId)`.
-- Make `create`, `add`, `upsert` and focused edits return committed values through `WriteResult<T>`. Deletion and undo/redo return `CommandResult`.
-- `create`/`add` are strict insertion operations. `upsert` fully replaces the submitted root entity; empty collections clear existing values.
-- Existing nested IDs resolve as references in the destination ARC and do not overwrite their targets. Recursively adopt new referenced entities, assigning omitted IDs only to newly constructed persisted copies. Reject conflicting new definitions and cross-type collisions.
-- Permit immutable input values to be reused across ARCs. The destination graph determines the ID namespace.
-- Advance revision and record one history operation for every successful edit command, including identical-value replacements.
+- `create`/`add` strictly insert a new submitted root; an existing ID fails. New nested definitions are recursively adopted, existing nested definitions are read-only references subject to validation.
+- `upsert` inserts an unknown root or fully replaces an existing same-kind root. Empty collections clear links. Unmentioned registered entities remain stored. Dataset upsert never changes the ARC's designated root.
+- Assign missing IDs only to persisted copies; supplied objects are never mutated. Changing/clearing a copied ID is insertion intent, not rename. Active IDs cannot change kind; deleted IDs may be reinserted against current-state collision checks.
+- `recursive=false` by default: only the submitted root and new entities are writable. Compare every existing nested submitted definition with stored local properties, including absence, types, ordered links, duplicates and extension values; inspect descendants so changed grandchildren cannot be ignored. Reject differences with entity/property guidance. Exact references back to the root identify its replacement. Do not adopt values beneath rejected definitions.
+- `recursive=true`: replace all reachable core/extension entity definitions in one operation. Traverse by reference identity; reject distinct writable objects sharing an ID. Preserve sharing/cycles and retain omitted stored objects.
+- Recognize unchanged hydrated closures with private weak provenance for repository/ARC/revision. Copies lose that optimization; older/cross-ARC values undergo comparison.
 
-**Transactions and history**
+A shallow copy of a cyclic value can still reference its original same-ID object; recursive upsert rejects those competing definitions. Edit such graphs with a graph clone:
 
-- Serialize connection access. Begin the write transaction with an atomic revision comparison/update; reject mismatches with a structured revision-conflict error containing expected/current tokens.
-- Validate and persist state, mirrors, history, journal and revision in that transaction. Construct and seal the returned value before commit; expose success only after commit.
-- Failures leave SQL, history, revision and supplied objects unchanged. Keep provider locking errors distinguishable from revision conflicts.
-- Reuse existing persisted history for undo/redo. Restore database state without changing previously returned objects. Distinguish apply, undo and redo in returned operation metadata.
-- New-entry creation/import requires no expected revision. Workspace save/bind/recovery operate on freshly read SQL state with internal revision checks, retaining their existing public call shapes.
+```fsharp
+let read = graph.readModel()
+let edits = ModelBuilder()
+let root = edits.cloneGraph(read.Value)
+edits.Dataset.setTitle(root, "edited")
+let saved = graph.Dataset.upsert(read.Revision, edits.finish().get(root), recursive = true)
+```
 
-## Integration and documentation
+## Deletion
 
-- Keep ARCtrl forwarding operations to its exact `ManagedGraph`. Make export, dirty status, checkpoints and recovery use fresh SQL state while preserving existing filesystem conflict and failed-save guarantees.
-- Preserve detached YAML anchor/alias behavior and managed root-only exports. Preserve existing schema-v4 databases and historical before/after payloads.
-- Update native staging and declarations together: read-only TypeScript fields/arrays, precise Python tuple annotations, result wrappers, builder exports and static copy methods.
-- Preserve shared model class identity across packages and the existing Python numeric compatibility pass. Do not patch the shared Fable runtime.
-- Update repository instructions, the Layer 1 and management plans, canonical guides and native examples. Document copy versus persistence, full replacement, stale-write recovery, read-result lifetime and shallow reference preservation.
+Default `cascade=false` deletes only an unreferenced target, ignoring self-links that disappear with it. Outgoing targets remain registered. ARC root deletion always fails.
 
-## Verification and acceptance
+With `cascade=true`, collect Dataset `hasParts`/`processes` descendants, stopping at the ARC root. Protect non-target candidates with incoming references from outside the set and propagate protection until no survivor points to another deleted descendant. The requested target remains selected. Clear optional incoming core links/remove every deleted-target collection occurrence. Surviving required core links or extension references block the entire command; callers must edit those explicitly. Shared descendants survive. One reversible operation includes all relationship changes and deletions.
 
-First verify the construction/sealing and collection representations with the pinned compiler before applying them across every entity.
+## Transactions, failures and history
 
-Acceptance coverage must include:
+All public operations enter one synchronous repository gate; reentrant calls fail. Consume external iterables under that gate but before SQL transactions. Preserve provider threading constraints.
 
-- Getter-only APIs and rejection of ordinary native field, backing-field and collection mutation.
-- Pure static copies, optional-value clearing, native numeric alternatives, duplicates, ordering and unchanged references.
-- Builder-created self/mutual cycles, extension collections, token validation, failed construction and immutable YAML/SQL hydration.
-- Inputs retaining absent IDs while successful results contain assigned IDs.
-- Old values remaining unchanged; fresh reads reflecting edits, undo/redo and other connections' committed changes.
-- Stale writes failing without side effects, including sequential stale-copy edits in one session.
-- Existing nested-ID references not reverting other entities, plus full replacement and collision rules.
-- Transaction rollback, history recovery, schema-v4 reopening, exports, checkpoints and workspace recovery.
+For changed writes, read a consistent expected-revision snapshot; compute/validate deltas and privately construct/seal the returned graph. Begin the writer transaction with a conditional revision increment as its first statement and immediately check `SELECT changes()` on that connection. Persist rows, history, journal and metadata atomically. Publish results/cache only after commit.
 
-Run `TestBaseModel`, `TestARCManagement` and repository-wide `RunTests`. Inspect emitted classes and declarations, type-check handwritten TypeScript consumers, and execute handwritten JavaScript/Python consumers against both staged and packed artifacts. Record actual results in both implementation plans; skipped targets do not count as passing.
+Reject wrong-scope/stale tokens and signed-int64 exhaustion. Never convert revisions through JS Number or retry using a newer token. Structured revision conflicts remain distinct from provider locking errors.
+
+A no-op verifies its revision under a consistent snapshot, returns the stored value with `Changed=false`/no Operation, and changes no revision, history, journal or redo branch. Changed edits after undo discard redo. Undo/redo advance the current revision and restore standalone registered objects as well as the root graph. Failed validation, construction, persistence or commit leaves database state unchanged.
+
+## Storage and performance
+
+Normalized SQL is authoritative: ARC metadata, stable ordered entity identities, property headers/scalars, ordered string/reference rows, extension trees, operation headers, reversible deltas and revision journal. Remove full `session.state`, typed payload mirrors and duplicate associations. Keep foreign keys ARC-scoped and enabled; index entity/kind/ordinal and incoming references. Ordinals survive history without renumbering unrelated entities. Normative core SQL fixtures remain separate.
+
+History stores scalar before/after cells, ordered collection splices and changed extension subtrees. Insert/delete deltas contain enough metadata to invert exactly. Whole-list replacement uses a deterministic changed range; focused append/remove stores its exact splice. No full graph serialization occurs for ordinary edits. Validate affected properties/owners/targets, not the whole registry; full validation is reserved for bulk import/recovery.
+
+Each public read checks SQL revision. Warm reads reuse immutable cached rows/objects. Cold reads fetch a consistent reachable closure in indexed batches, then allocate/link/seal outside the transaction. Discard hydrated caches on revision changes; never reuse parents with potentially stale descendants. Preserve identity within each result; promise none across separate reads. Values outlive graph/session closure. Use identity dictionaries and iterative worklists.
+
+Returning an updated Dataset necessarily costs work proportional to its reachable result. That accepted output cost must not rewrite/serialize unchanged collections or unrelated entities. Dirty-state YAML comparison is lazy/cached rather than part of every setter.
+
+## Workspaces
+
+Retain explicit save, root-only export, fixed paths, wrapper lifetime and borrowed-session rules. Read fresh SQL state for export/dirty/bind/recovery; checkpoint and binding changes use internal revision checks. Bulk YAML recovery archives displaced entry/history while preserving siblings. Filesystem publication and SQL commit cannot be atomic together: successful publication followed by checkpoint failure requires explicit source selection.
+
+Opening validates required tables/constraints without initialization, migration or versioning.
+
+## Verification and delivery
+
+Implement and verify in order: representative portable sealing/collection/generic/builder/package proof; complete immutable model and detached codecs; normalized storage and history; public management/workspaces/native options; guides and full acceptance.
+
+Acceptance includes backing-field/collection mutation rejection; numeric/optional/Boolean boundaries; ordering/duplicates/sharing; self/mutual cycles and builder failures; nonrecursive grandchild rejection; recursive conflicts; strict insertion/root safety; all deletion protections and exact undo; token scope/staleness/overflow/contention; no-ops/redo; commit rollback; cross-connection freshness; snapshot lifetime; standalone history; workspace save/recovery failures; and every runtime writer/reader combination.
+
+Run `TestBaseModel`, `TestARCManagement`, `RunTests`, native declaration/packed-artifact checks and docs checks. Record actual outcomes in the model and management plans. Skips do not pass. Add repeatable .NET/JS/Python benchmarks and structural work assertions: warm read one small revision query/no hydration; focused scalar storage/history bounded independently of unrelated graph size; title edits never rewrite unchanged collections; no-op no persistent writes; traversal proportional to inspected/returned values.
+
+Delivered gates: the portable representation and packed-package proof, immutable Layer 1/builder, normalized repository/history, management/workspace adapters, and documentation are complete. `RunTests` passed with exit code 0, including all 14 base-model and 127 management shared cases on each runtime, native declarations/consumers, packed artifacts and all nine management interchange combinations. The implementation plans record the full regression results and benchmark evidence. Targeted local documentation links and whitespace checks passed. `BenchmarkARCManagement` produces repeatable CSV measurements for all three runtimes; timing limits are not acceptance assertions.
+
+`BenchmarkARCManagement` also completed successfully, and its CSV checker passed all 117 measurement rows across 100, 1,000 and 10,000 Processes on each runtime. The management plan records actual timings, work counts and the Python memory-tracing caveat.

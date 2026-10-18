@@ -17,12 +17,14 @@ const groups = ["Entity", "Dataset", "Process", "Sample", "Data", "Recipe", "Ann
   "DefinedTerm", "DefinedTermSet", "Descriptor", "Agent", "Organization", "ScholarlyArticle", "History"];
 const exports = new Map([
   ["ManagedGraph", "ManagedGraph.ts"], ["AppliedOperation", "AppliedOperation.ts"],
+  ...["RevisionToken", "RevisionConflictException", "ReadResult", "WriteResult", "CommandResult"].map(name => [name, "AppliedOperation.ts"]),
   ["Session", "Session.ts"], ["ArcInfo", "Session.ts"],
   ["DatasetYaml", "Serialization/DatasetYaml.ts"],
   ...groups.map(name => [`${name}Operations`, `Operations/${name}Operations.ts`]),
 ]);
 const workspaceExports = new Map([["ARC", "ARCtrl/ARC.ts"]]);
-const hidden = new Set(["Wrap", "Dispose", "Repository", "Context"]);
+const hidden = new Set(["Wrap", "Dispose", "Repository", "Context", "Scope", "Arc", "Number"]);
+const implementationName = name => ["ReadResult", "WriteResult"].includes(name) ? `${name}$1` : name;
 
 function write(filename, contents) {
   fs.mkdirSync(path.dirname(filename), { recursive: true });
@@ -46,18 +48,20 @@ function checkTypes(files, emit = false) {
 function declarations(publicExports, workspace = false) {
   const modelNames = new Set([...fs.readFileSync(modelTypes, "utf8").matchAll(/export (?:declare )?(?:class|type) (\w+)/g)].map(match => match[1]));
   const names = new Set([...exports.keys(), ...workspaceExports.keys(), ...modelNames, "Iterable"]);
-  function type(node, parsed) {
+  function type(node, parsed, generics = new Set()) {
     if (!node) throw new Error("Missing public type annotation");
     if (ts.isTypeReferenceNode(node)) {
-      const name = node.typeName.getText(parsed);
-      const arguments_ = node.typeArguments?.map(argument => type(argument, parsed)) ?? [];
+      const name = node.typeName.getText(parsed).replace(/\$\d+$/, "");
+      const arguments_ = node.typeArguments?.map(argument => type(argument, parsed, generics)) ?? [];
       if (["float64", "int32"].includes(name)) return "number";
       if (name === "Option") return `(${arguments_[0]} | undefined)`;
-      if (!names.has(name)) throw new Error(`Unexpected public type ${name}`);
+      if (["IEnumerable", "IEnumerable_1", "IReadOnlyList", "IReadOnlyList_1"].includes(name)) return `ReadonlyArray<${arguments_[0]}>`;
+      if (!names.has(name) && !generics.has(name)) throw new Error(`Unexpected public type ${name}`);
       return name + (arguments_.length ? `<${arguments_.join(", ")}>` : "");
     }
-    if (ts.isArrayTypeNode(node)) return `(${type(node.elementType, parsed)})[]`;
-    if (ts.isUnionTypeNode(node)) return node.types.map(part => type(part, parsed)).join(" | ");
+    if (ts.isArrayTypeNode(node)) return `ReadonlyArray<${type(node.elementType, parsed, generics)}>`;
+    if (ts.isUnionTypeNode(node)) return node.types.map(part => type(part, parsed, generics)).join(" | ");
+    if (ts.isTypeOperatorNode(node) && node.operator === ts.SyntaxKind.ReadonlyKeyword) return type(node.type, parsed, generics);
     if ([ts.SyntaxKind.StringKeyword, ts.SyntaxKind.NumberKeyword, ts.SyntaxKind.BooleanKeyword,
       ts.SyntaxKind.VoidKeyword, ts.SyntaxKind.UndefinedKeyword].includes(node.kind)) return node.getText(parsed);
     throw new Error(`Unexpected public type syntax ${ts.SyntaxKind[node.kind]}`);
@@ -66,22 +70,35 @@ function declarations(publicExports, workspace = false) {
   for (const [name, filename] of publicExports) {
     const parsed = ts.createSourceFile(filename, fs.readFileSync(path.join(source, filename), "utf8"), ts.ScriptTarget.Latest, true);
     diagnosticsOrThrow(parsed.parseDiagnostics);
-    const node = parsed.statements.find(statement => ts.isClassDeclaration(statement) && statement.name?.text === name);
+    const node = parsed.statements.find(statement => ts.isClassDeclaration(statement) && statement.name?.text === implementationName(name));
     if (!node) throw new Error(`Missing generated class ${name}`);
+    const generics = new Set(node.typeParameters?.map(parameter => parameter.name.text) ?? []);
+    const genericDeclaration = generics.size ? `<${[...generics].join(", ")}>` : "";
     const members = ["  private constructor();"];
     for (const member of node.members) {
       const memberName = member.name?.getText(parsed);
       if (!memberName || hidden.has(memberName)) continue;
-      if (ts.isGetAccessorDeclaration(member)) members.push(`  readonly ${memberName}: ${type(member.type, parsed)};`);
+      if (name === "RevisionToken" && memberName !== "Value") continue;
+      if (ts.isGetAccessorDeclaration(member)) members.push(`  readonly ${memberName}: ${type(member.type, parsed, generics)};`);
       if (ts.isMethodDeclaration(member)) {
         const parameters = member.parameters.map(parameter => {
-          return `${parameter.name.getText(parsed)}${parameter.questionToken || parameter.initializer ? "?" : ""}: ${type(parameter.type, parsed)}`;
+          const parameterName = parameter.name.getText(parsed);
+          if (memberName === "upsert" && parameterName === "recursive") return "options?: Readonly<{ recursive?: boolean }>";
+          if (memberName === "delete" && parameterName === "cascade") return "options?: Readonly<{ cascade?: boolean }>";
+          return `${parameterName}${parameter.questionToken || parameter.initializer ? "?" : ""}: ${type(parameter.type, parsed, generics)}`;
         });
         const static_ = member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword) ? "static " : "";
-        members.push(`  ${static_}${memberName}(${parameters.join(", ")}): ${type(member.type, parsed)};`);
+        const entityType = name === "EntityOperations" ? "EntityObject" : name.replace(/Operations$/, "");
+        const returnType = memberName === "readAll" && name.endsWith("Operations")
+          ? `ReadResult<ReadonlyArray<${entityType}>>`
+          : memberName === "list" && name.endsWith("Operations") ? `ReadonlyArray<${entityType}>`
+          : name === "Session" && memberName === "listArcs" ? "ReadonlyArray<ArcInfo>"
+          : type(member.type, parsed, generics);
+        members.push(`  ${static_}${memberName}(${parameters.join(", ")}): ${returnType};`);
       }
     }
-    classes.push(`export declare class ${name} {\n${members.join("\n")}\n}`);
+    const base = name === "RevisionConflictException" ? " extends Error" : "";
+    classes.push(`export declare class ${name}${genericDeclaration}${base} {\n${members.join("\n")}\n}`);
   }
   const shared = workspace ? `import type { ${[...exports.keys()].join(", ")} } from "./index.js";\n` : "";
   return `import type { ${[...modelNames].join(", ")} } from "arc-base-model";\n${shared}\n${classes.join("\n\n")}\n`;
@@ -92,8 +109,10 @@ async function stage() {
   const workspaceDeclaration = declarations(workspaceExports, true);
   const entry = path.join(generated, "arc-management-index.ts");
   const workspaceEntry = path.join(generated, "arc-management-arctrl.ts");
-  write(entry, [...exports].map(([name, filename]) => `export { ${name} } from "./src/ARCManagement/${filename}";`).join("\n") + "\n");
-  write(workspaceEntry, [...workspaceExports].map(([name, filename]) => `export { ${name} } from "./src/ARCManagement/${filename}";`).join("\n") + "\n");
+  const adapterImport = JSON.stringify(path.relative(generated, path.join(repository, "build/arc-management-native.mjs")).replaceAll("\\", "/"));
+  write(entry, `import { nativeClass } from ${adapterImport};\nimport { Session as ImplementationSession } from "./src/ARCManagement/Session.ts";\nexport const Session = nativeClass(ImplementationSession, "session");\n` +
+    [...exports].filter(([name]) => name !== "Session").map(([name, filename]) => `export { ${implementationName(name)} as ${name} } from "./src/ARCManagement/${filename}";`).join("\n") + "\n");
+  write(workspaceEntry, `import { nativeClass } from ${adapterImport};\nimport { ARC as ImplementationARC } from "./src/ARCManagement/ARCtrl/ARC.ts";\nexport const ARC = nativeClass(ImplementationARC, "workspace");\n`);
   // All compiled consumers use the existing curated package classes. This also
   // keeps dependency bundles independent when packing the three artifacts.
   const canonical = new Map([["ARCBaseModel", "arc-base-model"], ["PolyglotSQLite", "polyglot-sqlite"]]);
@@ -103,7 +122,10 @@ async function stage() {
       const resolved = path.resolve(path.dirname(importer), specifier);
       for (const [name, packageName] of canonical) {
         const prefix = path.join(generated, "src", name) + path.sep;
-        if (resolved.startsWith(prefix)) return {id:packageName, external:true};
+        if (resolved.startsWith(prefix)) {
+          const internalModel = name === "ARCBaseModel" && /(?:Internal|ModelHydration)(?:\.ts|\.js)?$/.test(resolved);
+          return {id:internalModel ? "arc-base-model/_internal" : packageName, external:true};
+        }
       }
       return null;
     },
@@ -112,7 +134,7 @@ async function stage() {
       "node_modules/arc-management/index": entry,
       "node_modules/arc-management/arctrl": workspaceEntry,
       tests: path.join(generated, "Main.ts"),
-    }, external: id => id.startsWith("node:") || ["arc-base-model", "polyglot-sqlite", "better-sqlite3"].includes(id), preserveEntrySignatures: "strict",
+    }, external: id => id.startsWith("node:") || id.startsWith("arc-base-model/") || ["arc-base-model", "polyglot-sqlite", "better-sqlite3"].includes(id), preserveEntrySignatures: "strict",
     output: { format: "es", entryFileNames: "[name].js", chunkFileNames: "node_modules/arc-management/chunks/[name]-[hash].js" } },
   } });
   write(path.join(javascript, "package.json"), '{"private":true,"type":"module"}\n');

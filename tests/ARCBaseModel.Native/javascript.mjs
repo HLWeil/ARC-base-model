@@ -1,245 +1,48 @@
-// Executable native example and consumer checks; run through TestBaseModelNative.
-import assert from "node:assert/strict";
-import {
-  EntityObject, EntityCollection, EntityNull, EntityBlob, Agent, Annotation, Data, Dataset, DefinedTerm, DefinedTermSet, Descriptor,
-  FormalParameter, Organization, Process, Recipe, Sample, ScholarlyArticle,
-} from "arc-base-model";
-import { MappingProbe } from "arc-base-model-probe";
+import assert from 'node:assert/strict';
+import {Agent,Annotation,Data,Dataset,DefinedTerm,DefinedTermSet,Descriptor,EntityObject,EntityCollection,EntityNull,EntityBlob,FormalParameter,Organization,Process,Recipe,Sample,ScholarlyArticle,ModelBuilder,ModelValue} from 'arc-base-model';
+import {MappingProbe} from 'arc-base-model-probe';
 
-const annotation = new Annotation("temperature");
-const parameter = new FormalParameter();
-const termSet = new DefinedTermSet("Ontology for Biomedical Investigations");
-const term = new DefinedTerm("measurement");
-const sample = new Sample("leaf");
-const data = new Data("measurements.csv");
-const recipe = new Recipe();
-const process = new Process("measure leaf");
-const descriptor = new Descriptor(sample);
-const organization = new Organization("Plant laboratory");
-const agent = new Agent("Researcher");
-const article = new ScholarlyArticle("Leaf measurements");
-const dataset = new Dataset(
-  ["administrative", "process-provenance", "semantic-designation", "custom-profile"],
-  ["example-study"],
-);
-
-// Every entity is available from the package entrypoint with ordinary constructors.
-const entities = [
-  [Annotation, annotation], [FormalParameter, parameter], [DefinedTermSet, termSet],
-  [DefinedTerm, term], [Sample, sample], [Data, data], [Recipe, recipe],
-  [Process, process], [Descriptor, descriptor], [Organization, organization],
-  [Agent, agent], [ScholarlyArticle, article], [Dataset, dataset],
-];
-for (const [Entity, entity] of entities) {
-  assert.ok(entity instanceof Entity);
-  assert.equal(entity.Type, Entity.name);
-  assert.equal(entity.Id, undefined);
-  assert.ok(Array.isArray(entity.AdditionalTypes));
-  entity.Id = `local:${entity.Type}`;
-  assert.equal(entity.Id, `local:${entity.Type}`);
-  entity.Id = undefined;
-  assert.equal(entity.Id, undefined);
-  assert.throws(() => { entity.Type = "Changed"; });
+const sample=new Sample('A');
+const kinds=[new Annotation('a'),new DefinedTerm('t'),new DefinedTermSet('set'),new FormalParameter(),sample,new Data('file'),new Recipe(),new Process('p'),new Descriptor(sample),new Organization('lab'),new Agent('Ada'),new ScholarlyArticle('paper'),new Dataset(['administrative'],['id'])];
+for(const value of kinds){
+ assert.equal(value.Id,undefined);assert.ok(Object.isFrozen(value));assert.ok(Object.isFrozen(value.AdditionalTypes));
+ for(const key of [Object.keys(value).find(k=>k.startsWith('_')&&k!=='_sealed'),'_sealed']){
+  assert.throws(()=>{value[key]='changed';});assert.throws(()=>{delete value[key];});
+ }
+ assert.throws(()=>{value.Id='assigned';});assert.throws(()=>value.AdditionalTypes.push('new'));
 }
-
-// Direct native values must be understood by transpiled F# pattern matching.
-for (const value of [42, 0, 23.5, "42", ""]) {
-  assert.equal(MappingProbe.IsNumber(value), typeof value === "number");
-  assert.equal(MappingProbe.IsText(value), typeof value === "string");
-  assert.equal(MappingProbe.ClassifyNumberFirst(value), typeof value === "number" ? "number" : "text");
-}
-const generatedAnnotation = MappingProbe.CreateNumericAnnotation();
-assert.ok(generatedAnnotation instanceof Annotation);
-assert.equal(generatedAnnotation.Value, 23.5);
-assert.equal(typeof generatedAnnotation.Value, "number");
-
-for (const value of [42, 0, 23.5, "42", "", undefined]) {
-  annotation.Value = value;
-  assert.equal(annotation.Value, value);
-  const row = MappingProbe.WriteAnnotation(annotation.Value);
-  assert.equal(row.Text, typeof value === "string" ? value : undefined);
-  assert.equal(row.Number, typeof value === "number" ? value : undefined);
-  assert.equal(MappingProbe.ReadAnnotation(row), value);
-}
-
-for (const value of [sample, data, undefined]) {
-  process.Input = value;
-  process.Output = value;
-  const row = MappingProbe.WriteEntity(process.Input);
-  assert.equal(row.Sample, value instanceof Sample ? value : undefined);
-  assert.equal(row.Data, value instanceof Data ? value : undefined);
-  assert.equal(MappingProbe.ReadEntity(row), value);
-  assert.equal(process.Output, value);
-  if (value !== undefined) {
-    descriptor.Describes = value;
-    assert.equal(descriptor.Describes, value);
-    assert.ok(MappingProbe.ReadEntity(row) instanceof value.constructor);
-  }
-}
-
-for (const value of ["measurement", "", term, undefined]) {
-  recipe.IntendedUse = value;
-  const row = MappingProbe.WriteIntendedUse(recipe.IntendedUse);
-  assert.equal(row.Text, typeof value === "string" ? value : undefined);
-  assert.equal(row.Term, value instanceof DefinedTerm ? value : undefined);
-  assert.equal(MappingProbe.ReadIntendedUse(row), value);
-}
-
-for (const value of ["https://example.org/ontology", "", termSet, undefined]) {
-  term.InDefinedTermSet = value;
-  const row = MappingProbe.WriteTermSet(term.InDefinedTermSet);
-  assert.equal(row.Url, typeof value === "string" ? value : undefined);
-  assert.equal(row.TermSet, value instanceof DefinedTermSet ? value : undefined);
-  assert.equal(MappingProbe.ReadTermSet(row), value);
-}
-
-// Both populated columns would be an invalid union representation.
-const invalidAnnotation = MappingProbe.WriteAnnotation("42");
-invalidAnnotation.Number = 42;
-assert.throws(() => MappingProbe.ReadAnnotation(invalidAnnotation));
-const invalidEntity = MappingProbe.WriteEntity(sample);
-invalidEntity.Data = data;
-assert.throws(() => MappingProbe.ReadEntity(invalidEntity));
-const invalidIntendedUse = MappingProbe.WriteIntendedUse("measurement");
-invalidIntendedUse.Term = term;
-assert.throws(() => MappingProbe.ReadIntendedUse(invalidIntendedUse));
-const invalidTermSet = MappingProbe.WriteTermSet("https://example.org/ontology");
-invalidTermSet.TermSet = termSet;
-assert.throws(() => MappingProbe.ReadTermSet(invalidTermSet));
-
-// A Layer 2 consumer can assign and read domain IDs without changing identity.
-assert.equal(MappingProbe.AssignSampleId(sample, "sample-1"), sample);
-assert.equal(MappingProbe.ReadSampleId(sample), "sample-1");
-assert.equal(sample.Id, "sample-1");
-const sameId = new Sample("leaf");
-sameId.Id = "sample-1";
-assert.notEqual(sample, sameId);
-assert.equal(MappingProbe.AssignSampleId(sample, undefined), sample);
-assert.equal(sample.Id, undefined);
-
-// Assignment copies containers; getters expose native mutable arrays.
-annotation.Value = 23.5;
-annotation.Unit = "degree Celsius";
-annotation.NameTAN = "https://example.org/temperature";
-annotation.ValueTAN = "";
-annotation.UnitTAN = "https://example.org/celsius";
-const suppliedAnnotations = [annotation, annotation];
-sample.AdditionalProperties = suppliedAnnotations;
-assert.notEqual(sample.AdditionalProperties, suppliedAnnotations);
-suppliedAnnotations.pop();
-assert.equal(sample.AdditionalProperties.length, 2);
-assert.equal(sample.AdditionalProperties[0], annotation);
-assert.equal(sample.AdditionalProperties[1], annotation);
-sample.AdditionalProperties.push(annotation);
-assert.equal(sample.AdditionalProperties.length, 3);
-assert.equal(new Sample("independent").AdditionalProperties.length, 0);
-annotation.Value = 24;
-assert.equal(sample.AdditionalProperties[2].Value, 24);
-
-const profiles = ["administrative", "administrative"];
-const identifiers = ["first", "first"];
-const copied = new Dataset(profiles, identifiers);
-profiles.push("custom-profile");
-identifiers.push("second");
-assert.deepEqual(copied.ConformsTo, ["administrative", "administrative"]);
-assert.deepEqual(copied.Identifiers, ["first", "first"]);
-const replacements = ["replacement", "replacement"];
-copied.Identifiers = replacements;
-replacements.pop();
-assert.deepEqual(copied.Identifiers, ["replacement", "replacement"]);
-
-// The complete graph retains references; construction adds no backlinks or IDs.
-parameter.Name = "temperature";
-parameter.DefaultValue = annotation;
-annotation.InstanceOf = parameter;
-recipe.Parameters = [parameter];
-recipe.Components = [annotation];
-recipe.IntendedUse = term;
-term.InDefinedTermSet = termSet;
-term.TAN = "OBI:example";
-process.Input = sample;
-process.Output = data;
-process.ExecutesRecipe = recipe;
-process.ParameterValues = [annotation, annotation];
-descriptor.Describes = sample;
-descriptor.Annotations = [annotation];
-organization.Url = "https://example.org/lab";
-agent.Affiliations = [organization];
-agent.JobTitles = [term];
-article.Authors = [agent];
-article.CreativeWorkStatus = term;
-dataset.Processes = [process];
-dataset.Descriptors = [descriptor];
-dataset.DataFiles = [data];
-dataset.Agents = [agent];
-dataset.Citations = [article];
-dataset.Title = "Leaf measurements";
-dataset.Description = "";
-assert.equal(dataset.Description, "");
-dataset.Description = undefined;
-assert.equal(dataset.Description, undefined);
-const nested = new Dataset(["semantic-designation"], ["descriptions"]);
-const deepest = new Dataset(["process-provenance"], ["measurement-run"]);
-dataset.HasParts = [nested, nested];
-nested.HasParts.push(deepest);
-const fragment = new Data("measurements.csv");
-fragment.Selector = "row=2";
-data.HasParts = [fragment, fragment];
-assert.equal(dataset.Processes[0].Input, dataset.Descriptors[0].Describes);
-assert.equal(dataset.Processes[0].Output, dataset.DataFiles[0]);
-assert.equal(dataset.Processes[0].ParameterValues[1], annotation);
-assert.equal(annotation.InstanceOf.DefaultValue, annotation);
-assert.equal(dataset.Citations[0].Authors[0], dataset.Agents[0]);
-assert.equal(dataset.HasParts[0], dataset.HasParts[1]);
-assert.equal(dataset.HasParts[0].HasParts[0], deepest);
-assert.equal(data.HasParts[0], data.HasParts[1]);
-assert.equal(fragment.Path, "measurements.csv");
-assert.equal(sample.Id, undefined);
-assert.equal(data.Id, undefined);
-
-// Constructor restrictions come from required spec data, not inferred identity.
-for (const Entity of [Annotation, DefinedTerm, DefinedTermSet, Sample, Agent, Organization, Process]) {
-  assert.throws(() => new Entity(null));
-  assert.throws(() => new Entity());
-  assert.equal(new Entity("").Name, "");
-  assert.equal(new Entity("  literal  ").Name, "  literal  ");
-}
-assert.throws(() => new Data(null));
-assert.throws(() => new ScholarlyArticle(null));
-assert.throws(() => new Descriptor(null));
-assert.throws(() => new Dataset([], ["study"]));
-assert.throws(() => new Dataset(["administrative"], []));
-assert.throws(() => new Dataset(["Administrative"], ["study"]));
-assert.throws(() => new Dataset(["custom-profile"], ["study"]));
-assert.throws(() => new Dataset(null, ["study"]));
-assert.throws(() => new Dataset(["administrative"], null));
-assert.equal(new Data("").Path, "");
-assert.equal(new ScholarlyArticle("").Headline, "");
-copied.ConformsTo.length = 0; // Continuous conformance checking is outside Layer 1.
-copied.Identifiers.length = 0;
-assert.equal(copied.ConformsTo.length, 0);
-assert.equal(copied.Identifiers.length, 0);
-
-console.log("ARCBaseModel native JavaScript consumer passed");
-
-const extension = new EntityObject("QualityAssessment");
-assert.equal(extension.Id, undefined);
-const extensionValues = [0, 42, 0.95, false, "", extension, new EntityCollection([]), new EntityNull(), new EntityBlob("AA==")];
-const extensionKinds = ["number", "number", "number", "bool", "text", "object", "collection", "null", "blob"];
-extensionValues.forEach((value, i) => {
-  sample.SetEntityProperty(`custom:${i}`, value);
-  assert.equal(sample.EntityProperties.Get(`custom:${i}`), value);
-  assert.equal(MappingProbe.ClassifyExtension(value), extensionKinds[i]);
-});
-assert.equal(MappingProbe.IsExtensionNumber(false), false);
-assert.equal(MappingProbe.IsExtensionNumber(0), true);
-assert.throws(() => sample.EntityProperties.Set("name", "override"));
-assert.throws(() => sample.EntityProperties.Add("custom:0", 1));
-sample.SetEntityProperty("cycle", extension);
-extension.SetEntityProperty("back", sample);
-assert.equal(extension.EntityProperties.Get("back"), sample);
-const numericCollection = new EntityCollection([extension, extension]);
-MappingProbe.FillExtensionNumbers(extension, numericCollection);
-assert.equal(extension.EntityProperties.Get("wrapped"), 1.25);
-assert.equal(numericCollection.Get(2), 2.5);
-for (const value of ["A", "!!!!", "AB==", "AA=A"]) assert.throws(() => new EntityBlob(value));
+const owned=[new Annotation('x')];const original=new Sample('old',owned);owned.length=0;
+assert.equal(original.AdditionalProperties.length,1);
+const edited=Sample.withName(original,'new');assert.equal(original.Name,'old');assert.equal(edited.Name,'new');assert.equal(edited.AdditionalProperties,original.AdditionalProperties);
+assert.equal(Sample.withId(sample,'s1').Id,'s1');assert.equal(sample.Id,undefined);assert.equal(Sample.clearId(Sample.withId(sample,'s1')).Id,undefined);
+for(const number of [0,1,1.25]){const a=Annotation.withValue(new Annotation('n'),number);assert.equal(a.Value,number);assert.equal(MappingProbe.IsNumber(number),true);assert.equal(MappingProbe.IsText(number),false);assert.equal(MappingProbe.ClassifyNumberFirst(number),'number');}
+assert.equal(Annotation.withValue(new Annotation('n'),'').Value,'');assert.equal(Annotation.clearValue(Annotation.withValue(new Annotation('n'),0)).Value,undefined);
+assert.throws(()=>Annotation.withValue(new Annotation('n'),false));assert.throws(()=>new Annotation('n',false));
+assert.equal(MappingProbe.ReadAnnotation(MappingProbe.WriteAnnotation(0)),0);
+assert.equal(MappingProbe.ReadEntity(MappingProbe.WriteEntity(sample)),sample);
+const file=new Data('file');assert.equal(MappingProbe.ReadEntity(MappingProbe.WriteEntity(file)),file);
+const term=new DefinedTerm('t');assert.equal(MappingProbe.ReadIntendedUse(MappingProbe.WriteIntendedUse(term)),term);
+assert.equal(MappingProbe.ReadIntendedUse(MappingProbe.WriteIntendedUse('')),'');
+const termset=new DefinedTermSet('set');assert.equal(MappingProbe.ReadTermSet(MappingProbe.WriteTermSet(termset)),termset);
+assert.equal(MappingProbe.ReadTermSet(MappingProbe.WriteTermSet('url')),'url');
+for(const call of [()=>new Sample(),()=>new Dataset([],['id']),()=>Dataset.withIdentifiers(new Dataset(['administrative'],['id']),[]),()=>new Descriptor(term),()=>new Sample('x',[term])])assert.throws(call);
+const collection=new EntityCollection([0,false,'',sample,new EntityNull(),new EntityBlob('AA==')]);assert.equal(collection.Count,6);assert.equal(collection.Get(3),sample);assert.ok(Object.isFrozen(collection));assert.throws(()=>collection._values.push(1));
+assert.throws(()=>collection.Get(0.5));assert.throws(()=>collection.Get(false));
+const custom=EntityObject.withEntityProperty(new EntityObject('Quality'),'values',collection);assert.equal(custom.EntityProperties.Get('values'),collection);assert.ok(Object.isFrozen(custom.EntityProperties));assert.throws(()=>{custom.EntityProperties._values.values='bad';});assert.equal(custom.EntityProperties.Contains('id'),false);assert.throws(()=>EntityObject.withEntityProperty(custom,'id','bad'));
+assert.equal(EntityObject.withoutEntityProperty(custom,'values').EntityProperties.Contains('values'),false);
+for(const text of ['','AA==','AQI=','AQID'])assert.equal(new EntityBlob(text).Base64,text);
+for(const text of ['A','A===','AB==','AAB=','===='])assert.throws(()=>new EntityBlob(text));
+assert.throws(()=>ModelValue.number(false));assert.throws(()=>ModelValue.boolean(1));
+const builder=new ModelBuilder();const root=builder.draft(new Dataset(['process-provenance'],['root']));const child=builder.draft(new Dataset(['administrative'],['child']));builder.Dataset.setHasParts(root,[child,child]);builder.Dataset.setHasParts(child,[root]);builder.Dataset.setEntityProperty(root,'self',ModelValue.objectValue(root));const built=builder.finish();const dataset=built.get(root);
+assert.throws(()=>{root.state.writable=false;});
+assert.throws(()=>{built._values['0']=sample;});
+assert.equal(dataset.HasParts[0],dataset.HasParts[1]);assert.equal(dataset.HasParts[0].HasParts[0],dataset);assert.equal(dataset.EntityProperties.Get('self'),dataset);assert.ok(Object.isFrozen(root));assert.equal(MappingProbe.DatasetCount(dataset),2);assert.equal(MappingProbe.DatasetFirst(dataset),dataset.HasParts[0]);assert.throws(()=>builder.finish());
+const cloner=new ModelBuilder();const cloned=cloner.cloneGraph(dataset);cloner.Dataset.setTitle(cloner.draftFor(dataset),'changed');const changed=cloner.finish().get(cloned);assert.equal(changed.HasParts[0].HasParts[0],changed);assert.equal(changed.EntityProperties.Get('self'),changed);assert.equal(dataset.Title,undefined);
+const fix=new ModelBuilder();const token=fix.draft(new Dataset(['administrative'],['x']));fix.Dataset.setIdentifiers(token,[]);assert.throws(()=>fix.finish());fix.Dataset.setIdentifiers(token,['fixed']);assert.equal(fix.finish().get(token).Identifiers[0],'fixed');
+const owner=new ModelBuilder();const reference=owner.reference(sample);assert.throws(()=>owner.Sample.setName(reference,'bad'));assert.throws(()=>new ModelBuilder().Sample.setName(reference,'bad'));assert.throws(()=>owner.Data.setPath(reference,'bad'));
+const stepToken=owner.draft(new Process('step'));const dataToken=owner.reference(file);const descriptorToken=owner.draft(new Descriptor(sample));
+for(const method of ['setInputSample','setOutputSample'])assert.throws(()=>owner.Process[method](stepToken,dataToken));
+for(const method of ['setInputData','setOutputData'])assert.throws(()=>owner.Process[method](stepToken,reference));
+assert.throws(()=>owner.Descriptor.setDescribesSample(descriptorToken,dataToken));assert.throws(()=>owner.Descriptor.setDescribesData(descriptorToken,reference));
+assert.equal(MappingProbe.CreateNumericExtension().EntityProperties.Get('wrapped'),1.25);assert.equal(MappingProbe.CreateNumericCollection().Get(0),2.5);
+console.log('ARCBaseModel native JavaScript immutable contract passed.');

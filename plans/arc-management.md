@@ -1,15 +1,8 @@
-# ARC Management API
+﻿# ARC Management API
 
-Status: generic ARCManagement and workspace-specific ARCtrl are separated and
-verified, including detached YAML workflows and renamed native packages.
-`BuildSolution` and repository-wide `RunTests` passed. Project-file codec
-integration remains planned.
+Status: the [immutable incremental redesign](mutation_safety_immutable.md) is implemented and verified across all runtimes (2026-10-18). It replaces the mutable canonical-object API and experimental schema-v4 descriptions below. There are no schema versions or migrations in the new layout. Earlier implementation and verification sections remain historical.
 
-This plan tracks the current implementation and remaining work. See the
-[management guide](../docs/project/arc-management.md) and
-[ARCtrl workspace guide](../docs/project/arctrl.md) for usage and storage details, and
-[the project-file specification](../docs/spec/project_file.md) for the intended
-workspace format.
+See the [management guide](../docs/project/arc-management.md) and [workspace guide](../docs/project/arctrl.md) for the current API. Project-file integration remains future work.
 
 ## Objective and boundaries
 
@@ -357,3 +350,25 @@ profile/rule re-resolution, auxiliary-output validation, path collisions,
 configuration/resource changes, and partial-write recovery on every runtime.
 Update milestone states with checks actually run; keep detailed implementation
 and error history in version control rather than appending logs here.
+
+## Immutable incremental redesign implementation (2026-10-18)
+
+The accepted [immutable redesign](mutation_safety_immutable.md) supersedes retained canonical-object behavior and schema-v4 descriptions above. The implementation uses immutable values, explicit revisioned writes, safe optional recursion/cascades, normalized authoritative rows and incremental history. There are no existing databases to migrate and no schema-version mechanism. Scalar and extension subtree edits write only their changed cells; result wrappers are constructed before the writer transaction. Cold reads copy consistent rows before hydration, and cached reads check SQL revision without hydration. Native options adapt syntax only; all behavior remains shared.
+
+Verification on 2026-10-18: `RunTests` completed with exit code 0 and `Status: Ok` in 5m 40s. `TestARCManagement` passed **127/127 shared tests on each of .NET, JavaScript and Python**, with no skips or errors, plus handwritten native consumers, TypeScript declarations, packed npm artifacts and Python wheels. All **nine management database writer/reader combinations** passed. `TestBaseModel` passed 14/14 shared cases on each runtime and its native/packed checks. PolyglotSQLite passed 41 .NET and 36 cases on each native runtime, plus native/packed checks and all nine interchange combinations. Core SQL passed 63 cases on each of Node/Python. ProcessCore passed 659 JavaScript and 660 .NET cases, retaining two existing ignored cases on each; its disabled legacy Python target was not run. Earlier failed iterations are not acceptance evidence; the successful final output is `build/out/immutable-verification-complete.log`.
+
+Structural acceptance covers one revision query per cached read with no hydration, one scalar storage/history cell beside 2,000 Process links, one changed extension subtree beside 2,000 sibling subtrees, no full-registry read on focused edits, and no persistent changes for no-ops. Safety checks cover stale/foreign/exhausted tokens, nested-definition rejection, cycles, cascade blockers/sharing, undo restoration, external commits, reentrancy, SQL/commit rollback, pre-commit result-construction failure, and workspace publication/checkpoint recovery. Targeted local Markdown links and Git whitespace checks passed; no documentation build is claimed.
+
+### Benchmark measurements
+
+`BenchmarkARCManagement` measures 13 operations at 100, 1,000 and 10,000 Processes, sequentially on each runtime. CSV artifacts are written to `build/out/arc-management/benchmarks/`. The measurements below are medians in milliseconds for 10,000 Processes; cached reads/pure copies use 100 repetitions, focused Sample writes five, and Dataset title writes three. Python enables `tracemalloc`, whose substantial overhead is included: compare size scaling within that runtime rather than comparing its absolute times with .NET/JavaScript.
+
+| Runtime | Cached root read | Pure title copy | Focused Sample write | Dataset title write with complete returned graph |
+| --- | ---: | ---: | ---: | ---: |
+| .NET | 0.005 | 0.001 | 0.735 | 693.016 |
+| JavaScript | 0.014 | 0.011 | 1.259 | 631.121 |
+| Python, memory tracing enabled | 0.581 | 0.156 | 38.090 | 44,972.469 |
+
+At all measured sizes and on all runtimes, a cached read used exactly one revision query and materialized no values. Each focused Sample/title edit wrote one normalized value/reference cell and one history change; no-op edits wrote neither. Title edits materialized the expected `Processes + 2` distinct values per result while retaining unchanged relationship rows and excluding those collections from history. Pure title copies performed no SQL or hydration. Cold reads, collection appends, recursive upserts and history timings are retained in the CSVs alongside query/row/cell/hydration counters.
+
+Benchmark verification completed 2026-10-19: `BenchmarkARCManagement` exited 0 with `Status: Ok` (17m 02s including builds; 14m 56s of measurements). All three runtime CSVs contain all 39 measurements. `node build/check-arc-benchmarks.mjs` passed **117/117 work-count checks**, including the 10,000-Process recursive upsert, append and undo/redo cases. The build target now invokes this checker automatically; the final FAKE tooling compiled successfully with `dotnet build build/build.fsproj -c Release`. The successful benchmark log is `build/out/immutable-benchmarks.log`. Python memory tracing accounts for the long profiling run; no timing threshold is asserted.

@@ -6,7 +6,7 @@ open ARCManagement.Internal
 open ARCtrl.Helper
 
 /// Workspace locations, publication, baselines, and source-selection policy.
-module Workspace =
+module internal Workspace =
 
     let databaseFileName = "arc.sqlite"
 
@@ -21,25 +21,25 @@ module Workspace =
     let bind (context: GraphContext) folder =
         let folder = Path.fullPath(Model.required "folder" folder)
         context.Repository.Access(fun () ->
-            context.Check()
-            if context.Folder <> Some folder then
+            context.Refresh()
+            if context.FolderValue <> Some folder then
                 if Path.pathExists(Path.combineNative folder Layout.ARCFileName) then invalidOp "Folder already contains arc.yml. Use ARC.importFolder."
                 context.Repository.Connection.WithTransaction(fun () -> context.SetBinding(folder)))
 
     let save (context: GraphContext) =
         context.Repository.Access(fun () ->
-            context.Check()
-            let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding. Use ARC.bind before save.")
+            context.Refresh()
+            let folder = context.FolderValue |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding. Use ARC.bind before save.")
             let rootPath = Path.combineNative folder Layout.ARCFileName
-            if Path.readFileTextOptional rootPath <> context.Baseline then invalidOp "Persistent YAML changed externally. Reopen with an explicit source preference."
-            let graph = Codec.encodeGraph context.State
+            if Path.readFileTextOptional rootPath <> context.BaselineValue then invalidOp "Persistent YAML changed externally. Reopen with an explicit source preference."
+            let graph = context.ExportValue
             let temporary = Path.combineNative folder (".arc-" + ARCManagement.Helper.Identifier.newId() + ".tmp")
             Path.createDirectory folder
             try
                 context.Repository.Connection.WithTransaction(fun () ->
-                    context.AssertRevision()
+                    context.ClaimCheckpoint()
                     Path.writeFileText temporary graph
-                    if Path.readFileTextOptional rootPath <> context.Baseline then invalidOp "Persistent YAML changed during save."
+                    if Path.readFileTextOptional rootPath <> context.BaselineValue then invalidOp "Persistent YAML changed during save."
                     Path.replaceFile temporary rootPath
                     context.SetCheckpoint(graph))
                 context.AcceptCheckpoint(graph)
@@ -48,8 +48,8 @@ module Workspace =
 
     let recover (context: GraphContext) source =
         context.Repository.Access(fun () ->
-            context.Check()
-            let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding.")
+            context.Refresh()
+            let folder = context.FolderValue |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding.")
             let current = Path.readFileTextOptional(Path.combineNative folder Layout.ARCFileName)
             let reload () =
                 let yaml = current |> Option.defaultWith (fun () -> invalidOp "No arc.yml exists in this folder.")
@@ -58,8 +58,8 @@ module Workspace =
             match source with
             | "sql" -> context.AcceptPersistentBaseline(current)
             | "yml" -> reload()
-            | "auto" when current = context.Baseline -> context.AssertRevision()
-            | "auto" when context.IsDirty || context.HasSessionOnlyObjects -> invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
+            | "auto" when current = context.BaselineValue -> context.AssertRevision()
+            | "auto" when context.IsDirtyValue || context.HasSessionOnlyObjectsValue -> invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
             | "auto" -> reload()
             | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'.")
 

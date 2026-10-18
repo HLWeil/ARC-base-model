@@ -1,4 +1,6 @@
-# ARCBaseModel: Layer 1 Implementation
+﻿# ARCBaseModel: Layer 1 Implementation
+
+> Current contract: the [immutable redesign](mutation_safety_immutable.md) supersedes the mutable API sections below. Implementation and cross-runtime verification are complete (2026-10-18). Earlier verification entries are historical.
 
 ## Property bag dictionary repair
 
@@ -150,3 +152,9 @@ Shared .NET/JS/Python tests cover required construction, optional/assignable IDs
 Native tests import the complete public surface, construct and mutate native values, call the transpiled mapping consumer in both directions, verify class identity, type-check valid/invalid TypeScript calls, and execute documentation examples.
 
 Completion requires a passing TestBaseModel, solution build, existing-suite regression checks, and fsdocs or targeted documentation/link verification. Record actual outcomes in the implementation state above. Every logical implementation commit must update this plan; larger commits are acceptable where required to keep a coherent, verified change together.
+
+## Immutable redesign implementation (2026-10-18)
+
+The accepted [immutable redesign](mutation_safety_immutable.md) supersedes mutable API details above. Domain values, extension storage, builder tokens/results and management results are immutable, including Python instance dictionaries. Scalar copies share owned containers and reuse their validation by reference identity; structural checks assert zero container revalidation for Sample copies and Dataset title copies beside 2,000 child references. Typed builder endpoints explicitly reject the wrong native Sample/Data token kind. SQL/YAML hydration and graph cloning use the internal allocation/link/seal bridge.
+
+Verification on 2026-10-18: `RunTests` completed with exit code 0 and `Status: Ok`, including `TestBaseModel`, `TestARCManagement`, solution build and existing regressions. All **14/14 base-model shared tests passed on each of .NET, JavaScript and Python**, with no skips or errors. Handwritten JS/TS/Python consumers, strict TypeScript declarations, staged packages and packed npm/Python consumers passed. Emitted frozen arrays, tuple count/index protocols, immutable backing storage and live Python validation counters were checked against pinned Fable **5.20.0**. No production dependencies or compiler versions changed. Detailed aggregate output is retained locally at `build/out/immutable-verification-complete.log`. The legacy ProcessCore Python suite remains excluded by its existing build configuration; it is not passing Python evidence for this redesign.

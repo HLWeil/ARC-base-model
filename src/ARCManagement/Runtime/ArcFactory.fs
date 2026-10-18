@@ -12,19 +12,26 @@ module internal ArcFactory =
     let private capture assertAvailable (root: Dataset) =
         Model.required "rootDataset" root |> ignore
         let objects = ResizeArray<string * obj>()
+        let identities = System.Collections.Generic.Dictionary<obj,string>(HashIdentity.Reference)
+        let ids = System.Collections.Generic.HashSet<string>()
         let rows = ResizeArray<EntityRow>()
-        let rec visit value =
+        let register value =
             Model.required "entity" value |> ignore
             assertAvailable value
-            match objects |> Seq.tryFind (fun (_,existing) -> obj.ReferenceEquals(existing,value)) with
-            | Some(id,_) -> id
-            | None ->
-                let id = Model.id value |> Option.defaultWith Identifier.newId
-                if objects |> Seq.exists (fun (existing,_) -> existing = id) then invalidOp ("Session ID collision: " + id)
+            match identities.TryGetValue value with
+            | true,id -> id
+            | _ ->
+                let id=Model.id value |> Option.defaultWith Identifier.newId
+                if not (ids.Add id) then invalidOp ("Session ID collision: "+id)
+                identities.Add(value,id)
                 objects.Add(id,value)
-                rows.Add(Model.capture id visit value)
                 id
-        let rootId = visit root
+        let rootId=register (box root)
+        let mutable index=0
+        while index<objects.Count do
+            let id,value=objects[index]
+            index<-index+1
+            rows.Add(Model.capture id register value)
         let state = { Root=rootId; Entities=List.ofSeq rows }
         Model.validate state
         state,List.ofSeq objects
@@ -32,20 +39,13 @@ module internal ArcFactory =
     /// Prepare management IDs in a snapshot, without modifying the input graph.
     let snapshot root = capture ignore root |> fst
 
-    /// Initialize optional persisted metadata in the same transaction as adoption.
+    /// Initialize graph and workspace metadata in one transaction without mutating inputs.
     let createWithMetadata (repository: Repository) root folder baseline =
         repository.Access(fun () ->
             let arcId = Identifier.newId()
-            let state,objects = capture (fun value -> repository.AssertAvailable(arcId,value)) root
-            let originalIds = objects |> List.map (fun (_,value) -> value,Model.id value)
-            try
-                repository.Connection.WithTransaction(fun () ->
-                    Store.addArc repository.Connection arcId state folder baseline
-                    GraphContext(repository,arcId,objects))
-            with _ ->
-                for value,id in originalIds do
-                    repository.Release(arcId,value)
-                    Model.setId value id
-                reraise())
+            let state,_ = capture ignore root
+            repository.Connection.WithTransaction(fun () ->
+                Store.addArc repository.Connection arcId state folder baseline
+                GraphContext(repository,arcId,[])))
 
     let create repository root = createWithMetadata repository root None None

@@ -9,17 +9,23 @@ open YAMLicious.YAMLiciousTypes
 module internal DetachedYaml =
     let private capture (root: Dataset) =
         Model.required "dataset" root |> ignore
-        let objects = ResizeArray<string * obj>()
-        let rows = ResizeArray<EntityRow>()
-        let rec visit value =
-            match objects |> Seq.tryFind (fun (_, previous) -> obj.ReferenceEquals(previous, value)) with
-            | Some(key, _) -> key
-            | None ->
-                let key = "o" + string (objects.Count + 1)
-                objects.Add(key, value)
-                rows.Add(Model.capture key visit value)
+        let objects=ResizeArray<string*obj>()
+        let identities=Dictionary<obj,string>(HashIdentity.Reference)
+        let rows=ResizeArray<EntityRow>()
+        let register value =
+            match identities.TryGetValue value with
+            | true,key -> key
+            | _ ->
+                let key="o"+string(objects.Count+1)
+                identities.Add(value,key)
+                objects.Add(key,value)
                 key
-        let key = visit (box root)
+        let key=register (box root)
+        let mutable index=0
+        while index<objects.Count do
+            let key,value=objects[index]
+            index<-index+1
+            rows.Add(Model.capture key register value)
         let state = { Root = key; Entities = List.ofSeq rows }
         Model.validate state
         state
@@ -147,6 +153,7 @@ module internal DetachedYaml =
         for row in state.Entities do objects.Add(row.Id, Model.create row)
         for row in state.Entities do Model.restore (fun key -> objects[key]) row objects[row.Id]
         for row in state.Entities do Model.setId objects[row.Id] row.SuppliedId
+        ModelHydration.Seal(objects.Values |> Seq.map unbox<EntityObject>)
         unbox<Dataset> objects[state.Root]
 
 namespace ARCManagement
