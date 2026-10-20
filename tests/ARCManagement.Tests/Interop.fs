@@ -40,11 +40,11 @@ let private fixture () =
 let write path =
     use session = Session.createFile(path)
     let graph = session.createArc(fixture())
-    let named = graph.Sample.setName(graph.Revision,"sample","persisted")
-    let titled = graph.Dataset.setTitle(named.Revision,"root","")
-    let outside = graph.Sample.add(titled.Revision,Sample("standalone",id="outside"))
-    let changed = graph.Sample.setName(outside.Revision,"outside","redo-value")
-    graph.History.undo(changed.Revision) |> ignore
+    let named = graph.Sample.setName(graph.Sample.get("sample"),"persisted")
+    let titled = graph.Dataset.setTitle(graph.Dataset.get("root"),"")
+    let outside = graph.Sample.add(Sample("standalone",id="outside"))
+    let changed = graph.Sample.setName(graph.Sample.get("outside"),"redo-value")
+    graph.History.undo() |> ignore
     require "Writer did not retain redo history." graph.History.CanRedo
 
 let read path =
@@ -53,7 +53,7 @@ let read path =
     require "Expected one fixture ARC." (entries.Count=1)
     let graph = session.openArc(entries[0].ArcId)
     let observed = graph.readModel()
-    let root = observed.Value
+    let root = observed
     require "Root identity/title differ." (root.Id=Some "root" && root.Title=Some "")
     require "Dataset declarations/identifiers lost ordering or duplicates." (Seq.toList root.Identifiers=["fixture";"fixture"] && root.ConformsTo.Count=3)
     require "Dataset cycle or duplicate child sharing differs." (root.HasParts.Count=3 && same root root.HasParts[0] && same root.HasParts[1] root.HasParts[2])
@@ -81,9 +81,9 @@ let read path =
     | _ -> failwith "Extension storage alternatives differ."
     require "Standalone entity absent or list order differs." ((graph.Sample.list() |> Seq.map (fun value -> value.Id.Value) |> Seq.toList)=["sample";"outside"] && (graph.Sample.get("outside")).Name="standalone")
     require "Persisted history unavailable." (graph.History.CanUndo && graph.History.CanRedo)
-    let redone = graph.History.redo(observed.Revision)
+    let redone = graph.History.redo()
     require "Cross-runtime forward delta failed." ((graph.Sample.get("outside")).Name="redo-value")
-    graph.History.undo(redone.Revision) |> ignore
+    graph.History.undo() |> ignore
     require "Cross-runtime inverse delta failed." ((graph.Sample.get("outside")).Name="standalone")
     require "Previously returned snapshot changed." (sample.Name="persisted" && same root root.HasParts[0])
     let decoded = graph.toYaml() |> DatasetYaml.decode

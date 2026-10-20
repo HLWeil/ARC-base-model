@@ -95,10 +95,10 @@ let tests = testList "Immutable YAML" [
         let graph = session.createArc(builder.finish().get(token))
         let observed = graph.readModel()
         let edit = ModelBuilder()
-        let cloned = edit.cloneGraph(observed.Value)
+        let cloned = edit.cloneGraph(observed)
         edit.Dataset.setTitle(cloned,"edited")
-        let saved = graph.Dataset.upsert(observed.Revision,edit.finish().get(cloned),recursive=true)
+        let saved = graph.Dataset.upsert(edit.finish().get(cloned),baseline=observed,recursive=true)
         same saved.Value.HasParts[0] saved.Value
         Expect.equal saved.Value.Title (Some "edited") "Updated cycle"
-        Expect.isNone observed.Value.Title "Old cyclic graph unchanged")
+        Expect.isNone observed.Title "Old cyclic graph unchanged")
 ]

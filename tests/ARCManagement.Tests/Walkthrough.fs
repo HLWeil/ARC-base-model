@@ -9,12 +9,12 @@ open ARCtrl
 let run folder =
     use arc = ARC.create(folder,Dataset(["process-provenance"],["example-arc"]))
     let graph = arc.ManagedGraph
-    let sample = graph.Sample.add(graph.readModel().Revision,Sample("leaf",id="sample"))
-    let edited = graph.Sample.setName(sample.Revision,"sample","edited leaf")
+    let sample = graph.Sample.add(Sample("leaf",id="sample"))
+    let edited = graph.Sample.setName(graph.Sample.get("sample"),"edited leaf")
     printfn "Old: %s; edited: %s" sample.Value.Name edited.Value.Name
-    let undone = graph.History.undo(edited.Revision)
+    let undone = graph.History.undo()
     printfn "Undo: %s" (graph.Sample.get("sample")).Name
-    graph.History.redo(undone.Revision) |> ignore
+    graph.History.redo() |> ignore
     arc.save()
     printfn "Saved root to %s/arc.yml; standalone objects: %b" arc.Folder arc.HasSessionOnlyObjects
 #endif

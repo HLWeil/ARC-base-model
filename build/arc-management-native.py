@@ -50,17 +50,17 @@ class _Facade:
         if not callable(value):
             return value
         if isinstance(self, _Group) and name == "upsert":
-            def upsert(revision, entity, *, recursive=False):
+            def upsert(entity, *, baseline=None, recursive=False):
                 if type(recursive) is not bool:
                     raise TypeError("recursive must be a bool")
-                return value(revision, entity, recursive)
+                return value(entity, baseline, recursive)
             self._members[name] = upsert
             return upsert
         if isinstance(self, _Group) and name == "delete":
-            def delete(revision, entity_id, *, cascade=False):
+            def delete(entity, *, cascade=False):
                 if type(cascade) is not bool:
                     raise TypeError("cascade must be a bool")
-                return value(revision, entity_id, cascade)
+                return value(entity, cascade)
             self._members[name] = delete
             return delete
         def call(*args, **kwargs):

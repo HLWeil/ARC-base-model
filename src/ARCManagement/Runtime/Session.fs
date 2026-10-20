@@ -9,10 +9,10 @@ open ARCManagement
 open ARCManagement.Helper
 
 module private RuntimeResults =
-    let value<'T> (revision,changed,operation,value: obj option) = WriteResult<'T>(unbox<'T> value.Value,revision,changed,operation)
+    let value<'T> (changed,operation,value: obj option) = WriteResult<'T>(unbox<'T> value.Value,changed,operation)
     let packed<'T> outcome = box(value<'T> outcome)
 
-type private SnapshotOrigin = { Scope:string; Revision:int64; Id:string }
+type private SnapshotOrigin = { Scope:string; ArcId:string; Revision:int64; Id:string }
 
 /// Attest only published immutable values, without keeping snapshots alive.
 module private SnapshotOrigins =
@@ -67,7 +67,6 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
     let ensureOpen () =
         repository.EnsureOpen()
         if closed then invalidOp "The ARC graph is closed."
-    let token () = RevisionToken(scope, arcId, revision)
     let refresh () =
         ensureOpen()
         let observed = Store.revision db arcId
@@ -80,10 +79,6 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
             folder <- Store.optText metadata "folder"
             baseline <- Store.optText metadata "baseline"
             savedGraph <- Store.optText metadata "saved_graph"
-    let checkToken (expected: RevisionToken) =
-        if isNull (box expected) then nullArg "revision"
-        if expected.Scope <> scope || expected.ArcId <> arcId then invalidArg "revision" "The revision token belongs to a different open graph."
-        if expected.Number <> revision then raise (RevisionConflictException(expected, token()))
     let query sql values = db.Query(sql, Store.parameters (("arc", Store.text arcId)::values))
     let execute sql values = Store.execute db sql (("arc", Store.text arcId)::values)
     let load ids =
@@ -177,7 +172,7 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
             for KeyValue(id,value) in values do
                 if not (objects.ContainsKey id) then
                     objects.Add(id,value)
-                    SnapshotOrigins.set value {Scope=scope;Revision=revision;Id=id}
+                    SnapshotOrigins.set value {Scope=scope;ArcId=arcId;Revision=revision;Id=id}
         ids |> List.map (fun id -> objects[id])
     let readValues ids = copyReadRows ids;hydrateValues ids
     // Copy a consistent SQL closure first. Allocation/linking/sealing happens
@@ -191,7 +186,7 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                 let ids=select()
                 copyReadRows ids
                 ids)
-        hydrateValues ids,token())
+        hydrateValues ids)
     let read action = repository.Access(fun () -> db.WithTransaction(fun () -> refresh(); action()))
     let cachedRead ready action = repository.Access(fun () ->
         ensureOpen()
@@ -226,12 +221,12 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                            | _ -> match targets.TryGetValue id with true,value -> Some value | _ -> None
     // A monomorphic preparation boundary avoids duplicated generic parameters
     // emitted for captured local functions by the pinned Python compiler.
-    let write (expected: RevisionToken) (kind:string) (project:RevisionToken * bool * AppliedOperation option * obj option -> obj) (prepare:unit -> obj) (plan:obj -> State * State * string option) =
+    let write (kind:string) (project:bool * AppliedOperation option * obj option -> obj) (prepare:unit -> obj) (plan:obj -> State * State * string option) =
         repository.Access(fun () ->
             ensureOpen()
             let prepared=prepare()
             let before,next,result,resultObjects = db.WithTransaction(fun () ->
-                refresh(); checkToken expected
+                refresh()
                 let before,next,resultId = plan prepared
                 Model.validateRows (validationResolver before.Entities next.Entities) next.Entities
                 let resultObjects =
@@ -241,16 +236,15 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                     match resultObjects with Some values -> values[id] | None -> readValues [id] |> List.head)
                 before,next,result,resultObjects)
             let changed = normalized before.Entities <> normalized next.Entities
-            if not changed then project(token(),false,None,result)
+            if not changed then project(false,None,result)
             else
                 if revision = Int64.MaxValue then invalidOp "The ARC revision counter is exhausted."
                 let operationId = Identifier.newId()
                 let nextRevision = revision + 1L
-                let output=project(RevisionToken(scope,arcId,nextRevision),true,Some(AppliedOperation(operationId,kind)),result)
+                let output=project(true,Some(AppliedOperation(operationId,kind)),result)
                 db.WithTransaction(fun () ->
-                    if not (Store.claimRevision db arcId expected.Number) then
-                        let current = Store.revision db arcId
-                        raise (RevisionConflictException(expected, RevisionToken(scope,arcId,current)))
+                    if not (Store.claimRevision db arcId revision) then
+                        raise (ConcurrentWriteException())
                     execute "DELETE FROM history WHERE arc_id=$arc AND sequence > $cursor" ["cursor",SqlValue.Integer(int64 cursor)]
                     Store.commit db arcId before next (cursor+1) operationId kind
                     execute "UPDATE session SET cursor=$cursor WHERE arc_id=$arc" ["cursor",SqlValue.Integer(int64 (cursor+1))]
@@ -260,10 +254,10 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                 resultObjects |> Option.iter (fun values ->
                     for KeyValue(id,value) in values do
                         objects.Add(id,value)
-                        SnapshotOrigins.set value {Scope=scope;Revision=revision;Id=id})
+                        SnapshotOrigins.set value {Scope=scope;ArcId=arcId;Revision=revision;Id=id})
                 output)
     let partial items = {Root=rootId;Entities=items}
-    let commandResult (revision,changed,operation,_) = box(CommandResult(revision,changed,operation))
+    let commandResult (changed,operation,_) = box(CommandResult(changed,operation))
     do db.WithTransaction(refresh)
 
     member internal _.MaterializedCount = materializedCount
@@ -272,31 +266,30 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
     member _.Repository = repository
     member _.DatabasePath = repository.DatabasePath
     member _.IsClosed = closed
-    member _.Revision = repository.Access(fun () -> refresh(); token())
     member _.Folder = read (fun () -> folder)
     member _.Baseline = read (fun () -> baseline)
     member _.SavedGraph = read (fun () -> savedGraph)
     member _.State = read allState
     member _.Export() = cachedRead (fun () -> exported.IsSome) exportGraph
-    member _.Model = valueRead (fun () -> objects.ContainsKey rootId) (fun () -> [rootId]) |> fst |> List.head |> unbox<Dataset>
+    member _.Model = valueRead (fun () -> objects.ContainsKey rootId) (fun () -> [rootId]) |> List.head |> unbox<Dataset>
     member _.ReadModel() =
-        let values,revision=valueRead (fun () -> objects.ContainsKey rootId) (fun () -> [rootId])
-        ReadResult(values |> List.head |> unbox<Dataset>,revision)
+        let values=valueRead (fun () -> objects.ContainsKey rootId) (fun () -> [rootId])
+        values |> List.head |> unbox<Dataset>
     member _.Read<'T>(kind: string,id: string) =
-        let values,revision=valueRead (fun () -> objects.ContainsKey id && rowCached id) (fun () ->
+        let values=valueRead (fun () -> objects.ContainsKey id && rowCached id) (fun () ->
             match row id with Some item when kind="" || item.Kind=kind -> [id] | _ -> [])
-        ReadResult(values |> List.tryHead |> Option.map unbox<'T>,revision)
+        values |> List.tryHead |> Option.map unbox<'T>
     member _.Get<'T>(kind: string,id: string) =
-        valueRead (fun () -> objects.ContainsKey id && rowCached id) (fun () -> requiredRow kind id |> ignore;[id]) |> fst |> List.head |> unbox<'T>
+        valueRead (fun () -> objects.ContainsKey id && rowCached id) (fun () -> requiredRow kind id |> ignore;[id]) |> List.head |> unbox<'T>
     member _.List<'T>(kind: string) =
-        valueRead (listReady kind) (fun () -> listIds kind) |> fst |> Seq.map unbox<'T> |> ImmutableCollections.OfSeq
+        valueRead (listReady kind) (fun () -> listIds kind) |> Seq.map unbox<'T> |> ImmutableCollections.OfSeq
     member _.ReadAll<'T>(kind: string) =
-        let values,revision=valueRead (listReady kind) (fun () -> listIds kind)
-        ReadResult(values |> Seq.map unbox<'T> |> ImmutableCollections.OfSeq,revision)
+        let values=valueRead (listReady kind) (fun () -> listIds kind)
+        values |> Seq.map unbox<'T> |> ImmutableCollections.OfSeq
     member _.GetEntity(id: string) =
-        valueRead (fun () -> objects.ContainsKey id && rowCached id) (fun () -> requiredRow "" id |> ignore;[id]) |> fst |> List.head |> unbox<EntityObject>
+        valueRead (fun () -> objects.ContainsKey id && rowCached id) (fun () -> requiredRow "" id |> ignore;[id]) |> List.head |> unbox<EntityObject>
     member _.ListEntities() =
-        valueRead (listReady "") (fun () -> listIds "") |> fst |> Seq.map unbox<EntityObject> |> ImmutableCollections.OfSeq
+        valueRead (listReady "") (fun () -> listIds "") |> Seq.map unbox<EntityObject> |> ImmutableCollections.OfSeq
     member _.Refresh() = refresh()
     member _.FolderValue = folder
     member _.BaselineValue = baseline
@@ -305,13 +298,17 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
     member _.IsDirtyValue = savedGraph<>Some(exportGraph())
     member _.HasSessionOnlyObjectsValue = sessionOnly()
     member _.Check() = read ignore
-    member _.Id(value: obj) =
-        match value with
-        | :? string as id -> id
-        | :? EntityObject as entity -> Model.entityId entity.Id
-        | _ -> invalidArg "target" "A referenced entity ID is required."
-    member _.Change<'T>(expected:RevisionToken,id:string,key:string,value:unit -> Cell option,kind:string) =
-        write expected kind RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
+    member _.Id(value: EntityObject, kind:string) =
+        Model.required "value" value |> ignore
+        match box value with
+        | :? EntityObject as entity ->
+            if kind<>"" && Model.kind entity<>kind then invalidArg "value" ("Expected a "+kind+" subject.")
+            match SnapshotOrigins.tryGet entity with
+            | Some origin when origin.ArcId<>arcId -> invalidArg "value" "The subject was read from a different ARC."
+            | _ -> Model.entityId entity.Id
+        | _ -> invalidArg "value" "Expected an entity value with a persisted ID."
+    member _.Change<'T>(id:string,key:string,value:unit -> Cell option,kind:string) =
+        write kind RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
             let value=unbox<Cell option> prepared
             let before = requiredRow (if kind.StartsWith("Entity.") then "" else kind.Split('.')[0]) id
             let targetKind = if kind.EndsWith("Sample") then Some "Sample" elif kind.EndsWith("Data") then Some "Data" else None
@@ -320,23 +317,23 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
             | _ -> ()
             let next = {before with Properties=match value with Some cell -> Map.add key cell before.Properties | None -> Map.remove key before.Properties}
             partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
-    member _.Extension<'T>(expected:RevisionToken,id:string,key:string,value:unit -> Entity option,addOnly:bool) =
-        write expected "Entity.setProperty" RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
+    member _.Extension<'T>(id:string,key:string,value:unit -> Entity option,addOnly:bool) =
+        write "Entity.setProperty" RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
             let value=unbox<Entity option> prepared
             let before = requiredRow "" id
             if addOnly && Map.containsKey key before.Extensions then invalidArg "key" "Duplicate extension property."
             let capture value = Model.captureExtension (fun target -> let targetId=Model.id target |> Model.entityId in requiredRow "" targetId |> ignore; targetId) value
             let next = {before with Extensions=match value with Some value -> Map.add key (capture value) before.Extensions | None -> Map.remove key before.Extensions}
             partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
-    member _.ExtensionCell<'T>(expected:RevisionToken,id:string,key:string,value:unit -> ExtensionCell option,addOnly:bool) =
-        write expected "Entity.setProperty" RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
+    member _.ExtensionCell<'T>(id:string,key:string,value:unit -> ExtensionCell option,addOnly:bool) =
+        write "Entity.setProperty" RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
             let value=unbox<ExtensionCell option> prepared
             let before=requiredRow "" id
             if addOnly && Map.containsKey key before.Extensions then invalidArg "key" "Duplicate extension property."
             let next={before with Extensions=match value with Some cell -> Map.add key cell before.Extensions | None -> Map.remove key before.Extensions}
             partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
-    member _.Collection<'T>(expected,id,key,targetId,append,kind) =
-        write expected kind RuntimeResults.packed<'T> (fun () -> box()) (fun _ ->
+    member _.Collection<'T>(id,key,targetId,append,kind) =
+        write kind RuntimeResults.packed<'T> (fun () -> box()) (fun _ ->
             let before=requiredRow (kind.Split('.')[0]) id
             requiredRow "" targetId |> ignore
             let values=Model.links key before
@@ -344,8 +341,8 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
             let rec remove = function [] -> [] | head::tail when head=targetId -> tail | head::tail -> head::remove tail
             let next={before with Properties=Map.add key (Links(if append then values@[targetId] else remove values)) before.Properties}
             partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
-    member _.Move<'T>(expected,id,destinationId,key,kind) =
-        write expected kind RuntimeResults.packed<'T> (fun () -> box()) (fun _ ->
+    member _.Move<'T>(id,destinationId,key,kind) =
+        write kind RuntimeResults.packed<'T> (fun () -> box()) (fun _ ->
             requiredRow (if key="processes" then "Process" else "Dataset") id |> ignore
             requiredRow "Dataset" destinationId |> ignore
             let ownerIds=query "SELECT DISTINCT r.owner_id FROM entity_reference r JOIN entity e ON e.arc_id=r.arc_id AND e.id=r.owner_id WHERE r.arc_id=$arc AND r.property=$property AND r.target_id=$target AND e.type='Dataset'"
@@ -358,8 +355,8 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                 let values=Model.links key item |> List.filter ((<>) id)
                 {item with Properties=Map.add key (Links(if item.Id=destinationId then values@[id] else values)) item.Properties})
             partial owners,partial next,Some id) |> unbox<WriteResult<'T>>
-    member _.CreateDescriptor(expected:RevisionToken,targetId:string) =
-        write expected "Descriptor.add" RuntimeResults.packed<Descriptor> (fun () -> box()) (fun _ ->
+    member _.CreateDescriptor(targetId:string) =
+        write "Descriptor.add" RuntimeResults.packed<Descriptor> (fun () -> box()) (fun _ ->
             let target=requiredRow "" targetId
             if target.Kind<>"Sample" && target.Kind<>"Data" then invalidArg "targetId" "Expected Sample or Data."
             let id=Identifier.newId()
@@ -367,8 +364,8 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                        Properties=Map.ofList ["describes",Links[targetId];"annotations",Links [];"additionalTypes",Texts []]
                        Extensions=Map.empty}
             partial [],partial [value],Some id) |> unbox<WriteResult<Descriptor>>
-    member _.Adopt<'T>(expected,entity: obj,kind,insertOnly,recursively) =
-        write expected (kind+(if insertOnly then ".add" else ".upsert")) RuntimeResults.packed<'T> (fun () -> box()) (fun _ ->
+    member _.Adopt<'T>(entity: obj,kind,insertOnly,baselineValue:obj option,recursively) =
+        write (kind+(if insertOnly then ".add" else ".upsert")) RuntimeResults.packed<'T> (fun () -> box()) (fun _ ->
             Model.required "entity" entity |> ignore
             if Model.kind entity<>kind then invalidArg "entity" "Wrong entity type."
             let visited=Dictionary<obj,string>(HashIdentity.Reference)
@@ -390,6 +387,29 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                         pending.Add(value,id)
                         id
             let resultId=register entity
+            let baselineRows=Dictionary<string,EntityRow>()
+            baselineValue |> Option.iter (fun original ->
+                Model.required "baseline" original |> ignore
+                match SnapshotOrigins.tryGet original with
+                | Some origin when origin.ArcId<>arcId -> invalidArg "baseline" "The baseline was read from a different ARC."
+                | _ -> ()
+                if Model.kind original<>kind || Model.id original<>Some resultId then
+                    invalidArg "baseline" "The baseline must have the same entity kind and ID as the upsert value."
+                let seen=HashSet<obj>(HashIdentity.Reference)
+                let originals=ResizeArray<obj>([original])
+                let identify value =
+                    let id=Model.id value |> Model.entityId
+                    if recursively && seen.Add(value) then originals.Add(value)
+                    id
+                seen.Add(original) |> ignore
+                let mutable index=0
+                while index<originals.Count do
+                    let value=originals[index]
+                    index<-index+1
+                    let id=Model.id value |> Model.entityId
+                    let captured=Model.capture id identify value
+                    if baselineRows.ContainsKey id then invalidArg "baseline" ("Distinct baseline objects share an ID: "+id)
+                    baselineRows.Add(id,captured))
             let mutable index=0
             while index<pending.Count do
                 let value,id=pending[index]
@@ -424,11 +444,20 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                             |> Seq.tryFind (fun key -> Map.tryFind key old.Extensions <> Map.tryFind key candidate.Extensions)
                             |> Option.map (fun key -> "extension:"+key))
                         invalidOp ("Existing nested entity differs from storage: "+id+"."+defaultArg difference "definition"+". Use recursive=true or update that entity directly.")
+            if not insertOnly then
+                for id in staged.Keys do
+                    let stored=match existing.TryGetValue id with true,item -> Some item | _ -> None
+                    let original=match baselineRows.TryGetValue id with true,item -> Some item | _ -> None
+                    match stored,original with
+                    | Some stored,Some original when normalized [stored] <> normalized [original] -> raise (SnapshotConflictException(id))
+                    | None,Some _ -> raise (SnapshotConflictException(id))
+                    | Some _,None -> invalidArg "baseline" ("Replacing an existing entity requires its original baseline: "+id+". Pass baseline=original or use a focused command.")
+                    | _ -> ()
             let before=staged.Keys |> Seq.choose (fun id -> match existing.TryGetValue id with true,item -> Some item | _ -> None) |> Seq.toList
             let next=staged.Values |> Seq.toList
             partial before,partial next,Some resultId) |> unbox<WriteResult<'T>>
-    member _.Delete(expected,id,kind,cascade) =
-        write expected (kind+".delete") commandResult (fun () -> box()) (fun _ ->
+    member _.Delete(id,kind,cascade) =
+        write (kind+".delete") commandResult (fun () -> box()) (fun _ ->
             requiredRow kind id |> ignore
             if id=rootId then invalidOp "The root Dataset cannot be deleted."
             let candidates=Dictionary<string,EntityRow>()
@@ -482,9 +511,9 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
             partial before,partial(List.ofSeq updated),None) |> unbox<CommandResult>
     member _.CanUndo = read (fun () -> cursor>0)
     member _.CanRedo = read (fun () -> (query "SELECT sequence FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence",SqlValue.Integer(int64 (cursor+1))]).Count>0)
-    member _.History(expected: RevisionToken,redo: bool) = repository.Access(fun () ->
+    member _.History(redo: bool) = repository.Access(fun () ->
         let before,next,operationId,kind,sequence = db.WithTransaction(fun () ->
-            refresh(); checkToken expected
+            refresh()
             let sequence=if redo then cursor+1 else cursor
             if sequence<=0 then invalidOp "Nothing to undo."
             let before,next,operationId,kind=Store.historyRows db arcId sequence redo
@@ -492,9 +521,9 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
             before,next,operationId,kind,sequence)
         if revision=Int64.MaxValue then invalidOp "The ARC revision counter is exhausted."
         let nextCursor=if redo then cursor+1 else cursor-1
-        let output=CommandResult(RevisionToken(scope,arcId,revision+1L),true,Some(AppliedOperation(operationId,kind,action=(if redo then "redo" else "undo"))))
+        let output=CommandResult(true,Some(AppliedOperation(operationId,kind,action=(if redo then "redo" else "undo"))))
         db.WithTransaction(fun () ->
-            if not (Store.claimRevision db arcId expected.Number) then raise (RevisionConflictException(expected,RevisionToken(scope,arcId,Store.revision db arcId)))
+            if not (Store.claimRevision db arcId revision) then raise (ConcurrentWriteException())
             Store.writeDelta db arcId before next
             Store.restoreHistoryOrder db arcId sequence redo
             execute "UPDATE session SET cursor=$cursor WHERE arc_id=$arc" ["cursor",SqlValue.Integer(int64 nextCursor)]

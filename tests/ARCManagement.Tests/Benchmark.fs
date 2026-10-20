@@ -72,25 +72,26 @@ let run outputPath sizes =
         measure "cold_root_read" 1 (fun () -> graph.readModel() |> ignore)
         measure "warm_root_read" 100 (fun () -> graph.readModel() |> ignore)
         let original=graph.Model
+        let sample=graph.Sample.get("sample")
         measure "static_root_title_copy" 100 (fun () -> Dataset.withTitle(original,"copy") |> ignore)
         measure "focused_sample_write" 5 (fun () ->
             counter <- counter+1
-            graph.Sample.setName(graph.Revision,"sample","sample-"+string counter) |> ignore)
+            graph.Sample.setName(sample,"sample-"+string counter) |> ignore)
         measure "no_op_sample_write" 5 (fun () ->
             let observed=graph.Sample.read("sample")
-            graph.Sample.setName(observed.Revision,"sample",observed.Value.Value.Name) |> ignore)
+            graph.Sample.setName(observed.Value,observed.Value.Name) |> ignore)
         measure "focused_root_title_write" 3 (fun () ->
             counter <- counter+1
-            graph.Dataset.setTitle(graph.Revision,"root","title-"+string counter) |> ignore)
+            graph.Dataset.setTitle(original,"title-"+string counter) |> ignore)
         measure "recursive_graph_upsert" 3 (fun () ->
             counter <- counter+1
             let observed = graph.readModel()
-            let first = Process.withName(observed.Value.Processes[0],"changed-"+string counter)
-            let changed = Dataset.withProcesses(observed.Value,Seq.append [first] (observed.Value.Processes |> Seq.skip 1))
-            graph.Dataset.upsert(observed.Revision,changed,recursive=true) |> ignore)
-        measure "append_duplicate_reference" 3 (fun () -> graph.Dataset.addProcess(graph.Revision,"root","p-0") |> ignore)
-        measure "undo" 3 (fun () -> graph.History.undo(graph.Revision) |> ignore)
-        measure "redo" 3 (fun () -> graph.History.redo(graph.Revision) |> ignore)
+            let first = Process.withName(observed.Processes[0],"changed-"+string counter)
+            let changed = Dataset.withProcesses(observed,Seq.append [first] (observed.Processes |> Seq.skip 1))
+            graph.Dataset.upsert(changed,baseline=observed,recursive=true) |> ignore)
+        measure "append_duplicate_reference" 3 (fun () -> graph.Dataset.addProcess(original,"p-0") |> ignore)
+        measure "undo" 3 (fun () -> graph.History.undo() |> ignore)
+        measure "redo" 3 (fun () -> graph.History.redo() |> ignore)
     Path.ensureDirectoryOfFile outputPath
     Path.writeFileText outputPath (String.concat "\n" output+"\n")
     printfn "Benchmark CSV: %s" outputPath

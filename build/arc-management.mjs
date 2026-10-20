@@ -17,14 +17,14 @@ const groups = ["Entity", "Dataset", "Process", "Sample", "Data", "Recipe", "Ann
   "DefinedTerm", "DefinedTermSet", "Descriptor", "Agent", "Organization", "ScholarlyArticle", "History"];
 const exports = new Map([
   ["ManagedGraph", "ManagedGraph.ts"], ["AppliedOperation", "AppliedOperation.ts"],
-  ...["RevisionToken", "RevisionConflictException", "ReadResult", "WriteResult", "CommandResult"].map(name => [name, "AppliedOperation.ts"]),
+  ...["ConcurrentWriteException", "SnapshotConflictException", "WriteResult", "CommandResult"].map(name => [name, "AppliedOperation.ts"]),
   ["Session", "Session.ts"], ["ArcInfo", "Session.ts"],
   ["DatasetYaml", "Serialization/DatasetYaml.ts"],
   ...groups.map(name => [`${name}Operations`, `Operations/${name}Operations.ts`]),
 ]);
 const workspaceExports = new Map([["ARC", "ARCtrl/ARC.ts"]]);
 const hidden = new Set(["Wrap", "Dispose", "Repository", "Context", "Scope", "Arc", "Number"]);
-const implementationName = name => ["ReadResult", "WriteResult"].includes(name) ? `${name}$1` : name;
+const implementationName = name => name === "WriteResult" ? `${name}$1` : name;
 
 function write(filename, contents) {
   fs.mkdirSync(path.dirname(filename), { recursive: true });
@@ -78,26 +78,25 @@ function declarations(publicExports, workspace = false) {
     for (const member of node.members) {
       const memberName = member.name?.getText(parsed);
       if (!memberName || hidden.has(memberName)) continue;
-      if (name === "RevisionToken" && memberName !== "Value") continue;
       if (ts.isGetAccessorDeclaration(member)) members.push(`  readonly ${memberName}: ${type(member.type, parsed, generics)};`);
       if (ts.isMethodDeclaration(member)) {
-        const parameters = member.parameters.map(parameter => {
+        const parameters = member.parameters.filter(parameter => !(memberName === "upsert" && parameter.name.getText(parsed) === "recursive")).map(parameter => {
           const parameterName = parameter.name.getText(parsed);
-          if (memberName === "upsert" && parameterName === "recursive") return "options?: Readonly<{ recursive?: boolean }>";
+          if (memberName === "upsert" && parameterName === "baseline") return `options?: Readonly<{ baseline?: ${name === "EntityOperations" ? "EntityObject" : name.replace(/Operations$/, "")}; recursive?: boolean }>`;
           if (memberName === "delete" && parameterName === "cascade") return "options?: Readonly<{ cascade?: boolean }>";
           return `${parameterName}${parameter.questionToken || parameter.initializer ? "?" : ""}: ${type(parameter.type, parsed, generics)}`;
         });
         const static_ = member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword) ? "static " : "";
         const entityType = name === "EntityOperations" ? "EntityObject" : name.replace(/Operations$/, "");
         const returnType = memberName === "readAll" && name.endsWith("Operations")
-          ? `ReadResult<ReadonlyArray<${entityType}>>`
+          ? `ReadonlyArray<${entityType}>`
           : memberName === "list" && name.endsWith("Operations") ? `ReadonlyArray<${entityType}>`
           : name === "Session" && memberName === "listArcs" ? "ReadonlyArray<ArcInfo>"
           : type(member.type, parsed, generics);
         members.push(`  ${static_}${memberName}(${parameters.join(", ")}): ${returnType};`);
       }
     }
-    const base = name === "RevisionConflictException" ? " extends Error" : "";
+    const base = name.endsWith("Exception") ? " extends Error" : "";
     classes.push(`export declare class ${name}${genericDeclaration}${base} {\n${members.join("\n")}\n}`);
   }
   const shared = workspace ? `import type { ${[...exports.keys()].join(", ")} } from "./index.js";\n` : "";

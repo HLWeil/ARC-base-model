@@ -8,7 +8,7 @@ open ARCtrl
 open Fable.Pyxpecto
 
 let private root () = Dataset(["process-provenance"],["root"],id="root")
-let private rev (g:ManagedGraph) = g.readModel().Revision
+let private rev (g:ManagedGraph) = ARCManagement.Internal.Store.revision g.Context.Repository.Connection g.ArcId
 let private same a b = Expect.isTrue (obj.ReferenceEquals(a,b)) "Exact facade identity"
 
 let tests = testList "Immutable workspaces" [
@@ -16,10 +16,10 @@ let tests = testList "Immutable workspaces" [
         use session = Session.createInMemory()
         let source = root()
         let first,second = session.createArc(source),session.createArc(source)
-        first.Sample.add(rev first,Sample("first",id="s")) |> ignore
-        second.Sample.add(rev second,Sample("second",id="s")) |> ignore
-        first.Sample.setName(rev first,"s","changed") |> ignore
-        first.History.undo(rev first) |> ignore
+        first.Sample.add(Sample("first",id="s")) |> ignore
+        second.Sample.add(Sample("second",id="s")) |> ignore
+        first.Sample.setName(first.Sample.get("s"),"changed") |> ignore
+        first.History.undo() |> ignore
         Expect.equal (first.Sample.get("s")).Name "first" "Independent undo"
         Expect.equal (second.Sample.get("s")).Name "second" "Other ARC untouched"
         Expect.notEqual first.ArcId second.ArcId "Independent ARC IDs"
@@ -38,7 +38,7 @@ let tests = testList "Immutable workspaces" [
         let held = graph.Model
         arc.close()
         Expect.throws (fun () -> another.Model |> ignore) "Shared wrappers invalidated"
-        sibling.Sample.add(rev sibling,Sample("still open")) |> ignore
+        sibling.Sample.add(Sample("still open")) |> ignore
         Expect.equal held.Identifiers[0] "root" "Snapshot survives graph closure")
 
     testCase "save is explicit and standalone edits do not dirty root export" (fun _ ->
@@ -48,12 +48,12 @@ let tests = testList "Immutable workspaces" [
         Expect.isFalse (Path.fileExists(Path.combineNative path "arc.yml")) "No implicit export"
         arc.save()
         Expect.isFalse arc.IsDirty "Successful checkpoint"
-        let sample = graph.Sample.add(rev graph,Sample("standalone",id="s"))
+        let sample = graph.Sample.add(Sample("standalone",id="s"))
         Expect.isFalse arc.IsDirty "Standalone creation does not affect root"
         Expect.isTrue arc.HasSessionOnlyObjects "Standalone objects tracked"
-        graph.Sample.setName(sample.Revision,"s","changed") |> ignore
+        graph.Sample.setName(graph.Sample.get("s"),"changed") |> ignore
         Expect.isFalse arc.IsDirty "Standalone edit does not affect export"
-        graph.Dataset.setTitle(rev graph,"root","pending") |> ignore
+        graph.Dataset.setTitle(graph.Dataset.get("root"),"pending") |> ignore
         Expect.isTrue arc.IsDirty "Reachable edit pending"
         let yaml = graph.toYaml()
         Expect.isFalse (yaml.Contains("standalone")) "Root-only export"
@@ -65,34 +65,35 @@ let tests = testList "Immutable workspaces" [
         let path = Path.combineNative (Helpers.folder "resume") "workspace"
         let arc = ARC.create(path,root())
         let graph = arc.ManagedGraph
-        graph.Sample.add(rev graph,Sample("standalone",id="s")) |> ignore
-        graph.Dataset.setTitle(rev graph,"root","unsaved") |> ignore
+        graph.Sample.add(Sample("standalone",id="s")) |> ignore
+        graph.Dataset.setTitle(graph.Dataset.get("root"),"unsaved") |> ignore
         let held = graph.Model
         arc.close()
         Expect.isFalse (Path.fileExists(Path.combineNative path "arc.yml")) "Close does not export"
         use resumed = ARC.openFolder(path,"sql")
         Expect.equal resumed.Model.Title (Some "unsaved") "SQL resumes working value"
         Expect.equal (resumed.Sample.get("s")).Name "standalone" "Standalone resumes"
-        resumed.History.undo(rev resumed.ManagedGraph) |> ignore
+        resumed.History.undo() |> ignore
         Expect.isNone resumed.Model.Title "Undo restored database"
         Expect.equal held.Title (Some "unsaved") "Old snapshot untouched"
-        resumed.History.redo(rev resumed.ManagedGraph) |> ignore
+        resumed.History.redo() |> ignore
         Expect.equal resumed.Model.Title (Some "unsaved") "Redo persisted")
 
-    testCase "save advances revision and rejects old edit tokens" (fun _ ->
+    testCase "save does not invalidate focused subjects or unchanged definition baselines" (fun _ ->
         let path = Path.combineNative (Helpers.folder "checkpoint") "workspace"
         use arc = ARC.create(path,root())
-        let before = rev arc.ManagedGraph
+        let before = arc.Model
         arc.save()
-        Expect.throws (fun () -> arc.Dataset.setTitle(before,"root","stale") |> ignore) "Checkpoint made token stale"
-        Expect.isFalse arc.IsDirty "Rejected edit unchanged")
+        Expect.isFalse (arc.Dataset.upsert(before,baseline=before)).Changed "Checkpoint changes metadata only"
+        arc.Dataset.setTitle(before,"after save") |> ignore
+        Expect.isTrue arc.IsDirty "Focused edits remain usable")
 
     testCase "external YAML conflicts require explicit source and preserve SQL" (fun _ ->
         let path = Path.combineNative (Helpers.folder "conflict") "workspace"
         use arc = ARC.create(path,root())
-        arc.Dataset.setTitle(rev arc.ManagedGraph,"root","original") |> ignore
+        arc.Dataset.setTitle(arc.Dataset.get("root"),"original") |> ignore
         arc.save()
-        arc.Dataset.setTitle(rev arc.ManagedGraph,"root","SQL") |> ignore
+        arc.Dataset.setTitle(arc.Dataset.get("root"),"SQL") |> ignore
         let yamlPath = Path.combineNative path "arc.yml"
         Path.writeFileText yamlPath (Path.readFileText(yamlPath).Replace("original","external"))
         Expect.throws (fun () -> arc.save()) "External publication blocked"
@@ -113,20 +114,21 @@ let tests = testList "Immutable workspaces" [
         Expect.isFalse arc.IsDirty "Import initializes baseline"
         Expect.equal (Path.readFileText(Path.combineNative path "arc.yml")) text "No publication on import"
         arc.close()
-        sibling.Sample.add(rev sibling,Sample("still usable")) |> ignore
+        sibling.Sample.add(Sample("still usable")) |> ignore
         Expect.equal (session.listArcs()).Count 2 "Borrowed session remains open")
 
     testCase "published file with failed checkpoint requires explicit recovery" (fun _ ->
         let path = Path.combineNative (Helpers.folder "checkpoint-failure") "workspace"
         use arc = ARC.create(path,root())
         let graph = arc.ManagedGraph
-        graph.Dataset.setTitle(rev graph,"root","before") |> ignore
+        graph.Dataset.setTitle(graph.Dataset.get("root"),"before") |> ignore
         arc.save()
-        let edited = graph.Dataset.setTitle(rev graph,"root","after")
+        let edited = graph.Dataset.setTitle(graph.Dataset.get("root"),"after")
+        let before = rev graph
         let db = graph.Context.Repository.Connection
         db.ExecuteScript("CREATE TRIGGER reject_checkpoint BEFORE UPDATE ON session WHEN NEW.saved_graph IS NOT OLD.saved_graph BEGIN SELECT RAISE(ABORT,'checkpoint failure'); END;")
         Expect.throws (fun () -> arc.save()) "Injected checkpoint failure"
-        Expect.equal (rev graph).Value edited.Revision.Value "SQL revision rolled back"
+        Expect.equal (rev graph) before "SQL revision rolled back"
         Expect.equal graph.Model.Title (Some "after") "Working value retained"
         Expect.isTrue arc.IsDirty "Last successful checkpoint retained"
         let yamlPath = Path.combineNative path "arc.yml"
@@ -141,16 +143,16 @@ let tests = testList "Immutable workspaces" [
         let path = Path.combineNative (Helpers.folder "yaml-recovery") "workspace"
         use arc = ARC.create(path,root())
         let graph = arc.ManagedGraph
-        graph.Dataset.setTitle(rev graph,"root","original") |> ignore
+        graph.Dataset.setTitle(graph.Dataset.get("root"),"original") |> ignore
         arc.save()
-        graph.Sample.add(rev graph,Sample("standalone",id="s")) |> ignore
-        graph.Dataset.setTitle(rev graph,"root","working") |> ignore
+        graph.Sample.add(Sample("standalone",id="s")) |> ignore
+        graph.Dataset.setTitle(graph.Dataset.get("root"),"working") |> ignore
         let held = graph.Model
         let yamlPath = Path.combineNative path "arc.yml"
         Path.writeFileText yamlPath (Path.readFileText(yamlPath).Replace("original","external"))
         arc.recoverFolder("yml")
         Expect.equal graph.Model.Title (Some "external") "Explicit YAML source adopted"
-        Expect.isNone (graph.Sample.read("s")).Value "Displaced standalone entry removed from current registry"
+        Expect.isNone (graph.Sample.read("s")) "Displaced standalone entry removed from current registry"
         Expect.equal held.Title (Some "working") "Displaced snapshot remains readable"
         Expect.isFalse graph.History.CanUndo "Replacement establishes a new history baseline"
         let db = graph.Context.Repository.Connection

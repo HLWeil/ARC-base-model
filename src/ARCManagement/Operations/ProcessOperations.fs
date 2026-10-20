@@ -6,32 +6,32 @@ open ARCManagement.Internal
 
 [<AttachMembers>]
 type ProcessOperations internal (session: GraphContext) =
-    member _.create(revision: RevisionToken, name: string) = session.Adopt<ARCBaseModel.Process>(revision, ARCBaseModel.Process(name), "Process", true, false)
-    member _.add(revision: RevisionToken, value: ARCBaseModel.Process) = session.Adopt<ARCBaseModel.Process>(revision, value, "Process", true, false)
-    member _.upsert(revision: RevisionToken, value: ARCBaseModel.Process, ?recursive: bool) = session.Adopt<ARCBaseModel.Process>(revision, value, "Process", false, defaultArg recursive false)
+    member _.create(name: string) = session.Adopt<ARCBaseModel.Process>(ARCBaseModel.Process(name), "Process", true,None,false)
+    member _.add(value: ARCBaseModel.Process) = session.Adopt<ARCBaseModel.Process>(value, "Process", true,None,false)
+    member _.upsert(value: ARCBaseModel.Process, ?baseline: ARCBaseModel.Process, ?recursive: bool) = session.Adopt<ARCBaseModel.Process>(value, "Process", false,Option.map box baseline,defaultArg recursive false)
     member _.get(id: string) = session.Get<ARCBaseModel.Process>("Process",id)
     member _.list() = session.List<ARCBaseModel.Process>("Process")
     member _.read(id: string) = session.Read<ARCBaseModel.Process>("Process",id)
     member _.readAll() = session.ReadAll<ARCBaseModel.Process>("Process")
-    member _.delete(revision: RevisionToken, id: string, ?cascade: bool) = session.Delete(revision,id,"Process",defaultArg cascade false)
-    member _.setName(revision: RevisionToken, id: string, replacement: string) =
-        session.Change<ARCBaseModel.Process>(revision,id,"name", (fun () -> Some(Text(Model.required "name" replacement))),"Process.setName")
-    member _.setInput(revision: RevisionToken, id: string, replacement: string) =
-        session.Change<ARCBaseModel.Process>(revision,id,"input", (fun () -> Some(Links [replacement])),"Process.setInput")
-    member _.clearInput(revision: RevisionToken, id: string) = session.Change<ARCBaseModel.Process>(revision,id,"input", (fun () -> None),"Process.clearInput")
-    member _.setOutput(revision: RevisionToken, id: string, replacement: string) =
-        session.Change<ARCBaseModel.Process>(revision,id,"output", (fun () -> Some(Links [replacement])),"Process.setOutput")
-    member _.clearOutput(revision: RevisionToken, id: string) = session.Change<ARCBaseModel.Process>(revision,id,"output", (fun () -> None),"Process.clearOutput")
-    member _.setExecutesRecipe(revision: RevisionToken, id: string, replacement: string) =
-        session.Change<ARCBaseModel.Process>(revision,id,"executesRecipe", (fun () -> Some(Links [replacement])),"Process.setExecutesRecipe")
-    member _.clearExecutesRecipe(revision: RevisionToken, id: string) = session.Change<ARCBaseModel.Process>(revision,id,"executesRecipe", (fun () -> None),"Process.clearExecutesRecipe")
-    member _.setParameterValues(revision: RevisionToken, id: string, replacement: seq<string>) =
-        session.Change<ARCBaseModel.Process>(revision,id,"parameterValues", (fun () -> Some(Links(replacement |> List.ofSeq))),"Process.setParameterValues")
-    member _.addParameterValue(revision: RevisionToken, id: string, target: string) = session.Collection<ARCBaseModel.Process>(revision,id,"parameterValues",target,true,"Process.addParameterValue")
-    member _.removeParameterValue(revision: RevisionToken, id: string, target: string) = session.Collection<ARCBaseModel.Process>(revision,id,"parameterValues",target,false,"Process.removeParameterValue")
-    member _.setAdditionalTypes(revision: RevisionToken, id: string, replacement: seq<string>) =
-        session.Change<ARCBaseModel.Process>(revision,id,"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Process.setAdditionalTypes")
-    member _.setInputSample(revision: RevisionToken, id: string, target: string) = session.Change<ARCBaseModel.Process>(revision,id,"input", (fun () -> Some(Links [target])),"Process.setInputSample")
-    member _.setInputData(revision: RevisionToken, id: string, target: string) = session.Change<ARCBaseModel.Process>(revision,id,"input", (fun () -> Some(Links [target])),"Process.setInputData")
-    member _.setOutputSample(revision: RevisionToken, id: string, target: string) = session.Change<ARCBaseModel.Process>(revision,id,"output", (fun () -> Some(Links [target])),"Process.setOutputSample")
-    member _.setOutputData(revision: RevisionToken, id: string, target: string) = session.Change<ARCBaseModel.Process>(revision,id,"output", (fun () -> Some(Links [target])),"Process.setOutputData")
+    member _.delete(value: ARCBaseModel.Process, ?cascade: bool) = session.Delete(session.Id(value,"Process"),"Process",defaultArg cascade false)
+    member _.setName(value: ARCBaseModel.Process, replacement: string) =
+        session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"name", (fun () -> Some(Text(Model.required "name" replacement))),"Process.setName")
+    member _.setInput(value: ARCBaseModel.Process, replacement: string) =
+        session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"input", (fun () -> Some(Links [replacement])),"Process.setInput")
+    member _.clearInput(value: ARCBaseModel.Process) = session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"input", (fun () -> None),"Process.clearInput")
+    member _.setOutput(value: ARCBaseModel.Process, replacement: string) =
+        session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"output", (fun () -> Some(Links [replacement])),"Process.setOutput")
+    member _.clearOutput(value: ARCBaseModel.Process) = session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"output", (fun () -> None),"Process.clearOutput")
+    member _.setExecutesRecipe(value: ARCBaseModel.Process, replacement: string) =
+        session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"executesRecipe", (fun () -> Some(Links [replacement])),"Process.setExecutesRecipe")
+    member _.clearExecutesRecipe(value: ARCBaseModel.Process) = session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"executesRecipe", (fun () -> None),"Process.clearExecutesRecipe")
+    member _.setParameterValues(value: ARCBaseModel.Process, replacement: seq<string>) =
+        session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"parameterValues", (fun () -> Some(Links(replacement |> List.ofSeq))),"Process.setParameterValues")
+    member _.addParameterValue(value: ARCBaseModel.Process, target: string) = session.Collection<ARCBaseModel.Process>(session.Id(value,"Process"),"parameterValues",target,true,"Process.addParameterValue")
+    member _.removeParameterValue(value: ARCBaseModel.Process, target: string) = session.Collection<ARCBaseModel.Process>(session.Id(value,"Process"),"parameterValues",target,false,"Process.removeParameterValue")
+    member _.setAdditionalTypes(value: ARCBaseModel.Process, replacement: seq<string>) =
+        session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Process.setAdditionalTypes")
+    member _.setInputSample(value: ARCBaseModel.Process, target: string) = session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"input", (fun () -> Some(Links [target])),"Process.setInputSample")
+    member _.setInputData(value: ARCBaseModel.Process, target: string) = session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"input", (fun () -> Some(Links [target])),"Process.setInputData")
+    member _.setOutputSample(value: ARCBaseModel.Process, target: string) = session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"output", (fun () -> Some(Links [target])),"Process.setOutputSample")
+    member _.setOutputData(value: ARCBaseModel.Process, target: string) = session.Change<ARCBaseModel.Process>(session.Id(value,"Process"),"output", (fun () -> Some(Links [target])),"Process.setOutputData")

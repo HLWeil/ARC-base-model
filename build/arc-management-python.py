@@ -25,7 +25,7 @@ GROUPS = ("entity", "dataset", "process", "sample", "data", "recipe", "annotatio
           "formal_parameter", "defined_term", "defined_term_set", "descriptor", "agent",
           "organization", "scholarly_article", "history")
 PUBLIC = {"ManagedGraph": "managed_graph.py", "AppliedOperation": "applied_operation.py",
-          **{name: "applied_operation.py" for name in ("RevisionToken", "RevisionConflictException", "ReadResult", "WriteResult", "CommandResult")},
+          **{name: "applied_operation.py" for name in ("ConcurrentWriteException", "SnapshotConflictException", "WriteResult", "CommandResult")},
           "Session": "session.py", "ArcInfo": "session.py",
           "DatasetYaml": "Serialization/dataset_yaml.py",
           **{''.join(word.title() for word in group.split('_')) + "Operations":
@@ -39,7 +39,7 @@ spec.loader.exec_module(compat)
 MODEL_NAMES = tuple(compat.CLASS_MODULES) + tuple(compat.ALIASES)
 
 def implementation_name(name: str) -> str:
-    return name + "_1" if name in ("ReadResult", "WriteResult") else name
+    return name + "_1" if name == "WriteResult" else name
 
 def clean(directory: Path) -> None:
     directory = directory.resolve()
@@ -96,7 +96,7 @@ def public_annotation(node: ast.expr | None, owner: str, method: str, field: str
                 if erased is None:
                     raise ValueError(f"Unmapped erased type: {owner}.{method}.{field}")
                 return ast.Name(id=erased, ctx=ast.Load())
-            return ast.Name(id={"IEnumerable_1": "Iterable", "ReadResult_1": "ReadResult", "WriteResult_1": "WriteResult", "int32": "int", "float64": "float"}.get(name.id, name.id), ctx=ast.Load())
+            return ast.Name(id={"IEnumerable_1": "Iterable", "WriteResult_1": "WriteResult", "int32": "int", "float64": "float"}.get(name.id, name.id), ctx=ast.Load())
     return ast.unparse(ast.fix_missing_locations(Types().visit(ast.parse(ast.unparse(node), mode="eval").body)))
 
 def declarations(source: Path, public: dict[str, str], workspace: bool = False) -> str:
@@ -106,13 +106,11 @@ def declarations(source: Path, public: dict[str, str], workspace: bool = False) 
         node = next((item for item in parsed.body if isinstance(item, ast.ClassDef) and item.name == implementation_name(name)), None)
         if node is None:
             raise ValueError(f"Missing generated class {name}")
-        generic = "[T]" if name in ("ReadResult", "WriteResult") else ""
-        base = "(Exception)" if name == "RevisionConflictException" else ""
+        generic = "[T]" if name == "WriteResult" else ""
+        base = "(Exception)" if name.endswith("Exception") else ""
         lines = [f"class {name}{generic}{base}:", "    def __init__(self, _internal: Never) -> None: ..."]
         for member in node.body:
             if not isinstance(member, ast.FunctionDef) or member.name in HIDDEN:
-                continue
-            if name == "RevisionToken" and member.name != "Value":
                 continue
             decorators = [ast.unparse(decorator) for decorator in member.decorator_list]
             if any(decorator not in ("staticmethod", "property") for decorator in decorators):
@@ -128,8 +126,10 @@ def declarations(source: Path, public: dict[str, str], workspace: bool = False) 
                     parameters.append("self")
                     continue
                 annotation = public_annotation(argument.annotation, name, member.name, argument.arg)
-                if member.name in ("upsert", "delete") and argument.arg in ("recursive", "cascade"):
-                    parameters.extend(("*", f"{argument.arg}: bool = ..."))
+                if member.name in ("upsert", "delete") and argument.arg in ("baseline", "recursive", "cascade"):
+                    if "*" not in parameters:
+                        parameters.append("*")
+                    parameters.append(f"{argument.arg}: {annotation if argument.arg == 'baseline' else 'bool'} = ...")
                     continue
                 parameters.append(f"{argument.arg}: {annotation}" + (" = ..." if default else ""))
             result = public_annotation(member.returns, name, member.name, "return")

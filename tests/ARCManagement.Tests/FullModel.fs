@@ -6,7 +6,7 @@ open ARCManagement
 open Fable.Pyxpecto
 
 let private same a b = Expect.isTrue (obj.ReferenceEquals(a,b)) "Shared entity reference"
-let private rev (g: ManagedGraph) = g.readModel().Revision
+let private rev (g:ManagedGraph) = ARCManagement.Internal.Store.revision g.Context.Repository.Connection g.ArcId
 
 let tests = testList "Immutable complete model" [
     testCase "all profiles retain typed values sharing and optional alternatives" (fun _ ->
@@ -48,33 +48,33 @@ let tests = testList "Immutable complete model" [
     testCase "focused native alternatives preserve numbers text and absence" (fun _ ->
         use session = Session.createInMemory()
         let graph = session.createArc(Dataset(["process-provenance"],["root"]))
-        let first = graph.Annotation.add(rev graph,Annotation("value",id="a"))
-        let zero = graph.Annotation.setValueNumber(first.Revision,"a",0.0)
+        let first = graph.Annotation.add(Annotation("value",id="a"))
+        let zero = graph.Annotation.setValueNumber(graph.Annotation.get("a"),0.0)
         Expect.equal zero.Value.Value (Some(AnnotationValue.Number 0.0)) "Zero is present"
-        let text = graph.Annotation.setValueText(zero.Revision,"a","")
+        let text = graph.Annotation.setValueText(graph.Annotation.get("a"),"")
         Expect.equal text.Value.Value (Some(AnnotationValue.Text "")) "Empty text is present"
-        let cleared = graph.Annotation.clearValue(text.Revision,"a")
+        let cleared = graph.Annotation.clearValue(graph.Annotation.get("a"))
         Expect.isNone cleared.Value.Value "Explicit clearing"
         Expect.equal zero.Value.Value (Some(AnnotationValue.Number 0.0)) "Earlier value unchanged"
-        Expect.throws (fun () -> graph.Annotation.setValueNumber(cleared.Revision,"a",Double.NaN) |> ignore) "Nonfinite number rejected")
+        Expect.throws (fun () -> graph.Annotation.setValueNumber(graph.Annotation.get("a"),Double.NaN) |> ignore) "Nonfinite number rejected")
 
     testCase "focused relationships validate type and return the updated snapshot" (fun _ ->
         use session = Session.createInMemory()
         let graph = session.createArc(Dataset(["process-provenance"],["root"]))
-        graph.Sample.add(rev graph,Sample("sample",id="s")) |> ignore
-        graph.Data.add(rev graph,Data("data.csv",id="d")) |> ignore
-        let before = graph.Process.add(rev graph,Process("p",id="p"))
-        let sample = graph.Process.setInputSample(before.Revision,"p","s")
+        graph.Sample.add(Sample("sample",id="s")) |> ignore
+        graph.Data.add(Data("data.csv",id="d")) |> ignore
+        let before = graph.Process.add(Process("p",id="p"))
+        let sample = graph.Process.setInputSample(graph.Process.get("p"),"s")
         match sample.Value.Input with Some(EntityReference.Sample v) -> Expect.equal v.Id (Some "s") "Typed Sample" | _ -> failwith "Expected Sample"
-        let data = graph.Process.setOutputData(sample.Revision,"p","d")
+        let data = graph.Process.setOutputData(graph.Process.get("p"),"d")
         match data.Value.Output with Some(EntityReference.Data v) -> Expect.equal v.Path "data.csv" "Typed Data" | _ -> failwith "Expected Data"
         Expect.isNone before.Value.Input "Old value unchanged"
-        Expect.throws (fun () -> graph.Process.setInputSample(data.Revision,"p","d") |> ignore) "Wrong target kind rejected"
-        let cleared = graph.Process.clearInput(data.Revision,"p")
+        Expect.throws (fun () -> graph.Process.setInputSample(graph.Process.get("p"),"d") |> ignore) "Wrong target kind rejected"
+        let cleared = graph.Process.clearInput(graph.Process.get("p"))
         Expect.isNone cleared.Value.Input "Clear optional relationship"
-        let descriptor = graph.Descriptor.create(cleared.Revision,"s")
+        let descriptor = graph.Descriptor.create("s")
         match descriptor.Value.Describes with EntityReference.Sample v -> Expect.equal v.Id (Some "s") "Required factory target" | _ -> failwith "Expected Sample descriptor"
-        Expect.throws (fun () -> graph.Descriptor.create(descriptor.Revision,graph.Model.Id.Value) |> ignore) "Descriptor factory rejects Dataset target")
+        Expect.throws (fun () -> graph.Descriptor.create(graph.Model.Id.Value) |> ignore) "Descriptor factory rejects Dataset target")
 
     testCase "required constructor and copied Dataset invariants agree" (fun _ ->
         let value = Dataset(["process-provenance"],["root"])

@@ -13,10 +13,10 @@ let tests = testList "Management structural performance" [
         use session = Session.createInMemory()
         let graph = session.createArc(root)
         // Standalone entities are outside the returned root's reachable closure.
-        graph.Sample.add(graph.Revision,Sample("unrelated",id="unrelated")) |> ignore
+        graph.Sample.add(Sample("unrelated",id="unrelated")) |> ignore
         StorageDiagnostics.reset()
         let fullReads = graph.Context.FullReadCount
-        let saved = graph.Dataset.setTitle(graph.Revision,"root","updated")
+        let saved = graph.Dataset.setTitle(graph.Dataset.get("root"),"updated")
         Expect.equal saved.Value.Processes.Count 2000 "Returned value contains its full reachable graph"
         Expect.equal StorageDiagnostics.CellsWritten 1 "One scalar cell written beside large relationship collection"
         Expect.equal StorageDiagnostics.HistoryCellsWritten 1 "One scalar history delta"

@@ -6,15 +6,19 @@ const groupNames = new Set(["Entity", "Dataset", "Process", "Sample", "Data", "R
   "FormalParameter", "DefinedTerm", "DefinedTermSet", "Descriptor", "Agent", "Organization", "ScholarlyArticle", "History"]);
 
 function raw(value) { return underlying.get(value) ?? value; }
-function option(value, key) {
-  if (value === undefined) return false;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`Expected { ${key}?: boolean }`);
-  for (const name of Reflect.ownKeys(value)) if (name !== key) throw new TypeError(`Unknown option: ${String(name)}`);
-  const descriptor = Object.getOwnPropertyDescriptor(value, key);
-  if (descriptor && !("value" in descriptor)) throw new TypeError("Options must contain ordinary data properties");
-  const flag = descriptor?.value;
-  if (descriptor && typeof flag !== "boolean") throw new TypeError(`${key} must be a boolean`);
-  return flag ?? false;
+function options(value, upsert) {
+  if (value === undefined) return upsert ? [undefined, false] : [false];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Expected named options");
+  const key = upsert ? "recursive" : "cascade";
+  const result = {};
+  for (const name of Reflect.ownKeys(value)) {
+    if (name !== key && !(upsert && name === "baseline")) throw new TypeError(`Unknown option: ${String(name)}`);
+    const descriptor = Object.getOwnPropertyDescriptor(value, name);
+    if (!("value" in descriptor)) throw new TypeError("Options must contain ordinary data properties");
+    if (name === key && typeof descriptor.value !== "boolean") throw new TypeError(`${key} must be a boolean`);
+    result[name] = descriptor.value;
+  }
+  return upsert ? [result.baseline, result.recursive ?? false] : [result.cascade ?? false];
 }
 
 function wrap(value, kind) {
@@ -29,8 +33,8 @@ function wrap(value, kind) {
       if (typeof member !== "function") return member;
       if (!methods.has(key)) methods.set(key, (...args) => {
         if (kind === "group" && (key === "upsert" || key === "delete")) {
-          if (args.length > 3) throw new TypeError("Unexpected arguments");
-          args[2] = option(args[2], key === "upsert" ? "recursive" : "cascade");
+          if (args.length > 2) throw new TypeError("Unexpected arguments");
+          args = [args[0], ...options(args[1], key === "upsert")];
         }
         const result = Reflect.apply(member, target, args.map(raw));
         return kind === "session" && ["createArc", "openArc", "importYaml"].includes(key)

@@ -6,21 +6,21 @@ open ARCManagement.Internal
 
 [<AttachMembers>]
 type DescriptorOperations internal (session: GraphContext) =
-    member _.create(revision: RevisionToken, targetId: string) = session.CreateDescriptor(revision,targetId)
-    member _.add(revision: RevisionToken, value: Descriptor) = session.Adopt<Descriptor>(revision, value, "Descriptor", true, false)
-    member _.upsert(revision: RevisionToken, value: Descriptor, ?recursive: bool) = session.Adopt<Descriptor>(revision, value, "Descriptor", false, defaultArg recursive false)
+    member _.create(targetId: string) = session.CreateDescriptor(targetId)
+    member _.add(value: Descriptor) = session.Adopt<Descriptor>(value, "Descriptor", true,None,false)
+    member _.upsert(value: Descriptor, ?baseline: Descriptor, ?recursive: bool) = session.Adopt<Descriptor>(value, "Descriptor", false,Option.map box baseline,defaultArg recursive false)
     member _.get(id: string) = session.Get<Descriptor>("Descriptor",id)
     member _.list() = session.List<Descriptor>("Descriptor")
     member _.read(id: string) = session.Read<Descriptor>("Descriptor",id)
     member _.readAll() = session.ReadAll<Descriptor>("Descriptor")
-    member _.delete(revision: RevisionToken, id: string, ?cascade: bool) = session.Delete(revision,id,"Descriptor",defaultArg cascade false)
-    member _.setDescribes(revision: RevisionToken, id: string, replacement: string) =
-        session.Change<Descriptor>(revision,id,"describes", (fun () -> Some(Links [replacement])),"Descriptor.setDescribes")
-    member _.setAnnotations(revision: RevisionToken, id: string, replacement: seq<string>) =
-        session.Change<Descriptor>(revision,id,"annotations", (fun () -> Some(Links(replacement |> List.ofSeq))),"Descriptor.setAnnotations")
-    member _.addAnnotation(revision: RevisionToken, id: string, target: string) = session.Collection<Descriptor>(revision,id,"annotations",target,true,"Descriptor.addAnnotation")
-    member _.removeAnnotation(revision: RevisionToken, id: string, target: string) = session.Collection<Descriptor>(revision,id,"annotations",target,false,"Descriptor.removeAnnotation")
-    member _.setAdditionalTypes(revision: RevisionToken, id: string, replacement: seq<string>) =
-        session.Change<Descriptor>(revision,id,"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Descriptor.setAdditionalTypes")
-    member _.setDescribesSample(revision: RevisionToken, id: string, target: string) = session.Change<Descriptor>(revision,id,"describes", (fun () -> Some(Links [target])),"Descriptor.setDescribesSample")
-    member _.setDescribesData(revision: RevisionToken, id: string, target: string) = session.Change<Descriptor>(revision,id,"describes", (fun () -> Some(Links [target])),"Descriptor.setDescribesData")
+    member _.delete(value: Descriptor, ?cascade: bool) = session.Delete(session.Id(value,"Descriptor"),"Descriptor",defaultArg cascade false)
+    member _.setDescribes(value: Descriptor, replacement: string) =
+        session.Change<Descriptor>(session.Id(value,"Descriptor"),"describes", (fun () -> Some(Links [replacement])),"Descriptor.setDescribes")
+    member _.setAnnotations(value: Descriptor, replacement: seq<string>) =
+        session.Change<Descriptor>(session.Id(value,"Descriptor"),"annotations", (fun () -> Some(Links(replacement |> List.ofSeq))),"Descriptor.setAnnotations")
+    member _.addAnnotation(value: Descriptor, target: string) = session.Collection<Descriptor>(session.Id(value,"Descriptor"),"annotations",target,true,"Descriptor.addAnnotation")
+    member _.removeAnnotation(value: Descriptor, target: string) = session.Collection<Descriptor>(session.Id(value,"Descriptor"),"annotations",target,false,"Descriptor.removeAnnotation")
+    member _.setAdditionalTypes(value: Descriptor, replacement: seq<string>) =
+        session.Change<Descriptor>(session.Id(value,"Descriptor"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Descriptor.setAdditionalTypes")
+    member _.setDescribesSample(value: Descriptor, target: string) = session.Change<Descriptor>(session.Id(value,"Descriptor"),"describes", (fun () -> Some(Links [target])),"Descriptor.setDescribesSample")
+    member _.setDescribesData(value: Descriptor, target: string) = session.Change<Descriptor>(session.Id(value,"Descriptor"),"describes", (fun () -> Some(Links [target])),"Descriptor.setDescribesData")

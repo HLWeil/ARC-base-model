@@ -24,7 +24,6 @@ type ManagedGraph private (context: GraphContext) =
     let historyOperations = HistoryOperations(context)
     member internal _.Context = context
     member _.Model = context.Model
-    member _.Revision = context.Revision
     member _.readModel() = context.ReadModel()
     member _.Entity = entityOperations
     member _.Dataset = datasetOperations

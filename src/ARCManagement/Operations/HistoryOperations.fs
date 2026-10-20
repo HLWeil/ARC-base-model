@@ -7,5 +7,5 @@ open ARCManagement.Internal
 type HistoryOperations internal (session: GraphContext) =
     member _.CanUndo = session.CanUndo
     member _.CanRedo = session.CanRedo
-    member _.undo(revision: RevisionToken) = session.History(revision,false)
-    member _.redo(revision: RevisionToken) = session.History(revision,true)
+    member _.undo() = session.History(false)
+    member _.redo() = session.History(true)

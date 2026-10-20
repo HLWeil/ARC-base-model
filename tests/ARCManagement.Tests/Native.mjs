@@ -1,56 +1,94 @@
 ﻿import { Session, DatasetYaml } from "arc-management";
 import { Dataset, Sample, Process } from "arc-base-model";
-import { WriteResult } from "arc-management";
+import { WriteResult, CommandResult, ConcurrentWriteException } from "arc-management";
 const check = (value, message) => { if (!value) throw new Error(message); };
 const rejects = action => { try { action(); } catch { return; } throw new Error("Expected rejection"); };
 const session = Session.createInMemory();
 const graph = session.createArc(new Dataset(["process-provenance"], ["native-js"]));
-const revision = () => graph.readModel().Revision;
 const source = new Sample("A");
-const added = graph.Sample.add(revision(), source);
+const added = graph.Sample.add(source);
 check(source.Id === undefined && added.Value.Id !== undefined, "IDs assigned to persisted copies only");
+check(!("Revision" in added) && !("Revision" in graph), "No public revision plumbing");
+rejects(() => graph.Sample.setName(added.Value.Id, "ID is not a subject"));
+rejects(() => graph.Sample.setName(Dataset.withId(new Dataset(["administrative"], ["wrong"]), added.Value.Id), "wrong kind"));
 rejects(() => { added.Value.Name = "bad"; });
 rejects(() => { added.Value._name = "bad"; });
 rejects(() => { added.Changed = false; });
-rejects(() => { added.Revision._revision = 0; });
 const originalFreeze = Object.freeze;
 try {
     Object.freeze = value => {
         if (value instanceof WriteResult) throw new Error("Injected result construction failure");
         return originalFreeze(value);
     };
-    rejects(() => graph.Sample.setName(added.Revision, added.Value.Id, "must roll back"));
+    rejects(() => graph.Sample.setName(added.Value, "must roll back"));
 } finally {
     Object.freeze = originalFreeze;
 }
-check(graph.Sample.get(added.Value.Id).Name === "A" && revision().Value === added.Revision.Value,
-      "Result construction failure precedes persistent writes");
-const proc = graph.Process.add(added.Revision, new Process("p"));
-const linked = graph.Process.setInputSample(proc.Revision, proc.Value.Id, added.Value.Id);
+check(graph.Sample.get(added.Value.Id).Name === "A", "Result construction failure precedes persistent writes");
+const proc = graph.Process.add(new Process("p"));
+const linked = graph.Process.setInputSample(proc.Value, added.Value.Id);
 check(linked.Value.Input instanceof Sample, "Native erased alternative");
 const rootRead = graph.readModel();
-const root = graph.Dataset.upsert(rootRead.Revision, Dataset.withProcesses(rootRead.Value, [linked.Value, linked.Value]));
+const root = graph.Dataset.upsert(Dataset.withProcesses(rootRead, [linked.Value, linked.Value]), { baseline: rootRead });
 rejects(() => root.Value.Processes.push(linked.Value));
 rejects(() => { root.Value.Processes[0] = linked.Value; });
-rejects(() => graph.Dataset.upsert(root.Revision, root.Value, true));
-rejects(() => graph.Dataset.upsert(root.Revision, root.Value, { recursive: 1 }));
-rejects(() => graph.Dataset.upsert(root.Revision, root.Value, { recursive: undefined }));
-rejects(() => graph.Dataset.upsert(root.Revision, root.Value, { recursively: true }));
-rejects(() => graph.Process.delete(root.Revision, linked.Value.Id));
-rejects(() => graph.Process.delete(root.Revision, linked.Value.Id, true));
-rejects(() => graph.Process.delete(root.Revision, linked.Value.Id, Object.create({ cascade: true })));
+rejects(() => graph.Dataset.upsert(root.Value, true));
+rejects(() => graph.Dataset.upsert(root.Value, { recursive: 1 }));
+rejects(() => graph.Dataset.upsert(root.Value, { recursive: undefined }));
+rejects(() => graph.Dataset.upsert(root.Value, { recursively: true }));
+rejects(() => graph.Process.delete(linked.Value));
+rejects(() => graph.Process.delete(linked.Value, true));
+rejects(() => graph.Process.delete(linked.Value, Object.create({ cascade: true })));
 let optionGetterCalled = false;
-rejects(() => graph.Process.delete(root.Revision, linked.Value.Id, { get cascade() { optionGetterCalled = true; return true; } }));
+rejects(() => graph.Process.delete(linked.Value, { get cascade() { optionGetterCalled = true; return true; } }));
 check(!optionGetterCalled, "Option getters cannot run callbacks or enable deletion");
-const removed = graph.Process.delete(root.Revision, linked.Value.Id, { cascade: true });
+const removed = graph.Process.delete(linked.Value, { cascade: true });
 check(graph.Model.Processes.length === 0, "Cascade detaches all occurrences");
-graph.History.undo(removed.Revision);
+graph.History.undo();
 const restored = graph.Model;
 check(restored.Processes.length === 2 && restored.Processes[0] === restored.Processes[1], "Undo sharing and duplicates");
 const decoded = DatasetYaml.decode(DatasetYaml.encode(restored));
 check(decoded.Processes[0].Input instanceof Sample, "Canonical classes through codec");
-rejects(() => graph.Entity.setBoolProperty(revision(), graph.Model.Id, "flag", 1));
-rejects(() => graph.Entity.setNumberProperty(revision(), graph.Model.Id, "number", false));
+rejects(() => graph.Entity.setBoolProperty(graph.Model, "flag", 1));
+rejects(() => graph.Entity.setNumberProperty(graph.Model, "number", false));
 session.close();
 check(restored.Processes.length === 2, "Read lifetime");
+
+// Freeze runs after the read snapshot closes and before the writer transaction.
+// A second real connection can commit there without relying on thread timing.
+const raceSession = Session.createFile(`build/out/arc-management/native-race-${Date.now()}.sqlite`);
+const first = raceSession.createArc(new Dataset(["process-provenance"], ["race"]));
+const subject = first.Sample.add(Sample.withId(new Sample("initial"), "race-sample")).Value;
+const otherSession = Session.openFile(first.DatabasePath);
+const second = otherSession.openArc(first.ArcId);
+function race(resultClass, remote, local) {
+    let intervened = false;
+    try {
+        Object.freeze = value => {
+            if (!intervened && value instanceof resultClass) {
+                intervened = true;
+                remote();
+            }
+            return originalFreeze(value);
+        };
+        try { local(); throw new Error("Missing concurrent write rejection"); }
+        catch (error) { check(error instanceof ConcurrentWriteException, "Structured concurrent write conflict"); }
+    } finally { Object.freeze = originalFreeze; }
+    check(intervened, "Second writer committed at preparation boundary");
+}
+race(WriteResult,
+    () => second.Sample.setName(second.Sample.get("race-sample"), "remote"),
+    () => first.Sample.setName(subject, "local"));
+check(first.Sample.get("race-sample").Name === "remote", "Failed command preserves remote state");
+race(CommandResult,
+    () => second.Dataset.setTitle(second.Model, "remote title"),
+    () => first.History.undo());
+check(first.Sample.get("race-sample").Name === "remote", "Failed history transition has no partial effect");
+check(first.Model.Title === "remote title", "Concurrent history writer preserved");
+first.History.undo();
+check(first.Model.Title === undefined, "Failed commands add no history");
+first.History.undo();
+check(first.Sample.get("race-sample").Name === "initial", "Original history remains reversible");
+otherSession.close();
+raceSession.close();
 console.log("Immutable JavaScript management consumer passed");

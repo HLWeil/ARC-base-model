@@ -70,7 +70,13 @@ open ARCtrl
 let mySession = ARCManagement.Session.createInMemory()
 
 
-mySession.openArc("").Dataset.
+
+
+let graph = mySession.createArc(Dataset(["process-provenance"], ["example-arc"]))
+
+
+graph.Dataset.setTitle(graph.Model, "My New Title") |> ignore
+
 
 let myArc = 
     // mySession.createArc(Dataset(["process-provenance"], ["example-arc"]))

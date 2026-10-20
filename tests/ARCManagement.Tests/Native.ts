@@ -1,5 +1,5 @@
 ﻿import * as Management from "arc-management";
-import { Session, ManagedGraph, DatasetYaml, RevisionConflictException } from "arc-management";
+import { Session, ManagedGraph, DatasetYaml, SnapshotConflictException } from "arc-management";
 import { ARC } from "arc-management/arctrl";
 import { Dataset, Sample, Process, ModelBuilder } from "arc-base-model";
 
@@ -11,44 +11,48 @@ const graph = session.createArc(source);
 check(graph instanceof ManagedGraph, "Canonical graph instance");
 check(session.openArc(graph.ArcId) === graph, "Native facade cached");
 check(!("ARC" in Management), "Workspace export separate");
+check(!("RevisionToken" in Management) && !("ReadResult" in Management), "No public concurrency plumbing");
 const detached = Sample.withId(new Sample("A"), "s");
-const added = graph.Sample.add(graph.readModel().Revision, detached);
+const added = graph.Sample.add(detached);
 check(added.Value instanceof Sample && detached.Id === "s", "Canonical immutable model");
-const changed = graph.Sample.setName(added.Revision, "s", "B");
+const changed = graph.Sample.setName(graph.Sample.get("s"), "B");
 check(changed.Value.Name === "B" && added.Value.Name === "A", "Old snapshots preserved");
 check(changed.Changed && changed.Operation !== undefined, "Changed metadata");
-try { graph.Sample.setName(added.Revision, "s", "stale"); throw new Error("Missing conflict"); }
-catch (error) { check(error instanceof RevisionConflictException, "Structured stale conflict"); }
-const unchanged = graph.Sample.upsert(changed.Revision, changed.Value);
+const types = graph.Sample.setAdditionalTypes(added.Value, ["new type"]);
+check(types.Value.Name === "B", "Focused command preserves current fields using an older subject");
+try { graph.Sample.upsert(added.Value, { baseline: added.Value }); throw new Error("Missing conflict"); }
+catch (error) { check(error instanceof SnapshotConflictException && error.EntityId === "s", "Structured snapshot conflict"); }
+const unchanged = graph.Sample.upsert(types.Value, { baseline: types.Value });
 check(!unchanged.Changed && unchanged.Operation === undefined, "No-op metadata");
-check(unchanged.Revision.Value === changed.Revision.Value, "No-op revision stable");
 const before = graph.readModel();
-const proc = Process.withInput(new Process("p"), changed.Value);
-const attached = graph.Dataset.upsert(before.Revision, Dataset.withProcesses(before.Value, [proc, proc]));
+const proc = Process.withInput(new Process("p"), types.Value);
+const attached = graph.Dataset.upsert(Dataset.withProcesses(before, [proc, proc]), { baseline: before });
 check(attached.Value.Processes[0] === attached.Value.Processes[1], "Duplicate sharing");
 check(Object.isFrozen(attached.Value) && Object.isFrozen(attached.Value.Processes), "Native immutability");
 check(Array.isArray(attached.Value.Processes), "Native arrays");
-const nestedSample = Sample.withName(changed.Value, "C");
+const nestedSample = Sample.withName(types.Value, "C");
 const nestedProcess = Process.withInput(attached.Value.Processes[0], nestedSample);
 const replacement = Dataset.withProcesses(attached.Value, [nestedProcess, nestedProcess]);
-rejects(() => graph.Dataset.upsert(attached.Revision, replacement));
-const recursive = graph.Dataset.upsert(attached.Revision, replacement, { recursive: true });
+rejects(() => graph.Dataset.upsert(replacement, { baseline: attached.Value }));
+const recursive = graph.Dataset.upsert(replacement, { baseline: attached.Value, recursive: true });
 check(graph.Sample.get("s").Name === "C", "Explicit recursion saves nested edits");
 // @ts-expect-error native options must be named
-if (false) graph.Dataset.upsert(recursive.Revision, replacement, true);
+if (false) graph.Dataset.upsert(replacement, true);
 // @ts-expect-error immutable field
 if (false) recursive.Value.Title = "mutation";
 // @ts-expect-error immutable collection
 if (false) recursive.Value.Processes.push(proc);
-// @ts-expect-error opaque revision constructor
-if (false) new Management.RevisionToken();
+// @ts-expect-error subjects are entity values
+if (false) graph.Sample.setName("s", "wrong subject");
+// @ts-expect-error baseline must have the same entity type
+if (false) graph.Sample.upsert(types.Value, { baseline: graph.Model });
 // @ts-expect-error unknown option
-if (false) graph.Dataset.upsert(recursive.Revision, replacement, { recursively: true });
+if (false) graph.Dataset.upsert(replacement, { recursively: true });
 const builder = new ModelBuilder();
 const token = builder.cloneGraph(recursive.Value);
 builder.Dataset.setTitle(token, "builder edit");
 const built = builder.finish().get(token);
-const saved = graph.Dataset.upsert(recursive.Revision, built, { recursive: true });
+const saved = graph.Dataset.upsert(built, { baseline: recursive.Value, recursive: true });
 check(saved.Value.Title === "builder edit", "Native typed builder");
 const yaml = graph.toYaml();
 const decoded = DatasetYaml.decode(yaml);

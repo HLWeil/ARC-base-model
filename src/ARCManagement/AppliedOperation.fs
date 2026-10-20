@@ -12,42 +12,28 @@ type AppliedOperation internal (id: string, kind: string, ?action:string) =
     member _.Kind = kind
     member _.Action = defaultArg action "apply"
 
-/// An opaque optimistic-concurrency token belonging to one open graph.
+/// Another writer committed while a command was being prepared. No changes were committed.
 [<AttachMembers>]
-type RevisionToken internal (scope: string, arcId: string, revision: int64) =
-    inherit ImmutableObject()
-    do base.SealObject()
-    member _.Value = arcId + ":" + scope + ":" + string revision
-    member internal _.Scope = scope
-    member internal _.ArcId = arcId
-    member internal _.Number = revision
+type ConcurrentWriteException internal () =
+    inherit System.Exception("Another writer changed this ARC during the command. Read current state before deciding whether to try again.")
+
+/// A full replacement would overwrite a definition changed since its baseline.
+[<AttachMembers>]
+type SnapshotConflictException internal (entityId: string) =
+    inherit System.Exception("The stored definition no longer matches the upsert baseline: " + entityId + ". Read it again and reapply the intended edits.")
+    member _.EntityId = entityId
 
 [<AttachMembers>]
-type RevisionConflictException internal (expected: RevisionToken, current: RevisionToken) =
-    inherit System.Exception("The ARC revision changed. Read current state before editing again.")
-    member _.Expected = expected
-    member _.Current = current
-
-[<AttachMembers>]
-type ReadResult<'T> internal (value: 'T, revision: RevisionToken) =
+type WriteResult<'T> internal (value: 'T, changed: bool, operation: AppliedOperation option) =
     inherit ImmutableObject()
     do base.SealObject()
     member _.Value = value
-    member _.Revision = revision
-
-[<AttachMembers>]
-type WriteResult<'T> internal (value: 'T, revision: RevisionToken, changed: bool, operation: AppliedOperation option) =
-    inherit ImmutableObject()
-    do base.SealObject()
-    member _.Value = value
-    member _.Revision = revision
     member _.Changed = changed
     member _.Operation = operation
 
 [<AttachMembers>]
-type CommandResult internal (revision: RevisionToken, changed: bool, operation: AppliedOperation option) =
+type CommandResult internal (changed: bool, operation: AppliedOperation option) =
     inherit ImmutableObject()
     do base.SealObject()
-    member _.Revision = revision
     member _.Changed = changed
     member _.Operation = operation

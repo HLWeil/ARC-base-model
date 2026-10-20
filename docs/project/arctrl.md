@@ -30,10 +30,10 @@ let session = Session.createFile("collection.sqlite")
 let graph = session.createArc(Dataset(["process-provenance"], ["example"]))
 let arc = ARC.bind(graph, "./arc-a")
 let graph = arc.ManagedGraph
-let sample = arc.Sample.create(graph.readModel().Revision, "sample")
-let proc = arc.Process.create(sample.Revision, "process")
-let linked = arc.Process.setInputSample(proc.Revision, proc.Value.Id.Value, sample.Value.Id.Value)
-arc.Dataset.addProcess(linked.Revision, graph.Model.Id.Value, proc.Value.Id.Value) |> ignore
+let sample = arc.Sample.create("sample")
+let proc = arc.Process.create("process")
+let linked = arc.Process.setInputSample(proc.Value, sample.Value.Id.Value)
+arc.Dataset.addProcess(graph.Model, proc.Value.Id.Value) |> ignore
 arc.save()
 let arcId = graph.ArcId
 arc.close()
