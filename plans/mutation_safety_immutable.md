@@ -1,6 +1,6 @@
 # Immutable ARCBaseModel with SQL-backed management
 
-Status: accepted, not implemented. Revised 2026-10-21 to minimize complexity in the
+Status: accepted. The Layer 1 phases (0 and 1) are implemented and the remaining phases are in progress. Revised 2026-10-21 to minimize complexity in the
 model, backend and API. Supersedes [the event plan](mutation_safety_event.md) and the
 first implementation attempt on branch `arcmanagement–immutable`.
 
@@ -300,5 +300,9 @@ Acceptance coverage:
 
 Track line counts of `src/ARCBaseModel` (474 lines) and of `Runtime/`, `Internal/`,
 `Storage/` and `Serialization/` in `src/ARCManagement` (1,477 lines) per phase.
-Investigate any phase that grows them substantially. Record actual results in
+Investigate any phase that grows them substantially.
+Phase 1 result: `src/ARCBaseModel` grew from 474 to 806 lines and the management
+directories from 1,477 to 1,479 lines. The Layer 1 growth comes from the state
+records, about 73 one-line `with*` copies, and the generic copy helpers that
+replace mutable properties. Record actual results in
 [the Layer 1 plan](arc-base-model-layer-1.md) and [the management plan](arc-management.md).

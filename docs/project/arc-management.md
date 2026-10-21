@@ -79,10 +79,15 @@ objects survive SQL recovery and contribute to `HasSessionOnlyObjects`.
 
 `upsert(value): unit` performs full replacement by ID using detached input.
 Unknown IDs adopt the supplied graph. Existing same-type IDs update the retained
-canonical instance and collection containers; empty collections clear values.
+canonical instance and replace its collection containers. Empty collections clear
+values.
 References to managed entities must use registered instances. Cross-type
 collisions are rejected. ID assignment belongs to management, never Layer 1;
 identity is not inferred from names, paths, or equal values.
+
+Transitional note: until the management runtime phase of the immutable redesign,
+managed graphs update adopted instances in place. They write IDs into instances
+supplied to `add` and `create`, and reassign internal state on edits and undo.
 
 Collection edits preserve order, duplicates, and shared references. Removal
 deletes one occurrence without unregistering its target. `movePart` and
@@ -97,8 +102,8 @@ Edits validate a planned snapshot, then transactionally update SQL mirrors, the
 live projection, history/cursor, journal, and graph revision. Failures restore
 SQL and the previous projection. Mutations return attached `AppliedOperation`
 values. Undo/redo is linear and persisted; editing after undo discards redo.
-Hydration and history restoration preserve canonical objects and collection
-containers. Undoing a registration restores originally absent IDs; redo restores
+Hydration and history restoration keep canonical instances and replace
+collection containers. Undoing a registration restores originally absent IDs, and redo restores
 assigned IDs. Saving preserves history and standalone objects.
 
 Root deletion is rejected. Dataset deletion cascades only to descendants and

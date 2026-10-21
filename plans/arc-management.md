@@ -90,8 +90,8 @@ collection replacement, and typed relationship helpers.
   and rejects collisions with distinct instances. Adding the same active
   instance again is a no-op. Registration does not attach an object to the root.
 - `upsert(value): unit` uses a detached input for full replacement by ID. An
-  existing same-type ID updates the retained canonical instance and collection
-  containers; empty collections clear values. Unknown IDs adopt the graph.
+  existing same-type ID updates the retained canonical instance and replaces its
+  collection containers. Empty collections clear values. Unknown IDs adopt the graph.
   Cross-type collisions are rejected. References to managed objects must use
   their registered instances.
 - ID assignment belongs to this management layer, never Layer 1. Identity is
@@ -126,8 +126,8 @@ rebuilds rows only for the affected ARC rather than issuing incremental writes.
 Fine-grained mutations return attached `AppliedOperation` values.
 
 Undo/redo is linear and persisted with before/after snapshots. A new edit after
-undo invalidates the redo branch. Hydration and history restoration preserve
-canonical object references, shared relationships, recursive graphs, and
+undo invalidates the redo branch. Hydration and history restoration keep
+canonical instances, shared relationships, and recursive graphs, and replace
 collection containers. Saving preserves history and standalone registered
 objects.
 
@@ -261,7 +261,7 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 | Detached YAML and public text workflows | Implemented and verified | Verified absent/duplicate IDs, sharing/cycles, scalar types, extensions, legacy input, invalid aliases, managed adoption, and checkpoint-free export. |
 | Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
 | Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
-| Immutable model and simplified management | Planned | Phases 0-6 of the [immutable redesign](mutation_safety_immutable.md): immutable Layer 1, cached-state runtime without live projections, core-shaped schema version 5 with delta history and no journal, trimmed typed operation groups, ProcessCore-shaped YAML. |
+| Immutable model and simplified management | Phase 1 implemented and verified. Phases 2-6 planned | Phase 1 (immutable Layer 1, with the transitional management adaptation) is done. Phases 2-6 of the [immutable redesign](mutation_safety_immutable.md) remain: a cached-state runtime without live projections, core-shaped schema version 5 with delta history and no journal, trimmed typed operation groups, ProcessCore-shaped YAML. |
 | Project-file workspace integration | Planned | Resolve `.arc/project.yml`, profiles, rules, and exact codec IDs; prepare root/child bindings and auxiliary outputs before IO. |
 | Project-backed save and recovery | Planned | Export/reload selected resources with conflict checks, per-ARC archives, retained history/session-only objects, and failed-write checkpoint coverage. |
 | Project-backed native API and documentation | Planned | Run shared and handwritten consumers for the new lifecycle and document its supported guarantees. |

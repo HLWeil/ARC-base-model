@@ -79,7 +79,7 @@ let identified = EntityObject.withId(sample, Some "sample-1")
 
 Each `with*` function is a static member that takes the original value and a
 replacement, and returns a new object of the same class. The original is
-unchanged. Unchanged fields and collections are shared with the original.
+unchanged. A copy shares unchanged fields and collections with the original.
 
 Constructors require the specification's mandatory data: for example, a Sample
 needs a name, Data needs a path, and Descriptor needs a target. Dataset requires
@@ -88,7 +88,7 @@ nonempty `ConformsTo` and `Identifiers` collections, including at least one of
 profile strings are allowed. Required strings cannot be null; supplied text is
 not trimmed or normalized.
 
-Every entity has a fixed, read-only `Type`, an optional `Id`, and
+Every entity has a fixed, read-only `Type` and an optional `Id`. It also has
 `AdditionalTypes`. All properties are getter-only. Optional fields default to
 absence. A `with*` copy of an optional property takes an option, so `None` (F# and
 Python) or `undefined` (JavaScript) clears it. Zero and empty text
@@ -106,15 +106,20 @@ Collections are typed `seq<'T>` in F# (`readonly T[]` in TypeScript, `tuple[T, .
 in Python). On .NET they are `ReadOnlyCollection` instances. JavaScript stores
 frozen arrays and Python stores tuples. Construction and `with*` copies consume an input
 iterable once and keep its elements. Getters return the stored collection
-without allocating, and `push` or `append` on it fails. Order, duplicates, and
-shared entity references are preserved, and matching names or IDs do not merge
-objects. Constructor and copy checks run when a value is built, and nothing
+without allocating, and `push` or `append` on it fails. Collections keep their
+order and duplicates, and entities keep shared references. Matching names or IDs
+do not merge objects. Constructor and copy checks run when a value is built, and nothing
 else enforces conformance afterwards.
 
-The model has no public builder and no runtime sealing. Getter-only properties
-reject assignment on every target. The internal state behind them is an
+The model has no public builder and no runtime sealing. Assigning to a
+getter-only property throws a TypeError in strict-mode JavaScript (which includes
+ES modules) and an AttributeError in Python. The internal state behind them is an
 unsupported bypass. Constructors and copies cannot build cyclic graphs.
 ARCManagement and YAML decoding create cycles through internal state assignment.
+
+Transitional note: until the management runtime phase of the immutable redesign,
+managed graphs update adopted instances in place. They write IDs into supplied
+instances and reassign internal state on edits and undo.
 
 ## Alternative values across languages
 
@@ -222,7 +227,7 @@ reuse the same model classes. Layer 1 adds no SQLite schema or driver.
 
 ## Typed extension properties
 
-All thirteen core classes inherit `EntityObject`. Its read-only `Type`, optional `Id`, and `AdditionalTypes` are getter-only and change through `withId` and `withAdditionalTypes`. Generic extension objects require a type string, and never receive an inferred ID. See the [normative extension contract](../spec/extensions.md).
+All thirteen core classes inherit `EntityObject`. Its read-only `Type` and optional `Id` are getter-only, and copies change `Id` and `AdditionalTypes` through `withId` and `withAdditionalTypes`. Generic extension objects require a type string, and never receive an inferred ID. See the [normative extension contract](../spec/extensions.md).
 
 ```fsharp
 let quality =
@@ -261,7 +266,7 @@ sample = EntityObject.with_property(sample, "lab:null", EntityNull())
 sample = EntityObject.without_property(sample, "lab:binary")
 ```
 
-Import these classes through `arc-base-model` or `arc_base_model`. `EntityCollection` copies the input container once, retaining values, duplicates, and object references. It is immutable, and `Count` and `Get` read its stored values. `EntityBlob.Base64` returns validated, unmodified canonical standard padded base64.
+Import these classes through the root `arc-base-model` or `arc_base_model` entry. `arc-base-model/internal` is an undeclared runtime entry used only by ARCManagement's bundle so both packages share class identity. `EntityCollection` copies the input container once and keeps every element, including duplicates and object references. It is immutable, and `Count` and `Get` read its stored values. `EntityBlob.Base64` returns validated, unmodified canonical standard padded base64.
 
 `withProperty` inserts a key or replaces its value and returns a new object. `withoutProperty` returns a new object without the key and accepts a key that is already absent. The read-only `EntityProperties` bag offers `Keys`, `Contains`, and `Get`. `Contains` distinguishes absence from explicit null. `Get` throws for a missing key. `Keys` is an immutable collection with no guaranteed enumeration order. Core wire names are reserved, and `withProperty` rejects them with exact case-sensitive comparisons.
 
