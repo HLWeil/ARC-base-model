@@ -1,5 +1,10 @@
 # ARCBaseModel: Layer 1 Implementation
 
+Status: the accepted [immutable redesign](mutation_safety_immutable.md) replaces the
+mutable classes and `ResizeArray` collections described here with getter-only classes
+that copy through static `with*` methods and expose frozen collections. This plan
+records the current mutable implementation until that redesign's Layer 1 phases land.
+
 ## Property bag dictionary repair
 
 Replaced linear value/key lookups with an internal `Dictionary<string, Entity>` and reserved-name checks with `HashSet<string>`. Per the revised requirement, insertion order is not preserved: the dictionary alone stores properties, and `Keys` returns a snapshot with unspecified enumeration order. Lookup, insertion, replacement, and removal use dictionary operations. The first cross-runtime run passed .NET and native/packed consumers but exposed a pinned Fable Python `ContainsKey` emission bug in shared tests; `Contains` now uses `TryGetValue`. After removing order preservation, all 25 shared .NET tests passed; `git diff --check` passed. Final cross-runtime verification remains pending because elevated execution was declined and sandbox Fable invocation cannot resolve the installed tool.

@@ -61,6 +61,10 @@ ARC-Data-Model/
 - JavaScript runtime tests use Node and `better-sqlite3`.
 - Python runtime tests use `uv` and Python stdlib `sqlite3`.
 
+## Accepted Redesign
+
+[The immutable redesign](plans/mutation_safety_immutable.md) supersedes, phase by phase, the mutable Layer 1 rules (setters, `ResizeArray` collections, mutable property bags and extension collections) and the live-projection management rules below, together with the management storage layout and managed YAML format. Until a phase lands, the existing rules describe the code. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
+
 ## Layer 1: Portable Domain Model
 
 Layer 1 represents the base specification as one shared F# domain model for .NET, JavaScript/TypeScript, and Python. The independent `ARCBaseModel` library targets `netstandard2.0`. Direct use from native JavaScript and Python is part of the public API contract; successful Fable compilation alone is insufficient. Track implementation and verification in [the Layer 1 plan](plans/arc-base-model-layer-1.md), updating its state alongside every implementation commit.

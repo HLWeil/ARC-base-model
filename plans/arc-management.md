@@ -3,7 +3,10 @@
 Status: generic ARCManagement and workspace-specific ARCtrl are separated and
 verified, including detached YAML workflows and renamed native packages.
 `BuildSolution` and repository-wide `RunTests` passed. Project-file codec
-integration remains planned.
+integration remains planned. The accepted
+[immutable redesign](mutation_safety_immutable.md) will replace the mutable
+model, live projections, storage layout and managed YAML format described below.
+This document describes the current implementation until its phases land.
 
 This plan tracks the current implementation and remaining work. See the
 [management guide](../docs/project/arc-management.md) and
@@ -131,8 +134,9 @@ objects.
 Direct property or collection edits on managed objects are unsupported. The
 implementation compares the projection with its retained snapshot before
 commands and saves, rejecting detected changes. Callers can close and reopen
-the ARC to restore committed state. This detection is implemented; stronger
-mutation prevention remains a separate API-design question.
+the ARC to restore committed state. This detection is implemented. The
+[immutable redesign](mutation_safety_immutable.md) replaces it by making model
+values immutable.
 
 Revisions are ARC-local. Edits to another ARC do not invalidate a handle; stale
 writes to the same ARC through another connection require close and reopen.
@@ -257,6 +261,7 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 | Detached YAML and public text workflows | Implemented and verified | Verified absent/duplicate IDs, sharing/cycles, scalar types, extensions, legacy input, invalid aliases, managed adoption, and checkpoint-free export. |
 | Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
 | Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
+| Immutable model and simplified management | Planned | Phases 0-6 of the [immutable redesign](mutation_safety_immutable.md): immutable Layer 1, cached-state runtime without live projections, core-shaped schema version 5 with delta history and no journal, trimmed typed operation groups, ProcessCore-shaped YAML. |
 | Project-file workspace integration | Planned | Resolve `.arc/project.yml`, profiles, rules, and exact codec IDs; prepare root/child bindings and auxiliary outputs before IO. |
 | Project-backed save and recovery | Planned | Export/reload selected resources with conflict checks, per-ARC archives, retained history/session-only objects, and failed-write checkpoint coverage. |
 | Project-backed native API and documentation | Planned | Run shared and handwritten consumers for the new lifecycle and document its supported guarantees. |
@@ -281,11 +286,11 @@ Decisions still needed for that work:
 1. The fingerprint/checkpoint representation for multiple managed resources.
 2. Filesystem staging and recovery guarantees when only some writes succeed.
 3. Whether workspace IO stays synchronous or gains explicit native async facades.
-4. Whether additional safeguards against direct mutation are needed beyond the
-   current rejection checks, while preserving the mutable Layer 1 contract.
+Direct mutation is resolved by the [immutable redesign](mutation_safety_immutable.md),
+which also makes SQL writes and history incremental and adopts the ProcessCore
+YAML shape that the project-file `dataset.yml` codec will reuse.
 
-Cross-ARC search, incremental SQL writes, and legacy migrations are separate
-future decisions. Shared mutable entities, selective undo, collaborative editing,
+Cross-ARC search and legacy migrations are separate future decisions. Shared mutable entities, selective undo, collaborative editing,
 automatic persistence of direct mutations, browser SQLite, and remote database
 servers remain outside this plan. New production dependencies require approval.
 

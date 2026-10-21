@@ -1,5 +1,7 @@
 # Automatic mutation handling for ARCBaseModel and ARCManagement
 
+Status: not pursued. See the accepted [immutable redesign](mutation_safety_immutable.md).
+
 ## Summary
 
 Make ordinary property assignments and collection mutations enter ARCManagement’s transactional operation pipeline automatically. Detached ARCBaseModel objects remain usable without configuration, persistence or ID assignment.
