@@ -15,7 +15,7 @@ def rejects(action):
 
 
 assert not hasattr(arc_management, "ARC")
-# Cycles cannot be assembled from immutable values, so the detached fixture is decoded from anchored YAML.
+# Immutable values cannot form cycles, so the test decodes the cyclic fixture from anchored YAML.
 source_yaml = "\n".join([
     "&o1",
     "type: Dataset",
@@ -63,6 +63,12 @@ assert decoded.HasParts[3] is decoded and decoded.EntityProperties.Get("self") i
 assert decoded.HasParts[0].Title == ""
 assert decoded.AdditionalProperties[0] is decoded.AdditionalProperties[1]
 assert decoded.AdditionalProperties[0].Value == 0 and type(decoded.AdditionalProperties[0].Value) is float
+# A Python int supplied natively must encode as a number and decode as a float. Booleans are no Number values.
+native_zero = Annotation("zero", 0)
+native_numeric = Dataset.with_additional_properties(Dataset(["administrative"], ["native-number"]), [native_zero, native_zero])
+native_decoded = DatasetYaml.decode(DatasetYaml.encode(native_numeric))
+assert native_decoded.AdditionalProperties[0] is native_decoded.AdditionalProperties[1]
+assert native_decoded.AdditionalProperties[0].Value == 0 and type(native_decoded.AdditionalProperties[0].Value) is float
 rejects(lambda: DatasetYaml.decode("not: [valid YAML"))
 rejects(lambda: DatasetYaml.decode("type: Sample\nname: invalid root\n"))
 

@@ -17,14 +17,18 @@ let private messageOf (action: unit -> unit) =
 // The Fable targets have no ICollection check. Their native consumers assert frozen arrays and tuples.
 let private expectReadOnly (collection: obj) =
 #if !FABLE_COMPILER
+    let check (typed: System.Collections.Generic.ICollection<'T>) (extra: 'T) =
+        Expect.isTrue typed.IsReadOnly "Collections are read-only"
+        Expect.throws (fun () -> typed.Add(extra)) "Add on a read-only collection"
+        match box typed with
+        | :? System.Collections.Generic.IList<'T> as indexed ->
+            Expect.isFalse (box typed :? Array) "An array allows element assignment"
+            Expect.throws (fun () -> indexed.[0] <- extra) "Indexed set on a read-only list"
+        | _ -> ()
     match collection with
-    | :? System.Collections.Generic.ICollection<Annotation> as typed ->
-        Expect.isTrue typed.IsReadOnly "Annotation collections are read-only"
-        Expect.throws (fun () -> typed.Add(Annotation("extra"))) "Add on a read-only collection"
-    | :? System.Collections.Generic.ICollection<string> as typed ->
-        Expect.isTrue typed.IsReadOnly "String collections are read-only"
-        Expect.throws (fun () -> typed.Add("extra")) "Add on a read-only collection"
-    | _ -> ()
+    | :? System.Collections.Generic.ICollection<Annotation> as typed -> check typed (Annotation("extra"))
+    | :? System.Collections.Generic.ICollection<string> as typed -> check typed "extra"
+    | _ -> failwithf "Unrecognized collection type %s" (collection.GetType().FullName)
 #else
     ignore collection
 #endif
@@ -495,4 +499,70 @@ let private extensions = testList "extensions" [
             Expect.throws (fun () -> EntityBlob(invalid) |> ignore) "Invalid base64"
 ]
 
-let tests = testList "ARCBaseModel" [ construction; collections; domain; mapping; extensions ]
+let private names (items: seq<Annotation>) = items |> Seq.map (fun item -> item.Name) |> List.ofSeq
+
+// Each row checks that the copy has the new value and the original keeps the old one.
+let private check (get: 'a -> 'b) (original: 'a) (copy: 'a) (oldValue: 'b) (newValue: 'b) =
+    Expect.equal (get copy) newValue "The copy has the new value"
+    Expect.equal (get original) oldValue "The original keeps the old value"
+
+let private copies = testList "typed copies" [
+    testCase "typed copy methods replace one property and leave the original unchanged" <| fun _ ->
+        let before = [ Annotation("before") ]
+        let after = [ Annotation("after") ]
+        let organization = Organization("lab")
+        check (fun (x: Organization) -> x.Name) organization (Organization.withName(organization, "lab2")) "lab" "lab2"
+        let agent = Agent("a", givenName = "g", familyName = "f", emails = [ "e" ], identifiers = [ "i" ], additionalProperties = before)
+        check (fun (x: Agent) -> x.Name) agent (Agent.withName(agent, "b")) "a" "b"
+        check (fun (x: Agent) -> x.GivenName) agent (Agent.withGivenName(agent, Some "g2")) (Some "g") (Some "g2")
+        check (fun (x: Agent) -> x.FamilyName) agent (Agent.withFamilyName(agent, Some "f2")) (Some "f") (Some "f2")
+        check (fun (x: Agent) -> List.ofSeq x.Emails) agent (Agent.withEmails(agent, [ "e2"; "e2" ])) [ "e" ] [ "e2"; "e2" ]
+        check (fun (x: Agent) -> List.ofSeq x.Identifiers) agent (Agent.withIdentifiers(agent, [ "i2" ])) [ "i" ] [ "i2" ]
+        check (fun (x: Agent) -> names x.AdditionalProperties) agent (Agent.withAdditionalProperties(agent, after)) [ "before" ] [ "after" ]
+        let article = ScholarlyArticle("h", identifiers = [ "i" ], additionalProperties = before)
+        check (fun (x: ScholarlyArticle) -> x.Headline) article (ScholarlyArticle.withHeadline(article, "h2")) "h" "h2"
+        check (fun (x: ScholarlyArticle) -> List.ofSeq x.Identifiers) article (ScholarlyArticle.withIdentifiers(article, [ "i2" ])) [ "i" ] [ "i2" ]
+        check (fun (x: ScholarlyArticle) -> names x.AdditionalProperties) article (ScholarlyArticle.withAdditionalProperties(article, after)) [ "before" ] [ "after" ]
+        let annotation = Annotation("n", nameTAN = "n1", unitTAN = "u1")
+        check (fun (x: Annotation) -> x.NameTAN) annotation (Annotation.withNameTAN(annotation, Some "n2")) (Some "n1") (Some "n2")
+        check (fun (x: Annotation) -> x.UnitTAN) annotation (Annotation.withUnitTAN(annotation, Some "u2")) (Some "u1") (Some "u2")
+        let parameter = FormalParameter(nameTAN = "n1")
+        check (fun (x: FormalParameter) -> x.NameTAN) parameter (FormalParameter.withNameTAN(parameter, Some "n2")) (Some "n1") (Some "n2")
+        let dataset = Dataset([ "administrative" ], [ "id" ], license = "l1", datePublished = "p1", dateCreated = "c1", dateModified = "m1", additionalProperties = before)
+        check (fun (x: Dataset) -> x.License) dataset (Dataset.withLicense(dataset, Some "l2")) (Some "l1") (Some "l2")
+        check (fun (x: Dataset) -> x.DatePublished) dataset (Dataset.withDatePublished(dataset, Some "p2")) (Some "p1") (Some "p2")
+        check (fun (x: Dataset) -> x.DateCreated) dataset (Dataset.withDateCreated(dataset, Some "c2")) (Some "c1") (Some "c2")
+        check (fun (x: Dataset) -> x.DateModified) dataset (Dataset.withDateModified(dataset, Some "m2")) (Some "m1") (Some "m2")
+        check (fun (x: Dataset) -> names x.AdditionalProperties) dataset (Dataset.withAdditionalProperties(dataset, after)) [ "before" ] [ "after" ]
+        let termSet = DefinedTermSet("s", identifier = "i1")
+        check (fun (x: DefinedTermSet) -> x.Name) termSet (DefinedTermSet.withName(termSet, "s2")) "s" "s2"
+        check (fun (x: DefinedTermSet) -> x.Identifier) termSet (DefinedTermSet.withIdentifier(termSet, Some "i2")) (Some "i1") (Some "i2")
+        let term = DefinedTerm("t", identifier = "i1")
+        check (fun (x: DefinedTerm) -> x.Name) term (DefinedTerm.withName(term, "t2")) "t" "t2"
+        check (fun (x: DefinedTerm) -> x.Identifier) term (DefinedTerm.withIdentifier(term, Some "i2")) (Some "i1") (Some "i2")
+        let data = Data("p1", selectorFormat = "s1", encodingFormat = "e1", additionalProperties = before)
+        check (fun (x: Data) -> x.Path) data (Data.withPath(data, "p2")) "p1" "p2"
+        check (fun (x: Data) -> x.SelectorFormat) data (Data.withSelectorFormat(data, Some "s2")) (Some "s1") (Some "s2")
+        check (fun (x: Data) -> x.EncodingFormat) data (Data.withEncodingFormat(data, Some "e2")) (Some "e1") (Some "e2")
+        check (fun (x: Data) -> names x.AdditionalProperties) data (Data.withAdditionalProperties(data, after)) [ "before" ] [ "after" ]
+        let transformation = Process("n")
+        check (fun (x: Process) -> x.Name) transformation (Process.withName(transformation, "n2")) "n" "n2"
+        let recipe = Recipe(name = "n", description = "d", additionalProperties = before, version = "v1", url = "u1")
+        check (fun (x: Recipe) -> x.Name) recipe (Recipe.withName(recipe, Some "n2")) (Some "n") (Some "n2")
+        check (fun (x: Recipe) -> x.Description) recipe (Recipe.withDescription(recipe, Some "d2")) (Some "d") (Some "d2")
+        check (fun (x: Recipe) -> names x.AdditionalProperties) recipe (Recipe.withAdditionalProperties(recipe, after)) [ "before" ] [ "after" ]
+        check (fun (x: Recipe) -> x.Version) recipe (Recipe.withVersion(recipe, Some "v2")) (Some "v1") (Some "v2")
+        check (fun (x: Recipe) -> x.Url) recipe (Recipe.withUrl(recipe, Some "u2")) (Some "u1") (Some "u2")
+
+    testCase "typed copy methods reject null replacements and receivers of another class" <| fun _ ->
+        let sample = Sample("sample")
+        Expect.throws (fun () -> Sample.withName(sample, null) |> ignore) "Required scalar"
+        Expect.throws (fun () -> Sample.withAdditionalProperties(sample, Unchecked.defaultof<seq<Annotation>>) |> ignore) "Collection"
+        let descriptor = Descriptor(EntityReference.Sample sample)
+        Expect.throws (fun () -> Descriptor.withDescribes(descriptor, Unchecked.defaultof<EntityReference>) |> ignore) "Descriptor target"
+        Expect.throws (fun () -> Sample.withName(Unchecked.defaultof<Sample>, "n") |> ignore) "Null receiver"
+        // On .NET the unbox itself fails. The Fable targets reach the receiver check in the copy.
+        Expect.throws (fun () -> Sample.withName(unbox<Sample> (box (Data("p"))), "n") |> ignore) "Receiver of another class"
+]
+
+let tests = testList "ARCBaseModel" [ construction; collections; domain; mapping; extensions; copies ]

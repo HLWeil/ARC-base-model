@@ -180,6 +180,8 @@ const renamed = Sample.withName(withAnnotations, "renamed");
 assert.equal(renamed.Name, "renamed");
 assert.equal(withAnnotations.Name, "leaf");
 assert.equal(renamed.AdditionalProperties, withAnnotations.AdditionalProperties);
+assert.throws(() => Sample.withName(new Data("p"), "n"));
+assert.throws(() => Sample.withName(null, "n"));
 const appended = Sample.withAdditionalProperties(withAnnotations, [...withAnnotations.AdditionalProperties, annotation]);
 assert.equal(appended.AdditionalProperties.length, 3);
 assert.equal(withAnnotations.AdditionalProperties.length, 2);

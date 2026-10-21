@@ -204,8 +204,8 @@ module internal Model =
         let many key (convert: obj -> 'T) = links key row |> List.map (resolve >> convert) |> coll
         let one key = links key row |> List.tryHead |> Option.map resolve
         let endpoint key = one key |> Option.map (function :? Sample as v -> EntityReference.Sample v | :? Data as v -> EntityReference.Data v | _ -> invalidOp "Invalid endpoint")
-        // The bag is extended through the model's own With so that its Map is built by the model's bundle.
-        // On JavaScript the model and management bundles carry separate Map implementations, and a Map from one cannot be read by the other.
+        // The restore code extends the bag through the model's own With, so the model bundle builds the Map.
+        // On JavaScript the model and management bundles carry separate Map implementations that cannot read each other's maps.
         let properties = row.Extensions |> Map.fold (fun (bag: EntityPropertyBag) key cell -> bag.With(key, restoreExtension resolve cell)) (EntityPropertyBag.Empty())
         match entity with
         | :? Organization as v ->

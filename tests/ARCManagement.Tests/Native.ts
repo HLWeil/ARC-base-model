@@ -4,7 +4,7 @@ import { ARC } from "arc-management/arctrl";
 import { Dataset, Annotation, Sample, Data, EntityObject } from "arc-base-model";
 
 check(!("ARC" in Management), "Workspace ARC belongs to the arctrl entrypoint");
-// Cycles cannot be assembled from immutable values, so the detached fixture is decoded from anchored YAML.
+// Immutable values cannot form cycles, so the test decodes the cyclic fixture from anchored YAML.
 const sourceYaml = [
   "&o1",
   "type: Dataset",

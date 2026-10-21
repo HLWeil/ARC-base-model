@@ -1,6 +1,6 @@
 // Type-check through TestBaseModelNative. This file is deliberately not executed.
 import {
-  EntityObject, EntityCollection, EntityNull, EntityBlob, Agent, Annotation, Data, Dataset, DefinedTerm, DefinedTermSet, Descriptor,
+  EntityObject, EntityPropertyBag, EntityCollection, EntityNull, EntityBlob, Agent, Annotation, Data, Dataset, DefinedTerm, DefinedTermSet, Descriptor,
   FormalParameter, Organization, Process, Recipe, Sample, ScholarlyArticle,
 } from "arc-base-model";
 import type {
@@ -108,6 +108,8 @@ dataset.HasParts.push(dataset);
 dataset.ConformsTo[0] = "administrative";
 // @ts-expect-error The copy takes the property type, not a number.
 Sample.withName(sample, 42);
+// @ts-expect-error The property bag has no public constructor.
+new EntityPropertyBag();
 // @ts-expect-error Annotation values do not include booleans.
 Annotation.withValue(annotation, false);
 // @ts-expect-error Text is not an entity reference.

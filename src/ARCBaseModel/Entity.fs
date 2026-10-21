@@ -37,26 +37,35 @@ and [<AttachMembers>] EntityObject(entityType: string, ?id: string, ?additionalT
 #else
         this.MemberwiseClone() :?> EntityObject
 #endif
-    static member internal Copy<'T when 'T :> EntityObject>(value: 'T, change: 'T -> unit) : 'T =
-        let source = Construction.required "value" value :> EntityObject
-        let copy = unbox<'T> (source.CloneObject())
+    static member inline internal Copy<'T when 'T :> EntityObject>(value: 'T, change: 'T -> unit) : 'T =
+        match box value with
+        | :? 'T as typed ->
+            let copy = unbox<'T> ((typed :> EntityObject).CloneObject())
+            change copy
+            copy
+        | null -> nullArg "value"
+        | _ -> invalidArg "value" "The value is not an instance of the copy method's class."
+    // The generic statics accept any EntityObject. A type test against an unresolved 'T would always fail
+    // on the Fable targets, so they copy through this non-inline helper.
+    static member private CopyAny<'T when 'T :> EntityObject>(value: 'T, change: EntityObject -> unit) : 'T =
+        let copy = (Construction.required "value" value :> EntityObject).CloneObject()
         change copy
-        copy
+        unbox<'T> copy
     static member withId<'T when 'T :> EntityObject>(value: 'T, replacement: string option) : 'T =
-        EntityObject.Copy(value, fun copy -> copy.Common <- { copy.Common with Id = replacement })
+        EntityObject.CopyAny(value, fun copy -> copy.Common <- { copy.Common with Id = replacement })
     static member withAdditionalTypes<'T when 'T :> EntityObject>(value: 'T, replacement: seq<string>) : 'T =
         let types = Construction.collection "additionalTypes" replacement
-        EntityObject.Copy(value, fun copy -> copy.Common <- { copy.Common with AdditionalTypes = types })
+        EntityObject.CopyAny(value, fun copy -> copy.Common <- { copy.Common with AdditionalTypes = types })
     static member withProperty<'T when 'T :> EntityObject>(value: 'T, key: string, replacement: Entity) : 'T =
         Construction.required "key" key |> ignore
         Construction.required "replacement" replacement |> ignore
         if (Construction.required "value" value).Reserved.Contains(key) then
             invalidArg "key" "Reserved core property name."
-        EntityObject.Copy(value, fun copy ->
+        EntityObject.CopyAny(value, fun copy ->
             copy.Common <- { copy.Common with Properties = copy.Common.Properties.With(key, replacement) })
     static member withoutProperty<'T when 'T :> EntityObject>(value: 'T, key: string) : 'T =
         Construction.required "key" key |> ignore
-        EntityObject.Copy(value, fun copy ->
+        EntityObject.CopyAny(value, fun copy ->
             copy.Common <- { copy.Common with Properties = copy.Common.Properties.Without(key) })
 /// Case-sensitive extension properties. The owning object reserves its core property names.
 and [<AttachMembers>] EntityPropertyBag internal (values: Map<string, Entity>) =

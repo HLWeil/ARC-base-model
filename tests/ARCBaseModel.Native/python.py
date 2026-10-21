@@ -201,6 +201,8 @@ renamed = Sample.with_name(with_annotations, "renamed")
 assert renamed.Name == "renamed"
 assert with_annotations.Name == "leaf"
 assert renamed.AdditionalProperties is with_annotations.AdditionalProperties
+rejects(lambda: Sample.with_name(Data("p"), "n"))
+rejects(lambda: Sample.with_name(None, "n"))
 appended = Sample.with_additional_properties(with_annotations, (*with_annotations.AdditionalProperties, annotation))
 assert len(appended.AdditionalProperties) == 3
 assert len(with_annotations.AdditionalProperties) == 2

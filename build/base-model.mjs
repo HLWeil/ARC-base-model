@@ -31,7 +31,7 @@ const alternativeNames = new Set([
 // the domain API keeps internal.
 const hiddenMembers = new Set([
   "state", "State", "common", "Common", "reserved", "Reserved", "ReserveProperties", "CloneObject",
-  "Copy", "With", "Without", "Values", "Empty",
+  "Copy", "CopyAny", "With", "Without", "Values", "Empty",
 ]);
 const modelNames = new Set(Object.values(modelExports).flat());
 const probeNames = new Set([
@@ -233,12 +233,33 @@ async function stage(includeTests) {
     const aliases = names.filter(name => alternativeNames.has(name));
     return `export { ${classes.join(", ")} } from "./${module}.ts";\n`
       + (aliases.length ? `export type { ${aliases.join(", ")} } from "./${module}.ts";\n` : "");
-  }).join("")
-    // ARCManagement's bundle imports internal state records and construction helpers from this
-    // package so both share one class identity. index.d.ts still declares only the curated API.
-    + ["Internal", ...Object.keys(modelExports)].map(module => `export * from "./${module}.ts";\n`).join(""));
+  }).join(""));
+  // ARCManagement's bundle imports internal state records and construction helpers from the
+  // internal entry. It shares chunks with the root entry, so both see one class identity.
+  const internalModules = ["Internal", ...Object.keys(modelExports)];
+  const exportOwners = new Map();
+  for (const module of internalModules) {
+    const parsed = ts.createSourceFile(`${module}.ts`, fs.readFileSync(path.join(source, `${module}.ts`), "utf8"),
+      ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    for (const statement of parsed.statements) {
+      const exported = statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword);
+      if (!exported) continue;
+      const declared = ts.isVariableStatement(statement)
+        ? statement.declarationList.declarations.map(declaration => declaration.name.getText(parsed))
+        : statement.name ? [statement.name.text] : [];
+      for (const name of declared) {
+        if (exportOwners.has(name) && exportOwners.get(name) !== module) throw new Error(`Export name ${name} appears in both ${exportOwners.get(name)} and ${module}. Star exports would drop it silently.`);
+        exportOwners.set(name, module);
+      }
+    }
+  }
+  const internalIndex = path.join(source, "internal-entry.ts");
+  write(internalIndex, internalModules.map(module => `export * from "./${module}.ts";\n`).join(""));
 
-  const entries = { "node_modules/arc-base-model/index": modelIndex };
+  const entries = {
+    "node_modules/arc-base-model/index": modelIndex,
+    "node_modules/arc-base-model/internal": internalIndex,
+  };
   let probeTypes;
   if (includeTests) {
     const probe = path.join(testSource, "MappingProbe.ts");
@@ -269,12 +290,20 @@ async function stage(includeTests) {
           format: "es",
           entryFileNames: "[name].js",
           chunkFileNames: "node_modules/arc-base-model/chunks/[name]-[hash].js",
+          // The model code lives in one shared chunk, so the root entry re-exports only its curated names.
+          manualChunks(id) {
+            const normalized = id.replaceAll("\\", "/");
+            if (normalized === modelIndex.replaceAll("\\", "/") || normalized === internalIndex.replaceAll("\\", "/")) return undefined;
+            return normalized.startsWith(source.replaceAll("\\", "/") + "/") ? "model" : undefined;
+          },
         },
       },
     },
   });
   write(path.join(javascript, "package.json"), JSON.stringify({ private: true, type: "module" }, null, 2) + "\n");
-  write(path.join(modelPackage, "package.json"), packageManifest("arc-base-model"));
+  const modelManifest = JSON.parse(packageManifest("arc-base-model"));
+  modelManifest.exports["./internal"] = { import: "./internal.js" };
+  write(path.join(modelPackage, "package.json"), JSON.stringify(modelManifest, null, 2) + "\n");
   write(path.join(modelPackage, "index.d.ts"), modelTypes);
   const typeFiles = [path.join(modelPackage, "index.d.ts")];
   if (includeTests) {

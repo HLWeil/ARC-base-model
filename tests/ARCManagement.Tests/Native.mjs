@@ -16,7 +16,7 @@ const second = session.createArc(root());
 assert.equal("ARC" in Management, false);
 assert.ok(first instanceof ManagedGraph);
 assert.equal("save" in first, false);
-// Cycles cannot be assembled from immutable values, so the detached fixture is decoded from anchored YAML.
+// Immutable values cannot form cycles, so the test decodes the cyclic fixture from anchored YAML.
 const detached = DatasetYaml.decode([
   "&o1",
   "type: Dataset",

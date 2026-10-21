@@ -96,7 +96,7 @@ async function stage() {
   write(workspaceEntry, [...workspaceExports].map(([name, filename]) => `export { ${name} } from "./src/ARCManagement/${filename}";`).join("\n") + "\n");
   // All compiled consumers use the existing curated package classes. This also
   // keeps dependency bundles independent when packing the three artifacts.
-  const canonical = new Map([["ARCBaseModel", "arc-base-model"], ["PolyglotSQLite", "polyglot-sqlite"]]);
+  const canonical = new Map([["ARCBaseModel", "arc-base-model/internal"], ["PolyglotSQLite", "polyglot-sqlite"]]);
   await viteBuild({ configFile: false, root: repository, publicDir: false, plugins: [{
     name: "arc-management-shared-classes", enforce: "pre", resolveId(specifier, importer) {
       if (!importer || !specifier.startsWith(".")) return null;
@@ -112,7 +112,7 @@ async function stage() {
       "node_modules/arc-management/index": entry,
       "node_modules/arc-management/arctrl": workspaceEntry,
       tests: path.join(generated, "Main.ts"),
-    }, external: id => id.startsWith("node:") || ["arc-base-model", "polyglot-sqlite", "better-sqlite3"].includes(id), preserveEntrySignatures: "strict",
+    }, external: id => id.startsWith("node:") || ["arc-base-model", "arc-base-model/internal", "polyglot-sqlite", "better-sqlite3"].includes(id), preserveEntrySignatures: "strict",
     output: { format: "es", entryFileNames: "[name].js", chunkFileNames: "node_modules/arc-management/chunks/[name]-[hash].js" } },
   } });
   write(path.join(javascript, "package.json"), '{"private":true,"type":"module"}\n');

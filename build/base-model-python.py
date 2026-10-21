@@ -75,7 +75,7 @@ ERASED_FIELDS = {
 # Implementation members that Fable emits as public Python but the domain API keeps internal.
 HIDDEN_MEMBERS = {
     "State", "Common", "Reserved", "ReserveProperties", "CloneObject",
-    "Copy", "With", "Without", "Values", "Empty",
+    "Copy", "CopyAny", "With", "Without", "Values", "Empty",
 }
 CLASS_MODULES = {
     name: module for module, names in MODULE_CLASSES.items() for name in names
@@ -390,7 +390,7 @@ def module_stub(module: str, parsed: ast.Module) -> str:
         if owner == module:
             body.append(f"{alias}: TypeAlias = {expression}")
     if module == "entity":
-        # Shared by the generic copy functions on EntityObject.
+        # The generic copy functions on EntityObject share this type variable.
         body.append('T = TypeVar("T", bound="EntityObject")')
     body.extend(class_stub(classes[name]) for name in expected)
     body_text = "\n\n".join(body)
