@@ -38,7 +38,7 @@ module private Ownership =
                 if obj.ReferenceEquals(owner,repository) then owners.RemoveAt(index))
 
 /// Owns the connection. ARC contexts own projections, never connections.
-type Repository private (database: Database) =
+type internal Repository private (database: Database) =
     let mutable closed = false
     let mutable busy = false
     let gate = obj()

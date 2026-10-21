@@ -6,7 +6,7 @@ open ARCManagement.Internal
 open ARCtrl.Helper
 
 /// Workspace locations, publication, baselines, and source-selection policy.
-module Workspace =
+module internal Workspace =
 
     let databaseFileName = "arc.sqlite"
 

@@ -6,7 +6,7 @@ let project = "ProcessCore"
 
 let testProject = "tests/ProcessCore.Tests"
 
-let solutionFile = $"{project}.sln"
+let solutionFile = "ARCBaseModel.sln"
 
 let configuration = "Release"
 
