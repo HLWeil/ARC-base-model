@@ -117,6 +117,22 @@ module internal Codec =
     let decodeState source =
         let element = YAMLicious.Reader.read source
         { Root = value "root" element; Entities = items "entities" element |> List.map readRow }
+    let encodeChanges (changes: Change list) =
+        if List.isEmpty changes then ""
+        else
+            let record (change: Change) =
+                mapping (["id", text change.EntityId; "ordinal", text (change.Ordinal.ToString())]
+                         @ (change.Before |> Option.map (fun row -> "before", rowElement row) |> Option.toList)
+                         @ (change.After |> Option.map (fun row -> "after", rowElement row) |> Option.toList))
+            mapping ["changes", sequence (List.map record changes)] |> write
+    let decodeChanges source : Change list =
+        if source = "" then []
+        else
+            items "changes" (YAMLicious.Reader.read source) |> List.map (fun element ->
+                { EntityId = value "id" element
+                  Ordinal = System.Int64.Parse(value "ordinal" element)
+                  Before = field "before" element |> Option.map readRow
+                  After = field "after" element |> Option.map readRow })
     let rootElement state =
         let rows = state.Entities |> List.map (fun row -> row.Id, row) |> Map.ofList
         let emitted = System.Collections.Generic.HashSet<string>()

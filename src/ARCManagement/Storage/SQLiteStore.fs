@@ -1,5 +1,6 @@
 namespace ARCManagement.Internal
 
+open System.Collections.Generic
 open ARCManagement.Helper
 
 open ARCManagement.Internal
@@ -12,6 +13,24 @@ type internal Database(connection: SqliteConnection, path: string, close: unit -
     member _.Connection = connection
     member _.Path = path
     member _.Close() = close()
+
+/// Comparable column values for the diff writer. SqlValue has no structural equality.
+[<RequireQualifiedAccess>]
+type internal Sql =
+    | Null
+    | Text of string
+    | Real of float
+
+/// One row of entity_extension, flattened from an extension tree.
+type internal ExtRow = { XPath: string; XParent: string option; XPosition: int option; XStorage: string; XText: string option; XNumber: float option; XBool: bool option; XTarget: string option }
+
+/// The relational rows that represent one entity: scalar columns, ordered lists, process endpoints and extensions.
+type internal Projection =
+    { PColumns: (string * Sql) list
+      PLists: (string * string * string * string list) list
+      PEndpoints: (string * string option * string option) list
+      PExtensions: (string * ExtRow list) list }
+
 module internal Store =
     let openDatabase path =
         let connection = if path = ":memory:" then Sqlite.OpenInMemory() else Sqlite.OpenFile(path)
@@ -31,237 +50,463 @@ module internal Store =
             |> invalidOp
         if db.Query("PRAGMA foreign_key_check").Count > 0 then
             invalidOp "Core database contains invalid foreign keys."
-    let private tables = ["Dataset","dataset"; "Process","process"; "Sample","sample"; "Data","data"; "Recipe","recipe"; "Annotation","annotation"; "FormalParameter","formal_parameter"; "DefinedTerm","defined_term"; "DefinedTermSet","defined_term_set"; "Descriptor","descriptor"; "Agent","agent"; "Organization","organization"; "ScholarlyArticle","scholarly_article"]
-    let private extensionDDL = """
-CREATE TABLE IF NOT EXISTS entity_extension(
- arc_id TEXT NOT NULL, owner_id TEXT NOT NULL, property TEXT NOT NULL, path TEXT NOT NULL,
- parent_path TEXT, position INTEGER, storage TEXT NOT NULL CHECK(storage IN ('text','number','bool','null','blob','object','collection')),
- value_text TEXT, value_number REAL, value_bool INTEGER CHECK(value_bool IN (0,1)), value_blob BLOB,
- target_id TEXT, PRIMARY KEY(arc_id,owner_id,property,path),
- FOREIGN KEY(arc_id,owner_id) REFERENCES entity(arc_id,id),
- FOREIGN KEY(arc_id,target_id) REFERENCES entity(arc_id,id),
- FOREIGN KEY(arc_id,owner_id,property,parent_path) REFERENCES entity_extension(arc_id,owner_id,property,path) DEFERRABLE INITIALLY DEFERRED,
- CHECK((path='' AND parent_path IS NULL AND position IS NULL) OR (path<>'' AND parent_path IS NOT NULL AND position>=0)),
- CHECK((storage='text' AND value_text IS NOT NULL AND value_number IS NULL AND value_bool IS NULL AND value_blob IS NULL AND target_id IS NULL)
- OR (storage='number' AND value_text IS NULL AND value_number IS NOT NULL AND value_bool IS NULL AND value_blob IS NULL AND target_id IS NULL)
- OR (storage='bool' AND value_text IS NULL AND value_number IS NULL AND value_bool IS NOT NULL AND value_blob IS NULL AND target_id IS NULL)
- OR (storage='blob' AND value_text IS NULL AND value_number IS NULL AND value_bool IS NULL AND value_blob IS NOT NULL AND target_id IS NULL)
- OR (storage='object' AND value_text IS NULL AND value_number IS NULL AND value_bool IS NULL AND value_blob IS NULL AND target_id IS NOT NULL)
- OR (storage IN ('null','collection') AND value_text IS NULL AND value_number IS NULL AND value_bool IS NULL AND value_blob IS NULL AND target_id IS NULL)));
-CREATE INDEX IF NOT EXISTS extension_target ON entity_extension(target_id,arc_id,owner_id);
-CREATE INDEX IF NOT EXISTS extension_text_search ON entity_extension(property,value_text,arc_id,owner_id);
-CREATE INDEX IF NOT EXISTS extension_number_search ON entity_extension(property,value_number,arc_id,owner_id);
-"""
-#if FABLE_COMPILER && !FABLE_COMPILER_PYTHON
-    [<Emit("new Uint8Array($0)")>]
-    let private byteBuffer (_values: byte[]) : byte[] = nativeOnly
-#else
-    let private byteBuffer values = values
-#endif
-    let private blobBytes (source: string) =
-        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-        let result = ResizeArray<byte>()
-        let mutable buffer = 0
-        let mutable bits = 0
-        for c in source do
-            if c <> '=' then
-                buffer <- (buffer <<< 6) ||| alphabet.IndexOf(c)
-                bits <- bits + 6
-                if bits >= 8 then
-                    bits <- bits - 8
-                    result.Add(byte ((buffer >>> bits) &&& 255))
-                    buffer <- buffer &&& ((1 <<< bits) - 1)
-        result.ToArray() |> byteBuffer
-    let mirror (db: SqliteConnection) arcId state =
-        let execute db sql values = execute db sql (("arc",text arcId)::values)
-        for table in ["entity_extension"; "entity_reference"; "entity_value"; "dataset_part"; "dataset_process"] do execute db ("DELETE FROM " + table + " WHERE arc_id=$arc") []
-        for _,table in tables do execute db ("DELETE FROM " + table + " WHERE arc_id=$arc") []
-        execute db "DELETE FROM entity WHERE arc_id=$arc" []
-        for row in state.Entities do
-            execute db "INSERT INTO entity(arc_id,id,type) VALUES($arc,$id,$type)" ["id",text row.Id; "type",text row.Kind]
-        for row in state.Entities do
-            let table = tables |> List.tryFind (fun (kind,_) -> kind = row.Kind) |> Option.map snd
-            let payload = Codec.rowElement row |> Codec.write
-            if row.Kind = "Process" then
-                let endpoint key kind = Model.links key row |> List.tryHead |> Option.filter (fun id -> state.Entities |> List.exists (fun r -> r.Id = id && r.Kind = kind))
-                execute db "INSERT INTO process(arc_id,id,name,input_sample_id,output_sample_id,input_data_id,output_data_id,payload) VALUES($arc,$id,$name,$input,$output,$inputData,$outputData,$payload)"
-                    ["id",text row.Id; "name",optional(Model.text "name" row); "input",optional(endpoint "input" "Sample"); "output",optional(endpoint "output" "Sample"); "inputData",optional(endpoint "input" "Data"); "outputData",optional(endpoint "output" "Data"); "payload",text payload]
-            elif row.Kind = "Sample" then
-                execute db "INSERT INTO sample(arc_id,id,name,payload) VALUES($arc,$id,$name,$payload)" ["id",text row.Id; "name",optional(Model.text "name" row); "payload",text payload]
-            elif table.IsSome then execute db ("INSERT INTO " + table.Value + "(arc_id,id,payload) VALUES($arc,$id,$payload)") ["id",text row.Id; "payload",text payload]
-        for row in state.Entities do
-            for key,cell in Map.toList row.Properties do
-                let value position storage stringValue numberValue =
-                    execute db "INSERT INTO entity_value VALUES($arc,$id,$property,$position,$storage,$text,$number)"
-                        ["id",text row.Id; "property",text key; "position",SqlValue.Integer(int64 position); "storage",text storage; "text",optional stringValue; "number",numberValue |> Option.map SqlValue.Real |> Option.defaultWith SqlValue.Null]
-                match cell with
-                | Text v -> value 0 "text" (Some v) None
-                | Number v -> value 0 "number" None (Some v)
-                | Texts vs -> for position,v in List.indexed vs do value position "texts" (Some v) None
-                | Links vs ->
-                    for position,id in List.indexed vs do
-                        execute db "INSERT INTO entity_reference VALUES($arc,$owner,$property,$position,$target)"
-                            ["owner",text row.Id; "property",text key; "position",SqlValue.Integer(int64 position); "target",text id]
-                        if row.Kind = "Dataset" && (key = "hasParts" || key = "processes") then
-                            let table, owner, target = if key = "hasParts" then "dataset_part","parent_id","child_id" else "dataset_process","dataset_id","process_id"
-                            execute db ("INSERT INTO " + table + "(arc_id," + owner + ",position," + target + ") VALUES($arc,$owner,$position,$target)")
-                                ["owner",text row.Id; "position",SqlValue.Integer(int64 position); "target",text id]
-        for row in state.Entities do
-            for KeyValue(key, cell) in row.Extensions do
-                let rec insert path parent position cell =
-                    let storage, textValue, numberValue, boolValue, blobValue, target =
-                        match cell with
-                        | ExtensionText v -> "text", text v, SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), SqlValue.Null()
-                        | ExtensionNumber v -> "number", SqlValue.Null(), SqlValue.Real(v), SqlValue.Null(), SqlValue.Null(), SqlValue.Null()
-                        | ExtensionBool v -> "bool", SqlValue.Null(), SqlValue.Null(), SqlValue.Integer(if v then 1L else 0L), SqlValue.Null(), SqlValue.Null()
-                        | ExtensionBlob v -> "blob", SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), SqlValue.Blob(blobBytes v), SqlValue.Null()
-                        | ExtensionObject id -> "object", SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), text id
-                        | ExtensionNull -> "null", SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), SqlValue.Null()
-                        | ExtensionCollection _ -> "collection", SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), SqlValue.Null(), SqlValue.Null()
-                    execute db "INSERT INTO entity_extension VALUES($arc,$owner,$key,$path,$parent,$position,$storage,$text,$number,$bool,$blob,$target)"
-                        ["owner", text row.Id; "key", text key; "path", text path; "parent", optional parent
-                         "position", position |> Option.map (int64 >> SqlValue.Integer) |> Option.defaultWith SqlValue.Null
-                         "storage", text storage; "text", textValue; "number", numberValue; "bool", boolValue; "blob", blobValue; "target", target]
-                    match cell with
-                    | ExtensionCollection values ->
-                        for index, value in List.indexed values do insert (path + "/" + string index) (Some path) (Some index) value
-                    | _ -> ()
-                insert "" None None cell
+
+    let private sqlOf value =
+        match value with
+        | Sql.Null -> SqlValue.Null()
+        | Sql.Text v -> SqlValue.Text v
+        | Sql.Real v -> SqlValue.Real v
+    let private sqlOfOption value = match value with Some v -> SqlValue.Text v | None -> SqlValue.Null()
+    let private integer (value: int) = SqlValue.Integer(int64 value)
+    let private realOf (value: SqlValue) = if value.Kind = "integer" then float (value.AsInteger()) else value.AsReal()
+
+    /// Whitespace runs collapse to one space, so stored statement text compares independent of layout.
+    let private collapse (value: string) =
+        let builder = System.Text.StringBuilder()
+        let mutable pending = false
+        for c in value do
+            if c = ' ' || c = '\n' || c = '\r' || c = '\t' then pending <- builder.Length > 0
+            else
+                if pending then builder.Append(' ') |> ignore
+                pending <- false
+                builder.Append(c) |> ignore
+        builder.ToString()
+
+    let private objectName (statement: string) =
+        let name = statement.Split(' ').[2]
+        let index = name.IndexOf('(')
+        if index >= 0 then name.Substring(0, index) else name
+
     let initialize (db: SqliteConnection) =
-        let entityTables = tables |> List.map (fun (_,table) ->
-            let fields =
-                if table = "process" then
-                    "name TEXT NOT NULL, input_sample_id TEXT, output_sample_id TEXT, input_data_id TEXT, output_data_id TEXT, "
-                elif table = "sample" then "name TEXT NOT NULL, "
-                else ""
-            let endpoints =
-                if table = "process" then
-                    ["input_sample_id","sample"; "output_sample_id","sample"; "input_data_id","data"; "output_data_id","data"]
-                    |> List.map (fun (column,target) -> ", FOREIGN KEY(arc_id," + column + ") REFERENCES " + target + "(arc_id,id) DEFERRABLE INITIALLY DEFERRED")
-                    |> String.concat ""
-                else ""
-            "CREATE TABLE " + table + "(arc_id TEXT NOT NULL, id TEXT NOT NULL, " + fields +
-            "payload TEXT NOT NULL, PRIMARY KEY(arc_id,id), FOREIGN KEY(arc_id,id) REFERENCES entity(arc_id,id)" + endpoints + ");") |> String.concat "\n"
         // DDL and metadata are initialized together; never partially initialize a repository.
         db.WithTransaction(fun () ->
-            let ddl = ("""
-CREATE TABLE repository(singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL);
-INSERT INTO repository VALUES(1,4);
-CREATE TABLE session(arc_id TEXT NOT NULL PRIMARY KEY, root_id TEXT NOT NULL, folder TEXT,
- state TEXT NOT NULL, baseline TEXT, saved_graph TEXT, cursor INTEGER NOT NULL, revision INTEGER NOT NULL,
- FOREIGN KEY(arc_id,root_id) REFERENCES dataset(arc_id,id) DEFERRABLE INITIALLY DEFERRED);
-CREATE TABLE entity(arc_id TEXT NOT NULL REFERENCES session(arc_id), id TEXT NOT NULL, type TEXT NOT NULL, PRIMARY KEY(arc_id,id));
-            """ + entityTables + """
-CREATE TABLE entity_value(arc_id TEXT NOT NULL, entity_id TEXT NOT NULL, property TEXT NOT NULL,
- position INTEGER NOT NULL CHECK(position>=0), storage TEXT NOT NULL CHECK(storage IN ('text','number','texts')),
- value_text TEXT, value_number REAL, PRIMARY KEY(arc_id,entity_id,property,position),
- FOREIGN KEY(arc_id,entity_id) REFERENCES entity(arc_id,id),
- CHECK((storage='number' AND value_text IS NULL AND value_number IS NOT NULL) OR (storage<>'number' AND value_text IS NOT NULL AND value_number IS NULL)));
-CREATE TABLE entity_reference(arc_id TEXT NOT NULL, owner_id TEXT NOT NULL, property TEXT NOT NULL,
- position INTEGER NOT NULL CHECK(position>=0), target_id TEXT NOT NULL, PRIMARY KEY(arc_id,owner_id,property,position),
- FOREIGN KEY(arc_id,owner_id) REFERENCES entity(arc_id,id), FOREIGN KEY(arc_id,target_id) REFERENCES entity(arc_id,id));
-CREATE INDEX reference_target ON entity_reference(target_id,arc_id,owner_id);
-CREATE INDEX entity_type ON entity(type,arc_id,id);
-CREATE INDEX value_text_search ON entity_value(property,value_text,arc_id,entity_id);
-CREATE INDEX value_number_search ON entity_value(property,value_number,arc_id,entity_id);
-CREATE TABLE dataset_part(arc_id TEXT NOT NULL, parent_id TEXT NOT NULL, position INTEGER NOT NULL CHECK(position>=0), child_id TEXT NOT NULL,
- PRIMARY KEY(arc_id,parent_id,position), FOREIGN KEY(arc_id,parent_id) REFERENCES dataset(arc_id,id), FOREIGN KEY(arc_id,child_id) REFERENCES dataset(arc_id,id));
-CREATE TABLE dataset_process(arc_id TEXT NOT NULL, dataset_id TEXT NOT NULL, position INTEGER NOT NULL CHECK(position>=0), process_id TEXT NOT NULL,
- PRIMARY KEY(arc_id,dataset_id,position), FOREIGN KEY(arc_id,dataset_id) REFERENCES dataset(arc_id,id), FOREIGN KEY(arc_id,process_id) REFERENCES process(arc_id,id));
-CREATE TABLE history(arc_id TEXT NOT NULL REFERENCES session(arc_id), sequence INTEGER NOT NULL, operation_id TEXT NOT NULL, kind TEXT NOT NULL,
- before_state TEXT NOT NULL, after_state TEXT NOT NULL, PRIMARY KEY(arc_id,sequence));
-CREATE TABLE journal(arc_id TEXT NOT NULL REFERENCES session(arc_id), sequence INTEGER NOT NULL, operation_id TEXT NOT NULL, kind TEXT NOT NULL,
- action TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(arc_id,sequence));
-CREATE TABLE arc_archive(archive_id TEXT NOT NULL PRIMARY KEY, arc_id TEXT NOT NULL, root_id TEXT NOT NULL, folder TEXT,
- state TEXT NOT NULL, baseline TEXT, saved_graph TEXT, cursor INTEGER NOT NULL, revision INTEGER NOT NULL);
-CREATE TABLE archived_history(archive_id TEXT NOT NULL REFERENCES arc_archive(archive_id), sequence INTEGER NOT NULL,
- operation_id TEXT NOT NULL, kind TEXT NOT NULL, before_state TEXT NOT NULL, after_state TEXT NOT NULL, PRIMARY KEY(archive_id,sequence));
-CREATE TABLE archived_journal(archive_id TEXT NOT NULL REFERENCES arc_archive(archive_id), sequence INTEGER NOT NULL,
- operation_id TEXT NOT NULL, kind TEXT NOT NULL, action TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(archive_id,sequence));
-            """ + extensionDDL)
-            for statement in ddl.Split(';') do
-                if statement.Trim() <> "" then db.Execute(statement))
+            for statement in CoreSchema.ddl do db.Execute(statement) |> ignore
+            execute db "INSERT INTO repository(singleton,schema_version) VALUES(1,$version)" ["version", SqlValue.Integer(CoreSchema.version)] |> ignore)
 
     let validateRepository (db: SqliteConnection) =
         let rows = db.Query("SELECT schema_version FROM repository WHERE singleton=1")
-        if rows.Count <> 1 || rows[0].Get(0).AsInteger() <> 4L then
-            invalidOp "Unsupported ARC repository schema. Expected version 4; legacy sessions are not migrated."
+        if rows.Count <> 1 || rows[0].Get(0).AsInteger() <> CoreSchema.version then
+            invalidOp "Unsupported ARC repository schema. Expected version 5; older repositories are not migrated. Re-import the ARC from arc.yml."
         if (db.Query("PRAGMA foreign_keys")).[0].Get(0).AsInteger() <> 1L then
             invalidOp "ARC repositories require foreign-key enforcement."
-        // Validate columns, keys and relationship scopes through schema metadata.
-        // Do not deserialize snapshots or scan every ARC while opening a database.
-        let shapes = [
-            "repository","singleton,schema_version",["singleton"]
-            "session","arc_id,root_id,folder,state,baseline,saved_graph,cursor,revision",["arc_id"]
-            "entity","arc_id,id,type",["arc_id";"id"]
-            "entity_value","arc_id,entity_id,property,position,storage,value_text,value_number",["arc_id";"entity_id";"property";"position"]
-            "entity_reference","arc_id,owner_id,property,position,target_id",["arc_id";"owner_id";"property";"position"]
-            "entity_extension","arc_id,owner_id,property,path,parent_path,position,storage,value_text,value_number,value_bool,value_blob,target_id",["arc_id";"owner_id";"property";"path"]
-            "dataset_part","arc_id,parent_id,position,child_id",["arc_id";"parent_id";"position"]
-            "dataset_process","arc_id,dataset_id,position,process_id",["arc_id";"dataset_id";"position"]
-            "history","arc_id,sequence,operation_id,kind,before_state,after_state",["arc_id";"sequence"]
-            "journal","arc_id,sequence,operation_id,kind,action,revision",["arc_id";"sequence"]
-            "arc_archive","archive_id,arc_id,root_id,folder,state,baseline,saved_graph,cursor,revision",["archive_id"]
-            "archived_history","archive_id,sequence,operation_id,kind,before_state,after_state",["archive_id";"sequence"]
-            "archived_journal","archive_id,sequence,operation_id,kind,action,revision",["archive_id";"sequence"]
-        ]
-        let typedShapes = tables |> List.map (fun (_,table) ->
-            let fields = if table = "process" then ",name,input_sample_id,output_sample_id,input_data_id,output_data_id" elif table = "sample" then ",name" else ""
-            table,"arc_id,id,payload" + fields,["arc_id";"id"])
-        for table,columns,key in shapes @ typedShapes do
-            db.Query("SELECT " + columns + " FROM " + table + " LIMIT 0") |> ignore
-            let actualKey = db.Query("PRAGMA table_info(" + table + ")")
-                            |> Seq.filter (fun row -> row.GetByName("pk").AsInteger() > 0L)
-                            |> Seq.sortBy (fun row -> row.GetByName("pk").AsInteger())
-                            |> Seq.map (fun row -> row.GetByName("name").AsText()) |> Seq.toList
-            if actualKey <> key then invalidOp ("Invalid ARC repository primary key: " + table)
-        let relationships = [
-            "session","dataset",["arc_id","arc_id";"root_id","id"]
-            "entity","session",["arc_id","arc_id"]
-            "entity_value","entity",["arc_id","arc_id";"entity_id","id"]
-            "entity_reference","entity",["arc_id","arc_id";"owner_id","id"]
-            "entity_reference","entity",["arc_id","arc_id";"target_id","id"]
-            "entity_extension","entity",["arc_id","arc_id";"owner_id","id"]
-            "entity_extension","entity",["arc_id","arc_id";"target_id","id"]
-            "entity_extension","entity_extension",["arc_id","arc_id";"owner_id","owner_id";"property","property";"parent_path","path"]
-            "dataset_part","dataset",["arc_id","arc_id";"parent_id","id"]
-            "dataset_part","dataset",["arc_id","arc_id";"child_id","id"]
-            "dataset_process","dataset",["arc_id","arc_id";"dataset_id","id"]
-            "dataset_process","process",["arc_id","arc_id";"process_id","id"]
-            "history","session",["arc_id","arc_id"]
-            "journal","session",["arc_id","arc_id"]
-            "archived_history","arc_archive",["archive_id","archive_id"]
-            "archived_journal","arc_archive",["archive_id","archive_id"]
-        ]
-        let typedRelationships = tables |> List.map (fun (_,table) -> table,"entity",["arc_id","arc_id";"id","id"])
-        let endpoints = ["input_sample_id","sample";"output_sample_id","sample";"input_data_id","data";"output_data_id","data"]
-                        |> List.map (fun (column,target) -> "process",target,["arc_id","arc_id";column,"id"])
-        for table,target,columns in relationships @ typedRelationships @ endpoints do
-            let actual = db.Query("PRAGMA foreign_key_list(" + table + ")")
-                         |> Seq.groupBy (fun row -> row.GetByName("id").AsInteger())
-                         |> Seq.map (fun (_,rows) ->
-                             let rows = rows |> Seq.sortBy (fun row -> row.GetByName("seq").AsInteger()) |> Seq.toList
-                             rows.Head.GetByName("table").AsText(), rows |> List.map (fun row -> row.GetByName("from").AsText(),row.GetByName("to").AsText()))
-            if not (actual |> Seq.exists (fun pair -> pair = (target,columns))) then
-                invalidOp ("Invalid ARC repository foreign key: " + table + " -> " + target)
+        // Every object of the expected schema must exist with identical text. Snapshots are not read.
+        let stored = Dictionary<string, string>()
+        for row in db.Query("SELECT name,sql FROM sqlite_master WHERE sql IS NOT NULL") do
+            stored[row.GetByName("name").AsText()] <- row.GetByName("sql").AsText()
+        for statement in CoreSchema.ddl do
+            let name = objectName statement
+            // A boolean avoids a match with a unit branch, which Fable Python compiles to an unconditional raise.
+            let matches = match stored.TryGetValue name with | true, sql -> collapse sql = collapse statement | _ -> false
+            if not matches then invalidOp ("Invalid ARC repository schema: " + name)
 
     let metadata (db: SqliteConnection) arcId =
-        let rows = db.Query("SELECT * FROM session WHERE arc_id=$arc", parameters ["arc",text arcId])
+        let rows = db.Query("SELECT * FROM arc WHERE arc_id=$arc", parameters ["arc",text arcId])
         if rows.Count <> 1 then invalidArg "arcId" "Unknown ARC entry."
         rows[0]
+
+    // ---- projection of rows onto the core profile ----
+
+    let private referenceColumns (spec: Schema.EntitySpec) =
+        spec.Properties |> List.collect (fun property ->
+            match property.Storage, property.Shape with
+            | Schema.Storage.Column column, Schema.Shape.Link _ -> [column]
+            | Schema.Storage.TextOrLinkColumns(_, link), _ -> [link]
+            | _ -> [])
+
+    let private flattenExtension (cell: ExtensionCell) =
+        let rows = ResizeArray<ExtRow>()
+        let rec visit path parent position cell =
+            let add storage value number flag target =
+                rows.Add({ XPath = path; XParent = parent; XPosition = position; XStorage = storage; XText = value; XNumber = number; XBool = flag; XTarget = target })
+            match cell with
+            | ExtensionText v -> add "text" (Some v) None None None
+            | ExtensionNumber v -> add "number" None (Some v) None None
+            | ExtensionBool v -> add "bool" None None (Some v) None
+            | ExtensionNull -> add "null" None None None None
+            | ExtensionBlob v -> add "blob" (Some v) None None None
+            | ExtensionObject id -> add "object" None None None (Some id)
+            | ExtensionCollection values ->
+                add "collection" None None None None
+                values |> List.iteri (fun index value -> visit (path + "/" + string index) (Some path) (Some index) value)
+        visit "" None None cell
+        List.ofSeq rows
+
+    /// Rows that represent an entity. The kind lookup decides between sample and data columns.
+    let private project (kindOf: string -> string option) (row: EntityRow) : Projection =
+        let cell key = Map.tryFind key row.Properties
+        let single key = match cell key with Some(Links [id]) -> Some id | _ -> None
+        let extensions = row.Extensions |> Map.toList |> List.map (fun (key, value) -> key, flattenExtension value)
+        match Schema.tryEntity row.Kind with
+        | None ->
+            { PColumns = []; PLists = ["entity_additional_type", "entity_id", "value", Model.texts "additionalTypes" row]; PEndpoints = []; PExtensions = extensions }
+        | Some spec ->
+            let columns = ResizeArray<string * Sql>()
+            let lists = ResizeArray<string * string * string * string list>()
+            let endpoints = ResizeArray<string * string option * string option>()
+            for property in spec.Properties do
+                let key = property.Name
+                match property.Storage with
+                | Schema.Storage.Column column ->
+                    columns.Add(column, (match cell key with Some(Text v) -> Sql.Text v | Some(Links [id]) -> Sql.Text id | _ -> Sql.Null))
+                | Schema.Storage.TextOrNumberColumns(textColumn, numberColumn) ->
+                    match cell key with
+                    | Some(Text v) -> columns.Add(textColumn, Sql.Text v); columns.Add(numberColumn, Sql.Null)
+                    | Some(Number v) -> columns.Add(textColumn, Sql.Null); columns.Add(numberColumn, Sql.Real v)
+                    | _ -> columns.Add(textColumn, Sql.Null); columns.Add(numberColumn, Sql.Null)
+                | Schema.Storage.TextOrLinkColumns(textColumn, linkColumn) ->
+                    match cell key with
+                    | Some(Text v) -> columns.Add(textColumn, Sql.Text v); columns.Add(linkColumn, Sql.Null)
+                    | Some(Links [id]) -> columns.Add(textColumn, Sql.Null); columns.Add(linkColumn, Sql.Text id)
+                    | _ -> columns.Add(textColumn, Sql.Null); columns.Add(linkColumn, Sql.Null)
+                | Schema.Storage.SampleOrDataColumns(sampleColumn, dataColumn) ->
+                    match single key with
+                    | Some id when kindOf id = Some "Data" -> columns.Add(sampleColumn, Sql.Null); columns.Add(dataColumn, Sql.Text id)
+                    | Some id -> columns.Add(sampleColumn, Sql.Text id); columns.Add(dataColumn, Sql.Null)
+                    | None -> columns.Add(sampleColumn, Sql.Null); columns.Add(dataColumn, Sql.Null)
+                | Schema.Storage.Association(table, valueColumn) ->
+                    let values = match cell key with Some(Texts v) -> v | Some(Links v) -> v | _ -> []
+                    lists.Add(table, spec.Table + "_id", valueColumn, values)
+                | Schema.Storage.Endpoint direction ->
+                    match single key with
+                    | Some id when kindOf id = Some "Data" -> endpoints.Add(direction, None, Some id)
+                    | Some id -> endpoints.Add(direction, Some id, None)
+                    | None -> ()
+            { PColumns = List.ofSeq columns; PLists = List.ofSeq lists; PEndpoints = List.ofSeq endpoints; PExtensions = extensions }
+
+    // ---- statements ----
+
+    type private Op = string * (string * SqlValue) list
+
+    let private registryInsert id kind (ordinal: int64) : Op =
+        "INSERT INTO entity(arc_id,id,type,ordinal) VALUES($arc,$id,$type,$ordinal)",
+        ["id", text id; "type", text kind; "ordinal", SqlValue.Integer(ordinal)]
+
+    let private coreInsert (table: string) id kind (columns: (string * Sql) list) : Op =
+        let all = ("type", Sql.Text kind) :: columns
+        "INSERT INTO " + table + "(arc_id,id," + (all |> List.map fst |> String.concat ",") + ") VALUES($arc,$id," + (all |> List.mapi (fun index _ -> "$p" + string index) |> String.concat ",") + ")",
+        ("id", text id) :: (all |> List.mapi (fun index (_, value) -> "p" + string index, sqlOf value))
+
+    let private coreUpdate (table: string) id (columns: (string * Sql) list) : Op =
+        "UPDATE " + table + " SET " + (columns |> List.mapi (fun index (column, _) -> column + "=$p" + string index) |> String.concat ",") + " WHERE arc_id=$arc AND id=$id",
+        ("id", text id) :: (columns |> List.mapi (fun index (_, value) -> "p" + string index, sqlOf value))
+
+    let private listInserts id (table: string, owner: string, valueColumn: string, values: string list) : Op list =
+        values |> List.mapi (fun position value ->
+            "INSERT INTO " + table + "(arc_id," + owner + ",position," + valueColumn + ") VALUES($arc,$id,$position,$value)",
+            ["id", text id; "position", integer position; "value", text value])
+
+    let private listDelete id (table: string, owner: string) : Op =
+        "DELETE FROM " + table + " WHERE arc_id=$arc AND " + owner + "=$id", ["id", text id]
+
+    let private endpointInsert id (direction: string, sample: string option, data: string option) : Op =
+        "INSERT INTO process_io(arc_id,process_id,direction,sample_id,data_id) VALUES($arc,$id,$direction,$sample,$data)",
+        ["id", text id; "direction", text direction; "sample", sqlOfOption sample; "data", sqlOfOption data]
+
+    let private endpointDelete id (direction: string) : Op =
+        "DELETE FROM process_io WHERE arc_id=$arc AND process_id=$id AND direction=$direction", ["id", text id; "direction", text direction]
+
+    let private extensionInserts id (property: string) (rows: ExtRow list) : Op list =
+        rows |> List.map (fun row ->
+            "INSERT INTO entity_extension(arc_id,owner_id,property,path,parent_path,position,storage,value_text,value_number,value_bool,target_id) VALUES($arc,$owner,$property,$path,$parent,$position,$storage,$text,$number,$bool,$target)",
+            ["owner", text id; "property", text property; "path", text row.XPath; "parent", sqlOfOption row.XParent
+             "position", (match row.XPosition with Some v -> integer v | None -> SqlValue.Null())
+             "storage", text row.XStorage; "text", sqlOfOption row.XText
+             "number", (match row.XNumber with Some v -> SqlValue.Real v | None -> SqlValue.Null())
+             "bool", (match row.XBool with Some v -> integer (if v then 1 else 0) | None -> SqlValue.Null())
+             "target", sqlOfOption row.XTarget])
+
+    let private extensionDelete id (property: string) : Op =
+        "DELETE FROM entity_extension WHERE arc_id=$arc AND owner_id=$id AND property=$property", ["id", text id; "property", text property]
+
+    /// Apply the difference between two states to one ARC. Call inside a transaction. The ordinal map
+    /// supplies positions for known IDs, new IDs follow the highest known ordinal in list order.
+    /// The statements run in an order that respects immediate RESTRICT references and immediate CHECK constraints.
+    let write (db: SqliteConnection) arcId (ordinals: Map<string, int64>) (before: State) (after: State) : Map<string, int64> =
+        let beforeRows = Dictionary<string, EntityRow>()
+        for row in before.Entities do beforeRows[row.Id] <- row
+        let afterRows = Dictionary<string, EntityRow>()
+        for row in after.Entities do afterRows[row.Id] <- row
+        let beforeKind id = match beforeRows.TryGetValue id with | true, row -> Some row.Kind | _ -> None
+        let afterKind id = match afterRows.TryGetValue id with | true, row -> Some row.Kind | _ -> None
+        let mutable highest = ordinals |> Map.fold (fun current _ value -> max current value) 0L
+        let assigned = Dictionary<string, int64>()
+        for row in after.Entities do
+            match Map.tryFind row.Id ordinals with
+            | Some ordinal -> assigned[row.Id] <- ordinal
+            | None ->
+                highest <- highest + 1L
+                assigned[row.Id] <- highest
+        let sameRow (a: EntityRow) (b: EntityRow) = obj.ReferenceEquals(a, b) || ({ a with SuppliedId = None } = { b with SuppliedId = None })
+        let hasReplacement = after.Entities |> List.exists (fun row -> match beforeRows.TryGetValue row.Id with | true, old -> old.Kind <> row.Kind | _ -> false)
+
+        let inserts = ResizeArray<Op>()
+        let removals = ResizeArray<Op>()
+        let updates = ResizeArray<Op>()
+        let clears = ResizeArray<Op>()
+        let descriptorDeletes = ResizeArray<Op>()
+        let coreDeletes = ResizeArray<Op>()
+        let registryDeletes = ResizeArray<Op>()
+        let replacements = ResizeArray<Op>()
+        let additions = ResizeArray<Op>()
+
+        let insertEntity (target: ResizeArray<Op>) (row: EntityRow) (projection: Projection) =
+            target.Add(registryInsert row.Id row.Kind assigned[row.Id])
+            match Schema.tryEntity row.Kind with
+            | Some spec -> target.Add(coreInsert spec.Table row.Id row.Kind projection.PColumns)
+            | None -> ()
+        let insertRows (row: EntityRow) (projection: Projection) =
+            for list in projection.PLists do additions.AddRange(listInserts row.Id list)
+            for endpoint in projection.PEndpoints do additions.Add(endpointInsert row.Id endpoint)
+            for property, rows in projection.PExtensions do additions.AddRange(extensionInserts row.Id property rows)
+        let removeAllRows (row: EntityRow) (projection: Projection) =
+            for table, owner, _, values in projection.PLists do
+                if not (List.isEmpty values) then removals.Add(listDelete row.Id (table, owner))
+            for direction, _, _ in projection.PEndpoints do removals.Add(endpointDelete row.Id direction)
+            if not (List.isEmpty projection.PExtensions) then
+                removals.Add("DELETE FROM entity_extension WHERE arc_id=$arc AND owner_id=$id", ["id", text row.Id])
+        let deleteEntity (row: EntityRow) (projection: Projection) =
+            removeAllRows row projection
+            match Schema.tryEntity row.Kind with
+            | Some spec ->
+                let references = referenceColumns spec
+                let held = projection.PColumns |> List.filter (fun (column, value) -> List.contains column references && value <> Sql.Null)
+                if not (List.isEmpty held) then
+                    clears.Add(coreUpdate spec.Table row.Id (held |> List.map (fun (column, _) -> column, Sql.Null)))
+                let delete = "DELETE FROM " + spec.Table + " WHERE arc_id=$arc AND id=$id", ["id", text row.Id]
+                if row.Kind = "Descriptor" then descriptorDeletes.Add(delete) else coreDeletes.Add(delete)
+            | None -> ()
+            registryDeletes.Add("DELETE FROM entity WHERE arc_id=$arc AND id=$id", ["id", text row.Id])
+
+        // Classify entities. Rows with the same ID and another kind are removed and inserted again.
+        for row in before.Entities do
+            match afterRows.TryGetValue row.Id with
+            | true, next when next.Kind = row.Kind ->
+                let changed = not (sameRow row next)
+                if changed || (hasReplacement && (row.Kind = "Process" || row.Kind = "Descriptor")) then
+                    let old, current = project beforeKind row, project afterKind next
+                    for (table, owner, _, oldValues), (_, _, _, newValues) in List.zip old.PLists current.PLists do
+                        if oldValues <> newValues then
+                            if not (List.isEmpty oldValues) then removals.Add(listDelete row.Id (table, owner))
+                    for list, (_, _, _, oldValues) in List.zip current.PLists old.PLists do
+                        let _, _, _, newValues = list
+                        if oldValues <> newValues then additions.AddRange(listInserts row.Id list)
+                    for direction in ["input"; "output"] do
+                        let find (endpoints: (string * string option * string option) list) = endpoints |> List.tryFind (fun (name, _, _) -> name = direction)
+                        let oldEndpoint, newEndpoint = find old.PEndpoints, find current.PEndpoints
+                        if oldEndpoint <> newEndpoint then
+                            if oldEndpoint.IsSome then removals.Add(endpointDelete row.Id direction)
+                            match newEndpoint with Some endpoint -> additions.Add(endpointInsert row.Id endpoint) | None -> ()
+                    let oldExtensions, newExtensions = Map.ofList old.PExtensions, Map.ofList current.PExtensions
+                    let properties = Seq.append (Map.toSeq oldExtensions |> Seq.map fst) (Map.toSeq newExtensions |> Seq.map fst) |> Seq.distinct |> List.ofSeq
+                    for property in properties do
+                        let oldRows, newRows = Map.tryFind property oldExtensions, Map.tryFind property newExtensions
+                        if oldRows <> newRows then
+                            if oldRows.IsSome then removals.Add(extensionDelete row.Id property)
+                            match newRows with Some rows -> additions.AddRange(extensionInserts row.Id property rows) | None -> ()
+                    let changedColumns = List.zip old.PColumns current.PColumns |> List.filter (fun (a, b) -> a <> b) |> List.map snd
+                    if not (List.isEmpty changedColumns) then
+                        updates.Add(coreUpdate (Schema.tryEntity row.Kind).Value.Table row.Id changedColumns)
+            | true, next ->
+                deleteEntity row (project beforeKind row)
+                let projection = project afterKind next
+                insertEntity replacements next projection
+                insertRows next projection
+            | _ -> deleteEntity row (project beforeKind row)
+        for row in after.Entities do
+            if not (beforeRows.ContainsKey row.Id) then
+                let projection = project afterKind row
+                insertEntity inserts row projection
+                insertRows row projection
+
+        for phase in [inserts; removals; updates; clears; descriptorDeletes; coreDeletes; registryDeletes; replacements; additions] do
+            for sql, values in phase do execute db sql (("arc", text arcId) :: values) |> ignore
+        assigned |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq
+
+    // ---- reading ----
+
+    /// Rebuild the state of one ARC. Entities follow their registry ordinals.
+    let load (db: SqliteConnection) arcId : State * Map<string, int64> =
+        db.WithTransaction(fun () ->
+            let query (sql: string) = db.Query(sql, parameters ["arc", text arcId])
+            let root = (query "SELECT root_id FROM arc WHERE arc_id=$arc").[0].Get(0).AsText()
+            let registry = query "SELECT id,type,ordinal FROM entity WHERE arc_id=$arc ORDER BY ordinal"
+            let coreRows = Dictionary<string, Dictionary<string, SqlRow>>()
+            let lists = Dictionary<string, Dictionary<string, ResizeArray<string>>>()
+            let collect (table: string) owner (rows: seq<SqlRow>) =
+                let owners = Dictionary<string, ResizeArray<string>>()
+                for row in rows do
+                    let id = row.Get(0).AsText()
+                    if not (owners.ContainsKey id) then owners[id] <- ResizeArray<string>()
+                    owners[id].Add(row.Get(1).AsText())
+                lists[table] <- owners
+            for spec in Schema.entities do
+                let rows = Dictionary<string, SqlRow>()
+                for row in query ("SELECT * FROM " + spec.Table + " WHERE arc_id=$arc") do rows[row.GetByName("id").AsText()] <- row
+                coreRows[spec.Table] <- rows
+                for property in spec.Properties do
+                    match property.Storage with
+                    | Schema.Storage.Association(table, valueColumn) ->
+                        collect table spec.Table (query ("SELECT " + spec.Table + "_id," + valueColumn + " FROM " + table + " WHERE arc_id=$arc ORDER BY " + spec.Table + "_id,position"))
+                    | _ -> ()
+            collect "entity_additional_type" "entity" (query "SELECT entity_id,value FROM entity_additional_type WHERE arc_id=$arc ORDER BY entity_id,position")
+            let endpoints = Dictionary<string, SqlRow>()
+            for row in query "SELECT process_id,direction,sample_id,data_id FROM process_io WHERE arc_id=$arc" do
+                endpoints[row.Get(0).AsText() + "/" + row.Get(1).AsText()] <- row
+            let extensionRows = Dictionary<string, Dictionary<string, ResizeArray<SqlRow>>>()
+            for row in query "SELECT * FROM entity_extension WHERE arc_id=$arc" do
+                let owner, property = row.GetByName("owner_id").AsText(), row.GetByName("property").AsText()
+                if not (extensionRows.ContainsKey owner) then extensionRows[owner] <- Dictionary<string, ResizeArray<SqlRow>>()
+                let byProperty = extensionRows[owner]
+                if not (byProperty.ContainsKey property) then byProperty[property] <- ResizeArray<SqlRow>()
+                byProperty[property].Add(row)
+            let extension (rows: ResizeArray<SqlRow>) =
+                let byPath = Dictionary<string, SqlRow>()
+                let children = Dictionary<string, ResizeArray<int * string>>()
+                for row in rows do
+                    let path = row.GetByName("path").AsText()
+                    byPath[path] <- row
+                    match optText row "parent_path" with
+                    | Some parent ->
+                        if not (children.ContainsKey parent) then children[parent] <- ResizeArray<int * string>()
+                        children[parent].Add(int (row.GetByName("position").AsInteger()), path)
+                    | None -> ()
+                let rec build path =
+                    let row = byPath[path]
+                    match row.GetByName("storage").AsText() with
+                    | "text" -> ExtensionText(row.GetByName("value_text").AsText())
+                    | "number" -> ExtensionNumber(realOf (row.GetByName("value_number")))
+                    | "bool" -> ExtensionBool(row.GetByName("value_bool").AsInteger() = 1L)
+                    | "null" -> ExtensionNull
+                    | "blob" -> ExtensionBlob(row.GetByName("value_text").AsText())
+                    | "object" -> ExtensionObject(row.GetByName("target_id").AsText())
+                    | "collection" ->
+                        match children.TryGetValue path with
+                        | true, items -> ExtensionCollection(items |> Seq.sortBy fst |> Seq.map (snd >> build) |> List.ofSeq)
+                        | _ -> ExtensionCollection []
+                    | _ -> invalidOp "Unknown extension storage type."
+                build ""
+            let values table id =
+                match lists.TryGetValue table with
+                | true, owners -> (match owners.TryGetValue id with | true, items -> List.ofSeq items | _ -> [])
+                | _ -> []
+            let entities = ResizeArray<EntityRow>()
+            let ordinals = ResizeArray<string * int64>()
+            for entry in registry do
+                let id, kind = entry.Get(0).AsText(), entry.Get(1).AsText()
+                let properties =
+                    match Schema.tryEntity kind with
+                    | None -> ["additionalTypes", Texts(values "entity_additional_type" id)]
+                    | Some spec ->
+                        let row =
+                            match coreRows[spec.Table].TryGetValue id with
+                            | true, found -> found
+                            | _ -> invalidOp ("Missing " + kind + " row: " + id)
+                        let present column = let value = row.GetByName(column) in if value.IsNull then None else Some(value.AsText())
+                        spec.Properties |> List.collect (fun property ->
+                            let key = property.Name
+                            match property.Storage with
+                            | Schema.Storage.Column column ->
+                                match present column, property.Shape with
+                                | Some v, Schema.Shape.Link _ -> [key, Links [v]]
+                                | Some v, _ -> [key, Text v]
+                                | None, _ -> []
+                            | Schema.Storage.TextOrNumberColumns(textColumn, numberColumn) ->
+                                match present textColumn with
+                                | Some v -> [key, Text v]
+                                | None ->
+                                    let number = row.GetByName(numberColumn)
+                                    if number.IsNull then [] else [key, Number(realOf number)]
+                            | Schema.Storage.TextOrLinkColumns(textColumn, linkColumn) ->
+                                match present textColumn, present linkColumn with
+                                | Some v, _ -> [key, Text v]
+                                | None, Some v -> [key, Links [v]]
+                                | None, None -> []
+                            | Schema.Storage.SampleOrDataColumns(sampleColumn, dataColumn) ->
+                                match present sampleColumn, present dataColumn with
+                                | Some v, _ -> [key, Links [v]]
+                                | None, Some v -> [key, Links [v]]
+                                | None, None -> []
+                            | Schema.Storage.Association(table, _) ->
+                                match property.Shape with
+                                | Schema.Shape.Texts -> [key, Texts(values table id)]
+                                | _ -> [key, Links(values table id)]
+                            | Schema.Storage.Endpoint direction ->
+                                match endpoints.TryGetValue(id + "/" + direction) with
+                                | true, found ->
+                                    let sample, data = found.GetByName("sample_id"), found.GetByName("data_id")
+                                    [key, Links [(if sample.IsNull then data.AsText() else sample.AsText())]]
+                                | _ -> [])
+                let extensions =
+                    match extensionRows.TryGetValue id with
+                    | true, byProperty -> byProperty |> Seq.map (fun pair -> pair.Key, extension pair.Value) |> Map.ofSeq
+                    | _ -> Map.empty
+                entities.Add({ Id = id; Kind = kind; SuppliedId = Some id; Properties = Map.ofList properties; Extensions = extensions })
+                ordinals.Add(id, entry.Get(2).AsInteger())
+            { Root = root; Entities = List.ofSeq entities }, Map.ofSeq ordinals)
+
+    // ---- history records ----
+
+    let private sameIgnoringSuppliedId (a: EntityRow) (b: EntityRow) = obj.ReferenceEquals(a, b) || ({ a with SuppliedId = None } = { b with SuppliedId = None })
+
+    /// Change records for every entity that differs between two states.
+    let changes (before: State) (after: State) (ordinalOf: string -> int64) : Change list =
+        let beforeRows = Dictionary<string, EntityRow>()
+        for row in before.Entities do beforeRows[row.Id] <- row
+        let afterRows = Dictionary<string, EntityRow>()
+        for row in after.Entities do afterRows[row.Id] <- row
+        let result = ResizeArray<Change>()
+        for row in before.Entities do
+            match afterRows.TryGetValue row.Id with
+            | true, next ->
+                if not (sameIgnoringSuppliedId row next) then
+                    result.Add({ EntityId = row.Id; Ordinal = ordinalOf row.Id; Before = Some row; After = Some next })
+            | _ -> result.Add({ EntityId = row.Id; Ordinal = ordinalOf row.Id; Before = Some row; After = None })
+        for row in after.Entities do
+            if not (beforeRows.ContainsKey row.Id) then
+                result.Add({ EntityId = row.Id; Ordinal = ordinalOf row.Id; Before = None; After = Some row })
+        List.ofSeq result
+
+    /// Apply the recorded rows to a state: the before rows for undo, the after rows for redo.
+    /// Restored entities return to their recorded list position, and the second result carries those ordinals.
+    let applyChanges (state: State) (ordinals: Map<string, int64>) (records: Change list) (redo: bool) : State * Map<string, int64> =
+        let rows = Dictionary<string, EntityRow * int64>()
+        for row in state.Entities do rows[row.Id] <- (row, Map.find row.Id ordinals)
+        let mutable known = ordinals
+        for record in records do
+            match (if redo then record.After else record.Before) with
+            | Some row ->
+                rows[record.EntityId] <- (row, record.Ordinal)
+                known <- Map.add record.EntityId record.Ordinal known
+            | None -> rows.Remove(record.EntityId) |> ignore
+        let entities = rows.Values |> Seq.sortBy snd |> Seq.map fst |> List.ofSeq
+        { state with Entities = entities }, known
+
+    /// Rows that an undo or redo removes still hold the pre-adoption IDs on the opposite side of their record.
+    let restoreSuppliedIds (state: State) (records: Change list) (redo: bool) : State =
+        let recorded = Dictionary<string, string option>()
+        for record in records do
+            match (if redo then record.Before, record.After else record.After, record.Before) with
+            | Some row, None -> recorded[record.EntityId] <- row.SuppliedId
+            | _ -> ()
+        let patch (row: EntityRow) =
+            match recorded.TryGetValue row.Id with
+            | true, suppliedId -> { row with SuppliedId = suppliedId }
+            | _ -> row
+        { state with Entities = state.Entities |> List.map patch }
 
     let addArc (db: SqliteConnection) arcId state folder baseline =
         Model.validate state
         db.WithTransaction(fun () ->
-            execute db "INSERT INTO session VALUES($arc,$root,$folder,$state,$baseline,$saved,0,0)"
-                ["arc",text arcId; "root",text state.Root; "folder",optional folder; "state",text (Codec.encodeState state)
-                 "baseline",optional baseline; "saved",optional (baseline |> Option.map (fun _ -> Codec.encodeGraph state))]
-            mirror db arcId state)
+            execute db "INSERT INTO arc(arc_id,root_id,folder,baseline,saved_graph,cursor,revision) VALUES($arc,$root,$folder,$baseline,$saved,0,0)"
+                ["arc",text arcId; "root",text state.Root; "folder",optional folder
+                 "baseline",optional baseline; "saved",optional (baseline |> Option.map (fun _ -> Codec.encodeGraph state))] |> ignore
+            write db arcId Map.empty { Root = state.Root; Entities = [] } state |> ignore)
 
-    let archive (db: SqliteConnection) arcId =
+    /// Keep the displaced state and its history before a reload replaces them.
+    let archive (db: SqliteConnection) arcId (current: State) =
         let archiveId = Identifier.newId()
         let bindings = ["archive",text archiveId; "arc",text arcId]
-        execute db "INSERT INTO arc_archive SELECT $archive,arc_id,root_id,folder,state,baseline,saved_graph,cursor,revision FROM session WHERE arc_id=$arc" bindings
-        execute db "INSERT INTO archived_history SELECT $archive,sequence,operation_id,kind,before_state,after_state FROM history WHERE arc_id=$arc" bindings
-        execute db "INSERT INTO archived_journal SELECT $archive,sequence,operation_id,kind,action,revision FROM journal WHERE arc_id=$arc" bindings
+        execute db "INSERT INTO arc_archive(archive_id,arc_id,root_id,folder,state,baseline,saved_graph,cursor,revision) SELECT $archive,arc_id,root_id,folder,$state,baseline,saved_graph,cursor,revision FROM arc WHERE arc_id=$arc"
+            (("state", text (Codec.encodeState current)) :: bindings) |> ignore
+        execute db "INSERT INTO archived_history(archive_id,sequence,operation_id,kind,changes) SELECT $archive,sequence,operation_id,kind,changes FROM history WHERE arc_id=$arc" bindings |> ignore
         archiveId

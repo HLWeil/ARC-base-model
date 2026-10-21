@@ -12,7 +12,16 @@ open ARCManagement.Internal
 type internal GraphContext(repository: Repository, arcId: string, supplied: (string * obj) list) =
     let db = repository.Connection
     let metadata = Store.metadata db arcId
-    let mutable state = metadata.GetByName("state").AsText() |> Codec.decodeState
+    let loaded, loadedOrdinals = Store.load db arcId
+    // Supplied objects still hold their original IDs here, restore assigns the session IDs afterwards.
+    let mutable state =
+        let original = supplied |> List.map (fun (id, value) -> id, Model.id value) |> Map.ofList
+        let patch (row: EntityRow) =
+            match Map.tryFind row.Id original with
+            | Some suppliedId -> { row with SuppliedId = suppliedId }
+            | None -> row
+        { loaded with Entities = loaded.Entities |> List.map patch }
+    let mutable ordinals = loadedOrdinals
     let mutable cursor = int (metadata.GetByName("cursor").AsInteger())
     let mutable revision = metadata.GetByName("revision").AsInteger()
     let mutable baseline = Store.optText metadata "baseline"
@@ -47,28 +56,31 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
     let assertRevision () =
         if (Store.metadata db arcId).GetByName("revision").AsInteger() <> revision then
             invalidOp "ARC changed through another connection. Close this ARC and reopen it with session.openArc or ARC.openFolder."
-    let update next nextCursor kind action operationId =
+    // The preset map carries recorded list positions for entities that an undo or redo restores.
+    let update next nextCursor kind action operationId (preset: Map<string, int64>) =
         Model.validate next
         let previous = state
         try
-            db.WithTransaction(fun () ->
-                assertRevision()
-                Store.mirror db arcId next
-                if action = "apply" then
-                    execute "DELETE FROM history WHERE arc_id=$arc AND sequence > $cursor" ["cursor", SqlValue.Integer(int64 cursor)]
-                    execute "INSERT INTO history VALUES($arc,$sequence,$id,$kind,$before,$after)"
-                        ["sequence", SqlValue.Integer(int64 nextCursor); "id", Store.text operationId; "kind", Store.text kind
-                         "before", Store.text (Codec.encodeState previous); "after", Store.text (Codec.encodeState next)]
-                execute "UPDATE session SET state=$state,root_id=$root,cursor=$cursor,revision=$revision WHERE arc_id=$arc"
-                    ["root",Store.text next.Root; "state", Store.text (Codec.encodeState next); "cursor", SqlValue.Integer(int64 nextCursor); "revision", SqlValue.Integer(revision + 1L)]
-                execute "INSERT INTO journal(arc_id,sequence,operation_id,kind,action,revision) VALUES($arc,$revision,$id,$kind,$action,$revision)"
-                    ["id", Store.text operationId; "kind", Store.text kind; "action", Store.text action; "revision", SqlValue.Integer(revision + 1L)]
-                restore next
-                if action = "undo" && (kind.EndsWith(".register") || kind.EndsWith(".set")) then
-                    for row in previous.Entities do
-                        if not (next.Entities |> List.exists (fun nextRow -> nextRow.Id = row.Id)) then
-                            Model.setId entities[row.Id] row.SuppliedId)
-            state <- next; cursor <- nextCursor; revision <- revision + 1L
+            let sorted, updated =
+                db.WithTransaction(fun () ->
+                    assertRevision()
+                    let updated = Store.write db arcId preset previous next
+                    let sorted = { next with Entities = next.Entities |> List.sortBy (fun row -> Map.find row.Id updated) }
+                    if action = "apply" then
+                        execute "DELETE FROM history WHERE arc_id=$arc AND sequence > $cursor" ["cursor", SqlValue.Integer(int64 cursor)]
+                        let ordinalOf id = match Map.tryFind id updated with Some ordinal -> ordinal | None -> Map.find id preset
+                        execute "INSERT INTO history(arc_id,sequence,operation_id,kind,changes) VALUES($arc,$sequence,$id,$kind,$changes)"
+                            ["sequence", SqlValue.Integer(int64 nextCursor); "id", Store.text operationId; "kind", Store.text kind
+                             "changes", Store.text (Codec.encodeChanges (Store.changes previous next ordinalOf))]
+                    execute "UPDATE arc SET root_id=$root,cursor=$cursor,revision=$revision WHERE arc_id=$arc"
+                        ["root",Store.text next.Root; "cursor", SqlValue.Integer(int64 nextCursor); "revision", SqlValue.Integer(revision + 1L)]
+                    restore sorted
+                    if action = "undo" && (kind.EndsWith(".register") || kind.EndsWith(".set")) then
+                        for row in previous.Entities do
+                            if not (next.Entities |> List.exists (fun nextRow -> nextRow.Id = row.Id)) then
+                                Model.setId entities[row.Id] row.SuppliedId
+                    sorted, updated)
+            state <- sorted; ordinals <- updated; cursor <- nextCursor; revision <- revision + 1L
         with _ -> restore previous; reraise()
     do
         Model.validate state
@@ -104,7 +116,7 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
         check()
         let next = transform state
         let operationId = Identifier.newId()
-        update next (cursor + 1) kind "apply" operationId
+        update next (cursor + 1) kind "apply" operationId ordinals
         AppliedOperation(operationId, kind))
     member this.Change(entity: obj, key: string, value: Cell option, kind: string) =
         let id = this.Id(entity)
@@ -231,7 +243,7 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
             repository.Claim(arcId,value)
             entities.Add(id,value)
         try
-            if next <> state then update next (cursor + 1) operationKind "apply" (Identifier.newId())
+            if next <> state then update next (cursor + 1) operationKind "apply" (Identifier.newId()) ordinals
         with _ ->
             for KeyValue(id,row) in replacements do
                 Model.restore (fun id -> entities[id]) row entities[id]
@@ -249,18 +261,20 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
         let rows = query "SELECT * FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence",SqlValue.Integer(int64 sequence)]
         if sequence <= 0 || rows.Count = 0 then invalidOp (if redo then "Nothing to redo." else "Nothing to undo.")
         let row = rows[0]
-        let next = row.GetByName(if redo then "after_state" else "before_state").AsText() |> Codec.decodeState
+        let records = row.GetByName("changes").AsText() |> Codec.decodeChanges
+        state <- Store.restoreSuppliedIds state records redo
+        let next, preset = Store.applyChanges state ordinals records redo
         update next (if redo then cursor + 1 else cursor - 1) (row.GetByName("kind").AsText())
-            (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText()))
+            (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText()) preset)
     member _.AssertRevision() = ensureOpen(); assertRevision()
     member _.SetBinding(path: string) =
         check()
         assertRevision()
-        execute "UPDATE session SET folder=$folder,baseline=NULL,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
+        execute "UPDATE arc SET folder=$folder,baseline=NULL,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
             ["folder",Store.text path; "revision",SqlValue.Integer(revision + 1L)]
         folder <- Some path; baseline <- None; savedGraph <- None; revision <- revision + 1L
     member _.SetCheckpoint(graph: string) =
-        execute "UPDATE session SET baseline=$graph,saved_graph=$graph,revision=$revision WHERE arc_id=$arc"
+        execute "UPDATE arc SET baseline=$graph,saved_graph=$graph,revision=$revision WHERE arc_id=$arc"
             ["graph",Store.text graph; "revision",SqlValue.Integer(revision + 1L)]
     member _.AcceptCheckpoint(graph: string) =
         baseline <- Some graph; savedGraph <- Some graph; revision <- revision + 1L
@@ -269,25 +283,27 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
         if current <> baseline then
             db.WithTransaction(fun () ->
                 assertRevision()
-                execute "UPDATE session SET baseline=$baseline,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
+                execute "UPDATE arc SET baseline=$baseline,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
                     ["baseline",Store.optional current; "revision",SqlValue.Integer(revision + 1L)])
             baseline <- current; savedGraph <- None; revision <- revision + 1L
     member _.Reload(next: State, current: string) =
         check()
         Model.validate next
-        db.WithTransaction(fun () ->
-            assertRevision()
-            Store.archive db arcId |> ignore
-            Store.mirror db arcId next
-            execute "DELETE FROM history WHERE arc_id=$arc" []
-            execute "DELETE FROM journal WHERE arc_id=$arc" []
-            execute "UPDATE session SET state=$state,root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0,revision=$revision WHERE arc_id=$arc"
-                ["state",Store.text (Codec.encodeState next); "root",Store.text next.Root; "baseline",Store.text current
-                 "saved",Store.text (Codec.encodeGraph next); "revision",SqlValue.Integer(revision + 1L)])
+        let updated =
+            db.WithTransaction(fun () ->
+                assertRevision()
+                Store.archive db arcId state |> ignore
+                execute "DELETE FROM history WHERE arc_id=$arc" []
+                let updated = Store.write db arcId ordinals state next
+                execute "UPDATE arc SET root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0,revision=$revision WHERE arc_id=$arc"
+                    ["root",Store.text next.Root; "baseline",Store.text current
+                     "saved",Store.text (Codec.encodeGraph next); "revision",SqlValue.Integer(revision + 1L)]
+                updated)
         // New instances isolate displaced state from the replacement projection.
         for value in entities.Values do repository.Release(arcId,value)
         entities.Clear()
-        state <- next; cursor <- 0; revision <- revision + 1L
+        let next = { next with Entities = next.Entities |> List.sortBy (fun row -> Map.find row.Id updated) }
+        state <- next; ordinals <- updated; cursor <- 0; revision <- revision + 1L
         baseline <- Some current; savedGraph <- Some(Codec.encodeGraph next)
         restore next
     member _.Close() =

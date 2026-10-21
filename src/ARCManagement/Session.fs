@@ -30,7 +30,7 @@ type Session private (repository: Repository) =
             | None -> ManagedGraph.Wrap(ArcFactory.load repository arcId))
     member _.listArcs() =
         repository.Access(fun () ->
-            repository.Connection.Query("SELECT arc_id,root_id,folder FROM session ORDER BY rowid")
+            repository.Connection.Query("SELECT arc_id,root_id,folder FROM arc ORDER BY rowid")
             |> Seq.map (fun row -> ArcInfo(row.GetByName("arc_id").AsText(),row.GetByName("root_id").AsText(),Store.optText row "folder"))
             |> ResizeArray)
     member _.close() = repository.Close()

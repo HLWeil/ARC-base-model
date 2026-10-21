@@ -76,7 +76,7 @@ module internal Workspace =
             let graph =
                 if not existing then ManagedGraph.Wrap(import session.Repository folder)
                 else
-                    let rows = session.Repository.Access(fun () -> session.Repository.Connection.Query("SELECT arc_id,folder FROM session"))
+                    let rows = session.Repository.Access(fun () -> session.Repository.Connection.Query("SELECT arc_id,folder FROM arc"))
                     if rows.Count <> 1 then invalidOp "Folder convenience open requires exactly one ARC entry. Use ARCManagement.Session.openFile."
                     if Store.optText rows[0] "folder" <> Some folder then invalidOp "Repository ARC is bound to another folder. Use ARCManagement.Session.openFile."
                     let graph = session.openArc(rows[0].GetByName("arc_id").AsText())

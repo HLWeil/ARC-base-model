@@ -19,3 +19,6 @@ type internal ExtensionCell =
 
 type internal EntityRow = { Id: string; Kind: string; SuppliedId: string option; Properties: Map<string, Cell>; Extensions: Map<string, ExtensionCell> }
 type internal State = { Root: string; Entities: EntityRow list }
+
+/// One entity that differs between two states. A missing side means the entity does not exist there.
+type internal Change = { EntityId: string; Ordinal: int64; Before: EntityRow option; After: EntityRow option }

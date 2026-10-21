@@ -287,7 +287,7 @@ let tests = testList "Full base-model management" [
         let recipe = (Seq.item 0 arc.Model.Processes).ExecutesRecipe.Value
         let original = recipe.Components
         use sql = PolyglotSQLite.Sqlite.OpenFile(arc.DatabasePath)
-        sql.ExecuteScript("CREATE TRIGGER reject_recipe BEFORE INSERT ON recipe WHEN instr(NEW.payload,'Rejected')>0 BEGIN SELECT RAISE(ABORT,'injected'); END;")
+        sql.ExecuteScript("CREATE TRIGGER reject_recipe BEFORE UPDATE ON recipe WHEN NEW.name='Rejected' BEGIN SELECT RAISE(ABORT,'injected'); END;")
         let component = Annotation("Pending")
         let replacement = Recipe(name="Rejected",components=[component],id=recipe.Id.Value)
         Expect.throws (fun () -> arc.Recipe.upsert(replacement)) "SQL rejects the planned graph"
@@ -358,8 +358,8 @@ let tests = testList "Full base-model management" [
         Expect.throws (fun () -> arc.Entity.delete(custom) |> ignore) "Referenced extension object"
         arc.save()
         let database = Store.openDatabase arc.DatabasePath
-        let blobs = database.Connection.Query("SELECT value_blob FROM entity_extension WHERE property='bytes'")
-        Expect.equal (blobs.[0].Get(0).AsBlob() |> Array.toList) [0uy;1uy;255uy;255uy] "Real BLOB storage"
+        let blobs = database.Connection.Query("SELECT value_text FROM entity_extension WHERE property='bytes'")
+        Expect.equal (blobs.[0].Get(0).AsText()) "AAH//w==" "Blob stored as canonical base64 text"
         Expect.equal (database.Connection.Query("PRAGMA foreign_key_check").Count) 0 "Foreign keys"
         database.Connection.Execute("CREATE TRIGGER reject_extension BEFORE INSERT ON entity_extension BEGIN SELECT RAISE(ABORT,'extension failure'); END")
         let historyCount = database.Connection.Query("SELECT count(*) FROM history").[0].Get(0).AsInteger()
@@ -410,7 +410,7 @@ let tests = testList "Full base-model management" [
         Expect.throws (fun () -> ARC.openFolder(path,"sql") |> ignore) "Unsupported version rejected"
         let database = Store.openDatabase dbPath
         Expect.equal ((database.Connection.Query("SELECT count(*) FROM history")).[0].Get(0).AsInteger()) 1L "History untouched"
-        database.Connection.Execute("UPDATE repository SET schema_version=4")
+        database.Connection.Execute("UPDATE repository SET schema_version=5")
         database.Close()
         let reopened = ARC.openFolder(path,"sql")
         reopened.History.undo()

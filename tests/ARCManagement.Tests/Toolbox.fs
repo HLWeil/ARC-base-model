@@ -58,9 +58,9 @@ let tests = testList "ARC toolbox" [
         let db = sql session
         let parameters = [SqlParameter("arc",SqlValue.Text(second.ArcId));SqlParameter("id",SqlValue.Text(proc.Id.Value))]
         Expect.equal (scalar db "PRAGMA foreign_keys") 1L "Enforcement enabled"
-        Expect.throws (fun () -> db.Execute("INSERT INTO entity_reference VALUES($arc,$id,'input',0,'foreign')",parameters)) "Foreign generic relationship"
-        Expect.throws (fun () -> db.WithTransaction(fun () -> db.Execute("UPDATE process SET input_sample_id='foreign' WHERE arc_id=$arc AND id=$id",parameters))) "Foreign typed endpoint"
-        Expect.throws (fun () -> db.Execute("INSERT INTO entity_extension(arc_id,owner_id,property,path,storage,target_id) VALUES($arc,$id,'foreign','','object','foreign')",parameters)) "Foreign extension"
+        Expect.throws (fun () -> db.WithTransaction(fun () -> db.Execute("INSERT INTO entity_additional_type(arc_id,entity_id,position,value) VALUES($arc,'foreign',0,'x')",parameters))) "Foreign registry entry"
+        Expect.throws (fun () -> db.WithTransaction(fun () -> db.Execute("INSERT INTO process_io(arc_id,process_id,direction,sample_id) VALUES($arc,$id,'input','foreign')",parameters))) "Foreign typed endpoint"
+        Expect.throws (fun () -> db.WithTransaction(fun () -> db.Execute("INSERT INTO entity_extension(arc_id,owner_id,property,path,storage,target_id) VALUES($arc,$id,'foreign','','object','foreign')",parameters))) "Foreign extension"
         Expect.equal (db.Query("PRAGMA foreign_key_check")).Count 0 "No dangling references")
 
     testCase "closing ARC leaves repository usable and reopening creates a fresh projection" (fun _ ->
@@ -94,8 +94,8 @@ let tests = testList "ARC toolbox" [
         reopened.History.undo()
         Expect.isNone reopened.Model.Title "Restored first history"
         Expect.equal (resumed.openArc(secondId)).Model.Title (Some "second") "Other ARC retained"
-        // Corrupt one snapshot to prove enumeration and opening another ARC are lazy.
-        (sql resumed).Execute("UPDATE session SET state='invalid' WHERE arc_id=$arc",[SqlParameter("arc",SqlValue.Text(secondId))])
+        // Corrupt one ARC registry entry to prove enumeration and opening another ARC are lazy.
+        (sql resumed).Execute("UPDATE entity SET type='Sample' WHERE arc_id=$arc AND id='root'",[SqlParameter("arc",SqlValue.Text(secondId))])
         resumed.openArc(secondId).close()
         Expect.equal (resumed.listArcs()).Count 2 "No graph parsing during enumeration"
         same (resumed.openArc(firstId)) reopened
@@ -119,8 +119,8 @@ let tests = testList "ARC toolbox" [
         let empty = ARCManagement.Session.createFile(malformed)
         empty.close()
         use broken = Sqlite.OpenFile(malformed)
-        broken.Execute("DROP TABLE entity_reference")
-        broken.Execute("CREATE TABLE entity_reference(arc_id TEXT NOT NULL,owner_id TEXT NOT NULL,property TEXT NOT NULL,position INTEGER NOT NULL,target_id TEXT NOT NULL,PRIMARY KEY(arc_id,owner_id,property,position))")
+        broken.Execute("DROP TABLE process_io")
+        broken.Execute("CREATE TABLE process_io(arc_id TEXT NOT NULL,process_id TEXT NOT NULL,direction TEXT NOT NULL,sample_id TEXT,data_id TEXT,PRIMARY KEY(arc_id,process_id,direction))")
         Expect.throws (fun () -> ARCManagement.Session.openFile(malformed) |> ignore) "Correct version with missing relationship constraints rejected")
 
     testCase "folder binding and importing are independent of database storage" (fun _ ->
@@ -157,7 +157,7 @@ let tests = testList "ARC toolbox" [
         let db = sql session
         let checkpoint = (Store.metadata db first.ArcId).GetByName("saved_graph").AsText()
         first.Dataset.setTitle(first.Model,"pending") |> ignore
-        db.ExecuteScript("CREATE TRIGGER fail_checkpoint BEFORE UPDATE OF baseline ON session WHEN NEW.arc_id='" + first.ArcId + "' BEGIN SELECT RAISE(ABORT,'injected'); END;")
+        db.ExecuteScript("CREATE TRIGGER fail_checkpoint BEFORE UPDATE OF baseline ON arc WHEN NEW.arc_id='" + first.ArcId + "' BEGIN SELECT RAISE(ABORT,'injected'); END;")
         Expect.throws first.save "Checkpoint commit failure"
         Expect.equal ((Store.metadata db first.ArcId).GetByName("saved_graph").AsText()) checkpoint "Previous checkpoint retained"
         Expect.isTrue first.IsDirty "Edits stay pending"
@@ -280,7 +280,7 @@ let tests = testList "ARC toolbox" [
         detached.State <- { detached.State with HasParts = [detached] }
         Path.writeFileText (Path.combineNative path ARCtrl.Helper.Layout.ARCFileName) (ARCManagement.DatasetYaml.encode(detached))
         let db = sql session
-        db.ExecuteScript("CREATE TRIGGER fail_workspace BEFORE INSERT ON session WHEN NEW.folder IS NOT NULL BEGIN SELECT RAISE(ABORT,'injected'); END;")
+        db.ExecuteScript("CREATE TRIGGER fail_workspace BEFORE INSERT ON arc WHEN NEW.folder IS NOT NULL BEGIN SELECT RAISE(ABORT,'injected'); END;")
         Expect.throws (fun () -> ARC.importFolder(session,path) |> ignore) "Injected import failure"
         Expect.equal (session.listArcs()).Count 1 "Failed import leaves no partial entry or binding"
         same (session.openArc(sibling.ArcId)) sibling
@@ -293,4 +293,83 @@ let tests = testList "ARC toolbox" [
         Expect.isFalse imported.History.CanUndo "Import starts with empty history"
         imported.close()
         sibling.Sample.create("still active") |> ignore)
+
+    testCase "equal entity IDs in two ARCs stay isolated in views" (fun _ ->
+        use session = ARCManagement.Session.createInMemory()
+        let build conformsTo =
+            let proc = ARCBaseModel.Process("p", id="p", input=EntityReference.Sample(Sample("in",id="in")), output=EntityReference.Sample(Sample("out",id="out")))
+            Dataset(conformsTo,["root"],id="root",processes=[proc])
+        let first = session.createArc(build ["process-provenance"])
+        let second = session.createArc(build ["administrative"])
+        let db = sql session
+        let countFor view (arc: ARCManagement.ManagedGraph) =
+            db.Query("SELECT count(*) FROM " + view + " WHERE arc_id=$arc",[SqlParameter("arc",SqlValue.Text(arc.ArcId))]).[0].Get(0).AsInteger()
+        Expect.equal (countFor "process_edges" first) 1L "First ARC edge"
+        Expect.equal (countFor "process_edges" second) 1L "Second ARC edge"
+        Expect.equal (scalar db "SELECT count(*) FROM process_edges") 2L "No cross-ARC joins"
+        Expect.equal (countFor "core_validation_errors" first) 0L "First ARC is valid"
+        Expect.equal (countFor "core_validation_errors" second) 1L "Second ARC lacks process-provenance"
+        Expect.equal (scalar db "SELECT count(*) FROM core_validation_errors") 1L "Errors stay with their ARC"
+        Expect.equal (scalar db "SELECT count(*) FROM sample") 4L "Equal sample IDs coexist")
+
+    testCase "a title edit on a large ARC changes a constant number of rows" (fun _ ->
+        use session = ARCManagement.Session.createInMemory()
+        let processes = [for index in 1 .. 60 -> ARCBaseModel.Process("process " + string index, input=EntityReference.Sample(Sample("in " + string index)), output=EntityReference.Sample(Sample("out " + string index)))]
+        let graph = session.createArc(Dataset(["process-provenance"],["root"],id="root",processes=processes))
+        let db = sql session
+        Expect.isTrue (scalar db "SELECT count(*) FROM entity" > 180L) "Many entities stored"
+        let before = scalar db "SELECT total_changes()"
+        graph.Dataset.setTitle(graph.Model,"edited") |> ignore
+        let changed = scalar db "SELECT total_changes()" - before
+        Expect.isTrue (changed <= 6L) ("Changed rows: " + string changed)
+        Expect.equal (graph.Model.Title) (Some "edited") "Edit applied")
+
+    testCase "undo and redo of a delete restore the entity, its links and its list position" (fun _ ->
+        use session = ARCManagement.Session.createInMemory()
+        let graph = session.createArc(root())
+        let a,b,c = graph.Sample.create("a"),graph.Sample.create("b"),graph.Sample.create("c")
+        let proc = graph.Process.create("p")
+        graph.Dataset.addProcess(graph.Model,proc) |> ignore
+        graph.Process.setInputSample(proc,b) |> ignore
+        let db = sql session
+        let names () = graph.Sample.list() |> Seq.map (fun sample -> sample.Name) |> List.ofSeq
+        let linked () = scalar db ("SELECT count(*) FROM process_io WHERE sample_id='" + b.Id.Value + "'")
+        let positions () =
+            db.Query("SELECT id FROM entity WHERE type='Sample' ORDER BY ordinal") |> Seq.map (fun row -> row.Get(0).AsText()) |> List.ofSeq
+        let expected = [a.Id.Value; b.Id.Value; c.Id.Value]
+        graph.Sample.delete(b) |> ignore
+        Expect.equal (names()) ["a";"c"] "Deleted"
+        Expect.isNone proc.Input "Link removed with the target"
+        Expect.equal (linked()) 0L "Endpoint row removed"
+        graph.History.undo()
+        Expect.equal (names()) ["a";"b";"c"] "List position restored"
+        Expect.equal (positions()) expected "Stored order restored"
+        Expect.equal (linked()) 1L "Endpoint row restored"
+        match proc.Input with Some(EntityReference.Sample sample) -> same sample b | _ -> failwith "Expected restored input"
+        graph.History.redo()
+        Expect.equal (names()) ["a";"c"] "Redo deletes again"
+        Expect.equal (linked()) 0L "Redo removes the endpoint row"
+        graph.History.undo()
+        Expect.equal (positions()) expected "Second undo restores the position")
+
+    testCase "reopening a file repository rebuilds the same state" (fun _ ->
+        let path = Path.combineNative (folder()) "state.sqlite"
+        let session = ARCManagement.Session.createFile(path)
+        let graph = session.createArc(root())
+        let sample = graph.Sample.create("sample")
+        let proc = graph.Process.create("process")
+        graph.Dataset.addProcess(graph.Model,proc) |> ignore
+        graph.Process.setInputSample(proc,sample) |> ignore
+        graph.Dataset.setTitle(graph.Model,"") |> ignore
+        graph.Entity.setNumberProperty(graph.Model,"score",0.5) |> ignore
+        graph.Entity.addTextProperty(graph.Model,"label","x") |> ignore
+        graph.Sample.delete(graph.Sample.create("gone")) |> ignore
+        let withoutSupplied (state: State) = { state with Entities = state.Entities |> List.map (fun row -> { row with SuppliedId = None }) }
+        let expected = withoutSupplied graph.Context.State
+        let arcId = graph.ArcId
+        session.close()
+        use reopened = ARCManagement.Session.openFile(path)
+        let again = reopened.openArc(arcId)
+        Expect.isTrue (expected = withoutSupplied again.Context.State) "Rows, order and extensions are identical"
+        Expect.isTrue (expected = withoutSupplied (fst (Store.load (sql reopened) arcId))) "Loading is repeatable")
 ]

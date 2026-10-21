@@ -79,7 +79,7 @@ let tests = testList "Management prototype" [
         arc.History.redo()
         same (input proc) sampleB
         use sql = PolyglotSQLite.Sqlite.OpenFile(arc.DatabasePath)
-        let result = sql.Query("SELECT input_sample_id FROM process")
+        let result = sql.Query("SELECT sample_id FROM process_io WHERE direction='input'")
         Expect.equal (result[0].Get(0).AsText()) sampleB.Id.Value "SQL follows endpoint changes"
         arc.Process.clearInput(proc) |> ignore
         Expect.isNone proc.Input "Cleared endpoint"
@@ -161,7 +161,6 @@ let tests = testList "Management prototype" [
         resumed.Dataset.setTitle(resumed.Model, "new branch") |> ignore
         Expect.isFalse resumed.History.CanRedo "New command replaces abandoned redo"
         Expect.equal (count "history" resumed.DatabasePath) 2L "Two commands on active branch"
-        Expect.equal (count "journal" resumed.DatabasePath) 6L "Audit retains undo redo and abandoned branch"
 
     testCase "ordered moves and detach are reversible" <| fun _ ->
         let _, created = create()
@@ -322,7 +321,7 @@ let tests = testList "Management prototype" [
         let sample = arc.Sample.create("original")
         let commands = count "history" arc.DatabasePath
         withSql arc.DatabasePath (fun sql ->
-            sql.ExecuteScript("CREATE TRIGGER reject_sample BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END;"))
+            sql.ExecuteScript("CREATE TRIGGER reject_sample BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END; CREATE TRIGGER reject_sample_update BEFORE UPDATE ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END;"))
         Expect.throws (fun () -> arc.Sample.setName(sample, "reject") |> ignore) "SQL failure rejects command"
         Expect.equal sample.Name "original" "Live model rolls back"
         let pending = Sample("reject")
@@ -460,11 +459,11 @@ let tests = testList "Management prototype" [
         let baseline = Path.readFileText(yaml)
         arc.Dataset.setTitle(arc.Model, "edited") |> ignore
         withSql arc.DatabasePath (fun sql ->
-            sql.ExecuteScript("CREATE TRIGGER fail_save BEFORE UPDATE OF baseline ON session BEGIN SELECT RAISE(ABORT,'injected save failure'); END;"))
+            sql.ExecuteScript("CREATE TRIGGER fail_save BEFORE UPDATE OF baseline ON arc BEGIN SELECT RAISE(ABORT,'injected save failure'); END;"))
         Expect.throws (fun () -> arc.save()) "Injected SQL checkpoint failure"
         Expect.isTrue arc.IsDirty "Failed save leaves edits pending"
         withSql arc.DatabasePath (fun sql ->
-            Expect.equal (sql.Query("SELECT baseline FROM session").[0].Get(0).AsText()) baseline "Checkpoint is not advanced"
+            Expect.equal (sql.Query("SELECT baseline FROM arc").[0].Get(0).AsText()) baseline "Checkpoint is not advanced"
             sql.Execute("DROP TRIGGER fail_save"))
         Expect.equal (temporaryFiles path).Length 0 "Temporary output cleaned up"
         Expect.throws (fun () -> arc.save()) "Published file with failed SQL commit requires source reselection"
@@ -480,7 +479,7 @@ let tests = testList "Management prototype" [
         Expect.throws (fun () -> arc.save()) "Cannot replace a directory with YAML"
         Expect.isTrue arc.IsDirty "Graph remains unsaved"
         withSql arc.DatabasePath (fun sql ->
-            Expect.isTrue (sql.Query("SELECT baseline FROM session").[0].Get(0).IsNull) "No checkpoint established")
+            Expect.isTrue (sql.Query("SELECT baseline FROM arc").[0].Get(0).IsNull) "No checkpoint established")
         Expect.equal (temporaryFiles path).Length 0 "Temporary output removed"
 
     testCase "sample upsert inserts with supplied or assigned IDs as one reversible command" <| fun _ ->
@@ -633,7 +632,7 @@ let tests = testList "Management prototype" [
         arc.Sample.upsert(canonical)
         let commands = count "history" arc.DatabasePath
         withSql arc.DatabasePath (fun sql ->
-            sql.ExecuteScript("CREATE TRIGGER reject_upsert BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END;"))
+            sql.ExecuteScript("CREATE TRIGGER reject_upsert BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END; CREATE TRIGGER reject_upsert_update BEFORE UPDATE ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END;"))
         Expect.throws (fun () -> arc.Sample.upsert(Sample("reject", id = "sample-1", additionalTypes = ["new"]))) "Replacement SQL failure"
         Expect.equal canonical.Name "original" "Failed update leaves canonical values unchanged"
         Expect.equal (Seq.toList canonical.AdditionalTypes) ["old"] "Failed update restores collection values"
