@@ -119,13 +119,14 @@ validation, SQL, and history pipeline as core edits.
 
 ### Commands, history, and consistency
 
-Managed edits validate a planned snapshot, then update SQL mirrors, the live
-projection, persisted history/cursor, journal, and ARC revision transactionally.
-Failures roll back SQL and restore the previous projection. The current pipeline
-rebuilds rows only for the affected ARC rather than issuing incremental writes.
-Fine-grained mutations return attached `AppliedOperation` values.
+Managed edits validate a planned snapshot, then write the difference between the
+stored and the new state, the history record, the cursor, and the ARC revision
+transactionally. The live projection follows. Failures roll back SQL and restore
+the previous projection. Fine-grained mutations return attached
+`AppliedOperation` values.
 
-Undo/redo is linear and persisted with before/after snapshots. A new edit after
+Undo/redo is linear and persisted as recorded before/after rows applied through
+the same writer. A new edit after
 undo invalidates the redo branch. Hydration and history restoration keep
 canonical instances and shared or recursive relationships, and replace
 collection containers. Saving preserves history and standalone registered
@@ -148,16 +149,38 @@ The management schema is owned by ARCManagement and remains separate from the no
 core SQL profile. ARCManagement uses PolyglotSQLite exclusively; provider code and
 provider dependencies stay inside that library.
 
-Schema version **4** scopes entity and typed rows by `(arc_id, id)`, ordered
-values and references by ARC/owner/property/position, and extensions additionally
-by nested path. Composite foreign keys enforce ARC scope for typed endpoints,
-generic references, and extension references. No extra entity surrogate-key
-system is required. History, journal, revisions, folder baselines, saved graphs,
-and recovery archives are isolated per ARC.
+Schema version **5** (`CoreSchema.version`, 93 DDL statements in
+`Storage/CoreSchema.fs`) holds the tables, indexes and views of
+`schemas/sql/001_core.sql` with `arc_id` added. Keys and foreign keys are
+composite, the registry foreign key cascades on delete, and association targets
+have extra `(arc_id, target)` indexes. `process_edges` and `core_validation_errors`
+are scoped by `arc_id`. The writer does not run `core_validation_errors`, because
+`Model.validate` governs writes. The view stays available for queries.
 
-Indexes support entity types, scalar property/value lookup, and reverse
-references. A public cross-ARC query API and legacy schema migration are not
-implemented.
+Management tables are `repository`, `arc` (root, folder, baseline, saved graph,
+cursor, revision, replacing `session`), the registry `entity` (id, type, ordinal),
+`entity_additional_type` for non-core typed objects, `entity_extension` (blob
+extensions keep base64 text in `value_text`), `history`, `arc_archive` and
+`archived_history`. A `history` row is one operation with encoded change records
+(entity ID, ordinal, before/after rows). The journal, typed payload tables,
+`entity_value`, `entity_reference`, the `dataset_part` and `dataset_process`
+mirrors, and full state snapshots in history are gone. `SuppliedId` is not stored.
+
+Writes apply the difference between two in-memory states in a fixed order: insert
+new rows, remove changed association, endpoint and extension rows, update
+scalars, clear outgoing references of removed rows, delete descriptors, then other
+core rows, then registry rows, insert same-ID kind replacements, and add rows. A
+title edit writes three rows (dataset update, history insert, `arc` update).
+Undo and redo apply the recorded before/after rows through the same writer and
+keep list positions through ordinals.
+
+Opening checks that every expected object exists in `sqlite_master` with
+identical SQL text. Version 4 databases are rejected with a re-import hint, and
+there is no migration. A conformance test compares the scoped tables with
+`001_core.sql` (columns, keys, foreign keys, index keys, CHECKs, and the views with
+`arc_id`). The runtime still keeps canonical live instances and rejects a stale
+handle. Automatic refresh comes with the runtime phase. A public cross-ARC query
+API is not implemented.
 
 ### Folder export and recovery
 
@@ -181,7 +204,7 @@ Folder operations are independent of repository opening:
   objects; otherwise it reports a conflict. Explicit `"sql"` accepts retained
   working state and the observed baseline; `"yml"` replaces the entry from IO.
 - YAML replacement archives only the displaced ARC's metadata, state, history,
-  and journal inside the repository. It does not rename or replace the shared
+  and history change records inside the repository. It does not rename or replace the shared
   database, or alter other ARCs.
 - `ARC.create` and `ARC.openFolder` privately own a session at
   `.arc/arc.sqlite`; closing their ARC closes that session. Convenience
@@ -235,7 +258,7 @@ The implementation lives in [src/ARCManagement](../src/ARCManagement/):
 | `Runtime/Session.fs`, `ArcFactory.fs` | ARC context, snapshots, identity, adoption, hydration, and history. |
 | `ARCtrl/` | Workspace ARC, binding, export, baselines, recovery, fixed layout paths, and workspace-specific identifier/path helpers. |
 | `Operations/`, `ManagedGraph.fs`, `AppliedOperation.fs` | Generic attached facade and operation groups. |
-| `Internal/`, `Serialization/`, `Storage/` | Model capture/validation, YAML codecs, and SQLite schema/mirrors. |
+| `Internal/`, `Serialization/`, `Storage/` | Model capture/validation, YAML codecs, and the SQLite core-profile schema and diff writer. |
 | `Helper/` | Generic portable filesystem adapters, UUID generation, collections, parsing, and async utilities. |
 
 Generic native entrypoints are `arc-management` and `arc_management`; workspace
@@ -261,7 +284,7 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 | Detached YAML and public text workflows | Implemented and verified | Verified absent/duplicate IDs, sharing/cycles, scalar types, extensions, legacy input, invalid aliases, managed adoption, and checkpoint-free export. |
 | Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
 | Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
-| Immutable model and simplified management | Phase 1 implemented and verified. Phases 2-6 planned | Phase 1 (immutable Layer 1, with the transitional management adaptation) is done. Phases 2-6 of the [immutable redesign](mutation_safety_immutable.md) remain: a cached-state runtime without live projections, core-shaped schema version 5 with delta history and no journal, trimmed typed operation groups, ProcessCore-shaped YAML. |
+| Immutable model and simplified management | Phase 1 and the storage part of phases 2-3 implemented. Runtime refresh and remaining phases planned | Phase 1 (immutable Layer 1, with the transitional management adaptation) and the core-shaped schema version 5 with delta history and no journal are done. The [immutable redesign](mutation_safety_immutable.md) still plans a cached-state runtime without live projections and the revision refresh protocol, trimmed typed operation groups, and ProcessCore-shaped YAML. |
 | Project-file workspace integration | Planned | Resolve `.arc/project.yml`, profiles, rules, and exact codec IDs; prepare root/child bindings and auxiliary outputs before IO. |
 | Project-backed save and recovery | Planned | Export/reload selected resources with conflict checks, per-ARC archives, retained history/session-only objects, and failed-write checkpoint coverage. |
 | Project-backed native API and documentation | Planned | Run shared and handwritten consumers for the new lifecycle and document its supported guarantees. |

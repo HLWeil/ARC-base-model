@@ -63,7 +63,7 @@ ARC-Data-Model/
 
 ## Accepted redesign
 
-[The immutable redesign](plans/mutation_safety_immutable.md) supersedes, phase by phase, the live-projection management rules below, together with the management storage layout and managed YAML format. The Layer 1 phase has landed, so the Layer 1 rules in this file describe the immutable model. The remaining phases are pending, and until each lands the existing management rules describe the code. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
+[The immutable redesign](plans/mutation_safety_immutable.md) supersedes, phase by phase, the live-projection management rules below, together with the management storage layout and managed YAML format. The Layer 1 phase and the storage phase (schema version 5, diff writer, delta history) have landed, so the Layer 1 rules in this file describe the immutable model. The runtime and API phases are pending, and until each lands the existing management rules describe the code. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
 
 ## Layer 1: Portable Domain Model
 
@@ -151,10 +151,12 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   belong to ARC. Closing any wrapper closes its graph and invalidates every
   shared wrapper; only `create`/`openFolder` also close their privately owned
   session. Borrowed sessions and sibling graphs remain usable.
-- Retain `arc.yml`, `.arc/arc.sqlite`, schema version 4, per-entry archives,
+- Retain `arc.yml`, `.arc/arc.sqlite`, per-entry archives,
   and save/recovery checkpoint guarantees. Workspace imports initialize the
   graph, binding, and baseline transactionally. Project-file integration is
-  separate future work.
+  separate future work. Experimental SQL storage at schema version 5 scopes the
+  core profile tables by `arc_id`, has no migration (version 4 databases are
+  rejected with a re-import hint), and opening validates every expected object.
 - Generic native entrypoints are `arc-management` / `arc_management`; workspace
   entrypoints are `arc-management/arctrl` / `arc_management.arctrl`. Use shared
   JavaScript chunks and one Python implementation tree so model, SQLite, and

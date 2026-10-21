@@ -1,6 +1,6 @@
 # Immutable ARCBaseModel with SQL-backed management
 
-Status: accepted. Phases 0 and 1 are implemented, except the Python keyword check for `recursive`, which moves to the API phase. Phases 2-6 are planned. Revised 2026-10-21 to minimize complexity in the
+Status: accepted. Phases 0 and 1 and the storage phase are implemented. The Python keyword check for `recursive` moves to the API phase. The revision refresh protocol moves from the storage phase to the runtime and API work, because the transitional runtime plans adoption outside the transaction. The runtime and the remaining phases are planned. Revised 2026-10-21 to minimize complexity in the
 model, backend and API. Supersedes [the event plan](mutation_safety_event.md) and the
 first implementation attempt on branch `arcmanagement–immutable`.
 
@@ -275,8 +275,8 @@ Each phase ends with its FAKE targets passing. A skipped target is not a pass.
 | 0. Spike | `EntityObject`, `Sample`, `Process` and `Dataset` with state records, the clone helper, frozen collections, generic statics and union `with*` methods. Staged declarations. A Python keyword `recursive` on a sample method | `TestBaseModel` on all runtimes, plus inspection of emitted classes and declarations |
 | 1. Layer 1 | All entity and value classes, both stagers, shared and native Layer 1 tests, [the base-model guide](../docs/project/base-model.md) | `TestBaseModel` |
 | 2. Management core | Typed property table, cached state, capture and hydration. Removal of the live-object machinery, while old storage and YAML still work on rows | `TestARCManagement` |
-| 3. Storage | Core-shaped schema, diff writer, history deltas, revision refresh, conformance test. Removal of `journal` and the mirrors | `TestARCManagement`, `TestCoreSQL` |
-| 4. API | Trimmed groups, upsert semantics, ARC facade, management stagers, shared and native tests | `TestARCManagement` |
+| 3. Storage | Core-shaped schema, diff writer, history deltas, conformance test. Removal of `journal` and the mirrors | `TestARCManagement`, `TestCoreSQL` |
+| 4. API | Trimmed groups, revision refresh, upsert semantics, ARC facade, management stagers, shared and native tests | `TestARCManagement` |
 | 5. YAML | Mapping table, ProcessCore-shaped codec, workspace import and save, interop | `TestARCManagement` |
 | 6. Close-out | AGENTS.md, guides, `schemas/sql/design.md`, implementation plans | `RunTests`, packed artifacts, declarations, docs link check |
 
@@ -301,6 +301,9 @@ Acceptance coverage:
 Track line counts of `src/ARCBaseModel` (474 lines) and of `Runtime/`, `Internal/`,
 `Storage/` and `Serialization/` in `src/ARCManagement` (1,477 lines) per phase.
 Investigate any phase that grows them substantially.
+Storage phase result: the management directories (`Runtime/`, `Internal/`, `Storage/`
+and `Serialization/`) grew from 1,479 to 1,989 lines. Most of the growth is the 93 DDL
+statements in `CoreSchema.fs` and the diff writer.
 Phase 1 result: `src/ARCBaseModel` grew from 474 to 815 lines and the management
 directories from 1,477 to 1,479 lines. Most of the Layer 1 growth is the state
 records and about 73 short `with*` copy members that replace mutable properties. Record actual results in

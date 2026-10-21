@@ -98,10 +98,12 @@ helpers such as `setInputSample`, `setOutputData`, `setValueText`,
 union wrappers. Text, absence, empty text, zero, and fractional numbers remain
 distinguishable.
 
-Edits validate a planned snapshot, then transactionally update SQL mirrors, the
-live projection, history/cursor, journal, and graph revision. Failures restore
-SQL and the previous projection. Mutations return attached `AppliedOperation`
-values. Undo/redo is linear and persisted; editing after undo discards redo.
+Edits validate a planned snapshot, then transactionally write the row-level
+difference between the stored and the new state, one `history` record, the
+cursor, and the graph revision. The live projection follows. Failures restore SQL
+and the previous projection. Mutations return attached `AppliedOperation`
+values. Undo/redo is linear and persisted, and applies the recorded before and
+after rows through the same writer. Editing after undo discards redo.
 Hydration and history restoration keep canonical instances and replace
 collection containers. Undoing a registration restores originally absent IDs, and redo restores
 assigned IDs. Saving preserves history and standalone objects.
@@ -164,13 +166,35 @@ Object references preserve canonical identity and support cycles, including
 through collections. Self-containing collection containers are rejected; express
 cycles through typed objects. Reachability follows extension references.
 
-Schema version **4** remains separate from the normative core SQL profile.
-Entity and typed rows use `(arc_id, id)`. Values/references retain order;
-extensions additionally use nested paths. Composite foreign keys enforce entry
-scope for typed, generic, and extension references. History, journals, revisions,
-baselines, saved graphs, and archives are entry-local. Commands currently rebuild
-only their entry's rows. There is no extra entity surrogate-key system, public
-cross-entry search API, or legacy migration. PolyglotSQLite owns all providers.
+Schema version **5** creates the tables, indexes, and views of the normative
+core SQL profile ([001_core.sql](../../schemas/sql/001_core.sql)) with an added
+`arc_id` column. Primary keys and foreign keys are composite over `arc_id`, the
+registry foreign key cascades on delete, and association targets have extra
+`(arc_id, target)` indexes. `process_edges` and `core_validation_errors` are
+scoped by `arc_id`. The writer does not run `core_validation_errors`, because
+`Model.validate` governs writes. The view stays available for queries.
+
+Management tables add `repository`, `arc` (root, folder, baseline, saved graph,
+cursor, revision), the entity registry `entity` (id, type, ordinal),
+`entity_additional_type` for non-core typed objects, `entity_extension`
+(blob extensions keep base64 text in `value_text`), `history`, `arc_archive`, and
+`archived_history`. Each `history` row holds one operation as encoded change
+records with entity ID, ordinal, and before/after rows. Ordinals keep list
+positions through undo and redo.
+
+A write inserts new rows, removes changed association, endpoint, and extension
+rows, updates scalars, clears outgoing references of removed rows, deletes
+descriptors, then other core rows, then registry rows, inserts same-ID kind
+replacements, and adds rows. A title edit writes three rows: the dataset update,
+the history insert, and the `arc` update. The store has no journal, typed payload
+tables, mirror tables, or full state snapshots in history. `SuppliedId` is not
+stored.
+
+Opening compares every expected object in `sqlite_master` with its exact SQL
+text. A version 4 database is rejected with a hint to re-import the ARC from
+`arc.yml`, and there is no migration. The runtime still keeps canonical live
+instances and rejects a stale handle. There is no extra entity surrogate-key
+system or public cross-entry search API. PolyglotSQLite owns all providers.
 
 ## Layout, packages, and verification
 

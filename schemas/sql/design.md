@@ -91,8 +91,10 @@ and the appropriate declarations for process, descriptor and administrative
 properties. Additional classification strings are permitted. Each child is
 validated independently; no root containment or ownership policy is imposed.
 
-The existing `src/ARCManagement/Storage/SQLiteStore.fs` provides a small validation helper
-over `PolyglotSQLite`. It remains separate from the prototype's session schema.
+The ARCManagement store uses an `arc_id`-scoped copy of this profile in
+`src/ARCManagement/Storage/CoreSchema.fs`, executed through `SQLiteStore.fs` over
+`PolyglotSQLite`. A conformance test checks the copy against `001_core.sql`.
+`001_core.sql` itself is unchanged.
 There is no parallel row API or duplicated SQLite infrastructure. Tests live in
 `tests/ARCManagement.Tests`, reuse the existing store/provider, and execute
 the same SQL cases on .NET, Node and Python.
