@@ -27,6 +27,12 @@ const modelExports = {
 const alternativeNames = new Set([
   "AnnotationValue", "EntityReference", "RecipeIntendedUse", "DefinedTermSetReference", "Entity",
 ]);
+// Implementation members and records that Fable emits as public TypeScript but that
+// the domain API keeps internal.
+const hiddenMembers = new Set([
+  "state", "State", "common", "Common", "reserved", "Reserved", "ReserveProperties", "CloneObject",
+  "Copy", "With", "Without", "Values", "Empty",
+]);
 const modelNames = new Set(Object.values(modelExports).flat());
 const probeNames = new Set([
   "AnnotationColumns", "EntityColumns", "IntendedUseColumns", "TermSetColumns", "MappingProbe",
@@ -58,6 +64,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
   const f = ts.factory;
   const publicNames = new Set([...modelNames, ...probeNames, "Iterable"]);
   const foundNames = new Set();
+  const typeParameterNames = new Set();
   const statements = [];
   const exportModifier = f.createModifier(ts.SyntaxKind.ExportKeyword);
   const declareModifier = f.createModifier(ts.SyntaxKind.DeclareKeyword);
@@ -73,7 +80,7 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         return f.createUnionTypeNode([args[0], f.createKeywordTypeNode(ts.SyntaxKind.UndefinedKeyword)]);
       }
       if (name === "float64" || name === "int32") return f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword);
-      if (!publicNames.has(name)) throw new Error(`Unexpected public type ${name}; explicitly review its native representation.`);
+      if (!publicNames.has(name) && !typeParameterNames.has(name)) throw new Error(`Unexpected public type ${name}; explicitly review its native representation.`);
       return f.createTypeReferenceNode(name, args);
     }
     if (ts.isUnionTypeNode(node)) return f.createUnionTypeNode(node.types.map(publicType));
@@ -114,12 +121,26 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
       const members = [];
       if (statement.heritageClauses?.length) members.push(f.createGetAccessorDeclaration(undefined, "Type", [], f.createLiteralTypeNode(f.createStringLiteral(name)), undefined));
       for (const member of statement.members) {
-        if (ts.isPropertyDeclaration(member) && member.name.getText(parsed).startsWith("_")) continue;
+        // Fable emits backing storage as fields. The public API is the accessors and methods.
+        if (ts.isPropertyDeclaration(member)) continue;
+        const memberName = member.name?.getText(parsed);
+        if (memberName !== undefined && (memberName.startsWith("_") || hiddenMembers.has(memberName))) continue;
         if (ts.isConstructorDeclaration(member)) {
+          // The property bag is created only by the model, so native callers get no constructor.
+          if (name === "EntityPropertyBag") {
+            members.push(f.createConstructorDeclaration([f.createModifier(ts.SyntaxKind.PrivateKeyword)], [], undefined));
+            continue;
+          }
           members.push(f.createConstructorDeclaration(undefined, member.parameters.map(parameter), undefined));
         } else if (ts.isGetAccessorDeclaration(member)) {
           const property = member.name.getText(parsed);
-          let propertyType = publicType(member.type);
+          // Collection getters hold frozen arrays at runtime. Fable annotates them as Iterable.
+          const emitted = member.type;
+          const isIterable = emitted && ts.isTypeReferenceNode(emitted) && ts.isIdentifier(emitted.typeName)
+            && emitted.typeName.text === "Iterable" && emitted.typeArguments?.length === 1;
+          let propertyType = isIterable
+            ? f.createTypeOperatorNode(ts.SyntaxKind.ReadonlyKeyword, f.createArrayTypeNode(publicType(emitted.typeArguments[0])))
+            : publicType(member.type);
           if (property === "Type" && name !== "EntityObject") {
             const body = member.body?.statements;
             const expression = body?.length === 1 && ts.isReturnStatement(body[0]) ? body[0].expression : undefined;
@@ -132,10 +153,15 @@ function declarations(inputFiles, expectedNames, modelImports = false) {
         } else if (ts.isSetAccessorDeclaration(member)) {
           members.push(f.createSetAccessorDeclaration(undefined, member.name.getText(parsed), member.parameters.map(parameter), undefined));
         } else if (ts.isMethodDeclaration(member)) {
-          if (["Reserve", "check"].includes(member.name.getText(parsed))) continue;
           const modifiers = member.modifiers?.filter(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword);
-          members.push(f.createMethodDeclaration(modifiers, undefined, member.name.getText(parsed), undefined, undefined,
+          typeParameterNames.clear();
+          for (const typeParameter of member.typeParameters ?? []) typeParameterNames.add(typeParameter.name.text);
+          const typeParameters = member.typeParameters?.map(typeParameter => f.createTypeParameterDeclaration(
+            undefined, typeParameter.name.text,
+            typeParameter.constraint ? publicType(typeParameter.constraint) : undefined, undefined));
+          members.push(f.createMethodDeclaration(modifiers, undefined, member.name.getText(parsed), undefined, typeParameters,
             member.parameters.map(parameter), publicType(member.type), undefined));
+          typeParameterNames.clear();
         } else {
           throw new Error(`Unexpected public member in ${name}; review the generated API before staging.`);
         }
@@ -207,7 +233,10 @@ async function stage(includeTests) {
     const aliases = names.filter(name => alternativeNames.has(name));
     return `export { ${classes.join(", ")} } from "./${module}.ts";\n`
       + (aliases.length ? `export type { ${aliases.join(", ")} } from "./${module}.ts";\n` : "");
-  }).join(""));
+  }).join("")
+    // ARCManagement's bundle imports internal state records and construction helpers from this
+    // package so both share one class identity. index.d.ts still declares only the curated API.
+    + ["Internal", ...Object.keys(modelExports)].map(module => `export * from "./${module}.ts";\n`).join(""));
 
   const entries = { "node_modules/arc-base-model/index": modelIndex };
   let probeTypes;

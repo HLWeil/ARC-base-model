@@ -53,6 +53,7 @@ ERASED_FIELDS = {
         "EntityPropertyBag": ("Get", "Add", "Set"),
         "EntityCollection": ("values", "Get", "Set", "Add"),
     }.items() for field in fields},
+    ("EntityObject", "property"): "Entity",
     ("Annotation", "value"): "AnnotationValue",
     ("DefinedTerm", "in_defined_term_set"): "DefinedTermSetReference",
     ("Recipe", "intended_use"): "RecipeIntendedUse",
@@ -70,6 +71,11 @@ ERASED_FIELDS = {
     ("MappingProbe", "IsNumber"): "AnnotationValue",
     ("MappingProbe", "IsText"): "AnnotationValue",
     ("MappingProbe", "ClassifyNumberFirst"): "AnnotationValue",
+}
+# Implementation members that Fable emits as public Python but the domain API keeps internal.
+HIDDEN_MEMBERS = {
+    "State", "Common", "Reserved", "ReserveProperties", "CloneObject",
+    "Copy", "With", "Without", "Values", "Empty",
 }
 CLASS_MODULES = {
     name: module for module, names in MODULE_CLASSES.items() for name in names
@@ -241,7 +247,7 @@ def field_key(name: str) -> str:
     return name.replace("_", "").lower()
 
 
-def annotation_text(annotation: ast.expr | None, class_name: str, field: str) -> str:
+def annotation_text(annotation: ast.expr | None, class_name: str, field: str, getter: bool = False) -> str:
     if annotation is None:
         raise ValueError(f"Missing annotation for {class_name}.{field}")
     replacement = next(
@@ -268,6 +274,11 @@ def annotation_text(annotation: ast.expr | None, class_name: str, field: str) ->
 
     # Work on a copy; the parsed runtime module is the source of truth throughout.
     expression = ast.parse(ast.unparse(annotation), mode="eval").body
+    # Collection getters return immutable tuples at runtime. Parameters accept any iterable.
+    if (getter and isinstance(expression, ast.Subscript)
+            and isinstance(expression.value, ast.Name) and expression.value.id == "IEnumerable_1"):
+        element = NativeAnnotations().visit(expression.slice)
+        return f"tuple[{ast.unparse(ast.fix_missing_locations(element))}, ...]"
     expression = NativeAnnotations().visit(expression)
     return ast.unparse(ast.fix_missing_locations(expression))
 
@@ -304,7 +315,13 @@ def class_stub(class_node: ast.ClassDef) -> str:
         if not isinstance(member, ast.FunctionDef):
             continue
         if member.name == "__init__":
+            if class_node.name == "EntityPropertyBag":
+                # Only the model creates property bags. The emitted parameter is an internal F# map.
+                lines.append("    def __init__(self, values: object) -> None: ...")
+                continue
             lines.append(constructor_stub(class_node, member))
+            continue
+        if member.name in HIDDEN_MEMBERS:
             continue
         is_getter = any(
             isinstance(decorator, ast.Name) and decorator.id == "property"
@@ -325,7 +342,7 @@ def class_stub(class_node: ast.ClassDef) -> str:
                     raise ValueError(f"Unexpected fixed Type for {class_node.name}")
                 annotation = f'Literal["{class_node.name}"]'
             else:
-                annotation = annotation_text(member.returns, class_node.name, member.name)
+                annotation = annotation_text(member.returns, class_node.name, member.name, getter=True)
             lines.extend(("    @property", f"    def {member.name}(self) -> {annotation}: ..."))
         elif is_setter:
             if member.name == "Type":
@@ -339,11 +356,21 @@ def class_stub(class_node: ast.ClassDef) -> str:
                 f"    @{member.name}.setter",
                 f"    def {member.name}(self, value: {annotation}) -> None: ...",
             ))
-        elif not member.name.startswith("_") and member.name not in {"Reserve", "check"}:
-            parameters = ["self"]
-            for argument in member.args.args[1:]:
-                parameters.append(f"{argument.arg}: {annotation_text(argument.annotation, class_node.name, member.name)}")
+        elif not member.name.startswith("_"):
+            is_static = any(
+                isinstance(decorator, ast.Name) and decorator.id == "staticmethod"
+                for decorator in member.decorator_list
+            )
+            # with_<property> parameters take the erased type registered for the property.
+            field = member.name[len("with_"):] if member.name.startswith("with_") else member.name
+            parameters = [] if is_static else ["self"]
+            for argument in member.args.args if is_static else member.args.args[1:]:
+                if argument.arg == "__unit":
+                    continue
+                parameters.append(f"{argument.arg}: {annotation_text(argument.annotation, class_node.name, field)}")
             result = annotation_text(member.returns, class_node.name, member.name)
+            if is_static:
+                lines.append("    @staticmethod")
             lines.append(f"    def {member.name}({', '.join(parameters)}) -> {result}: ...")
     if not any(isinstance(node, ast.FunctionDef) and node.name == "__init__" for node in class_node.body):
         raise ValueError(f"Missing constructor for {class_node.name}")
@@ -362,6 +389,9 @@ def module_stub(module: str, parsed: ast.Module) -> str:
     for alias, (owner, expression) in ALIASES.items():
         if owner == module:
             body.append(f"{alias}: TypeAlias = {expression}")
+    if module == "entity":
+        # Shared by the generic copy functions on EntityObject.
+        body.append('T = TypeVar("T", bound="EntityObject")')
     body.extend(class_stub(classes[name]) for name in expected)
     body_text = "\n\n".join(body)
     names = {
@@ -370,7 +400,7 @@ def module_stub(module: str, parsed: ast.Module) -> str:
     imports = ["from __future__ import annotations"]
     if "Iterable" in names:
         imports.append("from collections.abc import Iterable")
-    typing_names = sorted(names & {"Literal", "TypeAlias"})
+    typing_names = sorted(names & {"Literal", "TypeAlias", "TypeVar"})
     if typing_names:
         imports.append(f"from typing import {', '.join(typing_names)}")
     for other_module, other_classes in MODULE_CLASSES.items():

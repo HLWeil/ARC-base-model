@@ -8,35 +8,66 @@ type RecipeIntendedUse =
     | Text of string
     | Term of DefinedTerm
 
+type internal RecipeState =
+    { Name: string option
+      Parameters: seq<FormalParameter>
+      Description: string option
+      IntendedUse: RecipeIntendedUse option
+      AdditionalProperties: seq<Annotation>
+      Components: seq<Annotation>
+      Version: string option
+      Url: string option }
+
 /// Description of a planned procedure and its prospective parameters.
 [<AttachMembers>]
 type Recipe(?name: string, ?parameters: seq<FormalParameter>, ?description: string,
             ?intendedUse: RecipeIntendedUse, ?additionalProperties: seq<Annotation>, ?components: seq<Annotation>,
             ?version: string, ?url: string, ?id: string, ?additionalTypes: seq<string>) =
     inherit EntityObject("Recipe", ?id = id, ?additionalTypes = additionalTypes)
-    let mutable _name = name
-    let mutable _parameters = Construction.collection parameters
-    let mutable _description = description
-    let mutable _intendedUse = intendedUse
-    let mutable _additionalProperties = Construction.collection additionalProperties
-    let mutable _components = Construction.collection components
-    let mutable _version = version
-    let mutable _url = url
+    let mutable state: RecipeState =
+        { Name = name
+          Parameters = Construction.optionalCollection "parameters" parameters
+          Description = description
+          IntendedUse = intendedUse
+          AdditionalProperties = Construction.optionalCollection "additionalProperties" additionalProperties
+          Components = Construction.optionalCollection "components" components
+          Version = version
+          Url = url }
 
-    do base.EntityProperties.Reserve(["name"; "parameters"; "description"; "intendedUse"; "additionalProperties"; "components"; "version"; "url"])
+    do base.ReserveProperties(["name"; "parameters"; "description"; "intendedUse"; "additionalProperties"; "components"; "version"; "url"])
+    member internal _.State with get() = state and set(value) = state <- value
     /// Human-readable recipe title.
-    member _.Name with get() = _name and set(value) = _name <- value
+    member _.Name = state.Name
     /// Prospective parameter slots, preserving references and duplicates.
-    member _.Parameters with get() = _parameters and set(value) = _parameters <- Construction.copy value
+    member _.Parameters = state.Parameters
     /// Description of the planned procedure.
-    member _.Description with get() = _description and set(value) = _description <- value
+    member _.Description = state.Description
     /// Classification as plain text or a defined term.
-    member _.IntendedUse with get() = _intendedUse and set(value) = _intendedUse <- value
+    member _.IntendedUse = state.IntendedUse
     /// Extensible recipe metadata.
-    member _.AdditionalProperties with get() = _additionalProperties and set(value) = _additionalProperties <- Construction.copy value
+    member _.AdditionalProperties = state.AdditionalProperties
     /// Equipment, software, reagents, or other components.
-    member _.Components with get() = _components and set(value) = _components <- Construction.copy value
+    member _.Components = state.Components
     /// Recipe version identifier.
-    member _.Version with get() = _version and set(value) = _version <- value
+    member _.Version = state.Version
     /// URL of an external recipe resource.
-    member _.Url with get() = _url and set(value) = _url <- value
+    member _.Url = state.Url
+    static member withName(value: Recipe, replacement: string option) : Recipe =
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with Name = replacement })
+    static member withParameters(value: Recipe, replacement: seq<FormalParameter>) : Recipe =
+        let items = Construction.collection "parameters" replacement
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with Parameters = items })
+    static member withDescription(value: Recipe, replacement: string option) : Recipe =
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with Description = replacement })
+    static member withIntendedUse(value: Recipe, replacement: RecipeIntendedUse option) : Recipe =
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with IntendedUse = replacement })
+    static member withAdditionalProperties(value: Recipe, replacement: seq<Annotation>) : Recipe =
+        let items = Construction.collection "additionalProperties" replacement
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with AdditionalProperties = items })
+    static member withComponents(value: Recipe, replacement: seq<Annotation>) : Recipe =
+        let items = Construction.collection "components" replacement
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with Components = items })
+    static member withVersion(value: Recipe, replacement: string option) : Recipe =
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with Version = replacement })
+    static member withUrl(value: Recipe, replacement: string option) : Recipe =
+        EntityObject.Copy(value, fun copy -> copy.State <- { value.State with Url = replacement })

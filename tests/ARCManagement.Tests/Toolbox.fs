@@ -142,7 +142,7 @@ let tests = testList "ARC toolbox" [
         let importedAgain = ARC.importFolder(importedSession,path)
         Expect.notEqual imported.ArcId importedAgain.ArcId "Each import creates a new entry"
         Expect.isFalse (Object.ReferenceEquals(imported.Model,importedAgain.Model)) "Repeated imports have independent projections"
-        Expect.equal imported.Model.Identifiers[0] "root" "Imported graph"
+        Expect.equal (Seq.item 0 imported.Model.Identifiers) "root" "Imported graph"
         Expect.isFalse imported.IsDirty "Import establishes baseline"
         imported.Dataset.setTitle(imported.Model,"native") |> ignore
         imported.save()
@@ -277,7 +277,7 @@ let tests = testList "ARC toolbox" [
         let sibling = session.createArc(root())
         let path = folder()
         let detached = Dataset(["administrative"],["imported"])
-        detached.HasParts.Add(detached)
+        detached.State <- { detached.State with HasParts = [detached] }
         Path.writeFileText (Path.combineNative path ARCtrl.Helper.Layout.ARCFileName) (ARCManagement.DatasetYaml.encode(detached))
         let db = sql session
         db.ExecuteScript("CREATE TRIGGER fail_workspace BEFORE INSERT ON session WHEN NEW.folder IS NOT NULL BEGIN SELECT RAISE(ABORT,'injected'); END;")
@@ -287,7 +287,7 @@ let tests = testList "ARC toolbox" [
         db.Execute("DROP TRIGGER fail_workspace")
         let imported = ARC.importFolder(session,path)
         Expect.isSome imported.Model.Id "Workspace import applies management IDs"
-        same imported.Model.HasParts[0] imported.Model
+        same (Seq.item 0 imported.Model.HasParts) imported.Model
         Expect.equal imported.Folder path "Binding initialized"
         Expect.isFalse imported.IsDirty "Import establishes canonical checkpoint"
         Expect.isFalse imported.History.CanUndo "Import starts with empty history"

@@ -1,19 +1,47 @@
 import * as Management from "arc-management";
 import { DatasetYaml, ManagedGraph, Session } from "arc-management";
 import { ARC } from "arc-management/arctrl";
-import { Dataset, Annotation, Sample, Data, EntityObject, EntityCollection } from "arc-base-model";
+import { Dataset, Annotation, Sample, Data, EntityObject } from "arc-base-model";
 
 check(!("ARC" in Management), "Workspace ARC belongs to the arctrl entrypoint");
-const detached = new Dataset(["process-provenance"], ["detached"]);
-const shared = new Dataset(["administrative"], ["shared"]);
-const sameId = new Dataset(["semantic-designation"], ["distinct"]);
-shared.Id = sameId.Id = "same";
-shared.Title = "";
-detached.HasParts = [shared, shared, sameId, detached];
-const zero = new Annotation("zero");
-zero.Value = 0;
-detached.AdditionalProperties = [zero, zero];
-detached.SetEntityProperty("self", detached);
+// Cycles cannot be assembled from immutable values, so the detached fixture is decoded from anchored YAML.
+const sourceYaml = [
+  "&o1",
+  "type: Dataset",
+  "additionalProperties:",
+  "    -",
+  "        &o4",
+  "        type: Annotation",
+  "        name: zero",
+  "        value: 0",
+  "    -",
+  "        *o4",
+  "conformsTo: [process-provenance]",
+  "hasParts:",
+  "    -",
+  "        &o2",
+  "        type: Dataset",
+  "        id: same",
+  "        conformsTo: [administrative]",
+  "        identifiers: [shared]",
+  "        title: \"\"",
+  "    -",
+  "        *o2",
+  "    -",
+  "        &o3",
+  "        type: Dataset",
+  "        id: same",
+  "        conformsTo: [semantic-designation]",
+  "        identifiers: [distinct]",
+  "    -",
+  "        *o1",
+  "identifiers: [detached]",
+  "self:",
+  "    *o1",
+  ""
+].join("\n");
+const detached = DatasetYaml.decode(sourceYaml);
+const zero = detached.AdditionalProperties[0];
 const detachedYaml = DatasetYaml.encode(detached);
 check(detached.Id === undefined && zero.Id === undefined, "Encoding preserves omitted IDs");
 const decoded = DatasetYaml.decode(detachedYaml);
@@ -25,16 +53,10 @@ check(decoded.HasParts[0].Title === "", "Detached empty text preserved");
 check(decoded.AdditionalProperties[0] === decoded.AdditionalProperties[1] && decoded.AdditionalProperties[0].Value === 0, "Detached numeric values and references preserved");
 rejects(() => DatasetYaml.decode("not: [valid YAML"));
 rejects(() => DatasetYaml.decode("type: Sample\nname: invalid root\n"));
-const recursiveCollection = new EntityCollection([]);
-recursiveCollection.Add(recursiveCollection);
-detached.SetEntityProperty("bad", recursiveCollection);
-rejects(() => DatasetYaml.encode(detached));
-detached.RemoveEntityProperty("bad");
 
 const session = Session.createInMemory();
-const firstRoot = new Dataset(["process-provenance"], ["first"]);
-const secondRoot = new Dataset(["process-provenance"], ["second"]);
-firstRoot.Id = secondRoot.Id = "root";
+const firstRoot = EntityObject.withId(new Dataset(["process-provenance"], ["first"]), "root");
+const secondRoot = EntityObject.withId(new Dataset(["process-provenance"], ["second"]), "root");
 const first = session.createArc(firstRoot);
 const second = session.createArc(secondRoot);
 check(first instanceof ManagedGraph, "Session returns the root entrypoint's graph class");
@@ -51,9 +73,8 @@ workspace.close();
 rejects(() => first.Sample.create("closed"));
 second.Sample.create("still open");
 rejects(() => session.importYaml(detachedYaml));
-const importRoot = new Dataset(["process-provenance"], ["import"]);
 const importChild = new Dataset(["administrative"], ["child"]);
-importRoot.HasParts = [importChild, importChild];
+const importRoot = Dataset.withHasParts(new Dataset(["process-provenance"], ["import"]), [importChild, importChild]);
 const imported = session.importYaml(DatasetYaml.encode(importRoot));
 check(importRoot.Id === undefined && importChild.Id === undefined, "Import leaves detached source values unchanged");
 check(imported.Model.Id !== undefined && imported.Model.HasParts[0] === imported.Model.HasParts[1], "Management import assigns identity while preserving references");
@@ -128,9 +149,7 @@ try {
   check(arc.Entity.getProperty(quality,"score")===0,"Extension zero");
   check(arc.Entity.getProperty(quality,"accepted")===false,"Extension false");
   check(arc.Entity.hasProperty(quality,"missing"),"Explicit null is present");
-  const replacement=new Annotation("replaced");
-  replacement.Id=value.Id;
-  replacement.Value="";
+  const replacement=EntityObject.withId(new Annotation("replaced",""),value.Id);
   arc.Annotation.upsert(replacement);
   check(value.Value==="","Native empty text is present");
   check(value!==replacement,"Canonical instance retained");

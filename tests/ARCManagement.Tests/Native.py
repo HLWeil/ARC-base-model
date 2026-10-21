@@ -3,7 +3,7 @@ from uuid import uuid4
 import arc_management
 from arc_management import DatasetYaml, ManagedGraph, Session
 from arc_management.arctrl import ARC
-from arc_base_model import Dataset, Annotation, Sample, Data, EntityObject, EntityCollection
+from arc_base_model import Dataset, Annotation, Sample, Data, EntityObject
 
 
 def rejects(action):
@@ -15,16 +15,44 @@ def rejects(action):
 
 
 assert not hasattr(arc_management, "ARC")
-detached = Dataset(["process-provenance"], ["detached"])
-shared = Dataset(["administrative"], ["shared"])
-same_id = Dataset(["semantic-designation"], ["distinct"])
-shared.Id = same_id.Id = "same"
-shared.Title = ""
-detached.HasParts = [shared, shared, same_id, detached]
-zero = Annotation("zero")
-zero.Value = 0
-detached.AdditionalProperties = [zero, zero]
-detached.SetEntityProperty("self", detached)
+# Cycles cannot be assembled from immutable values, so the detached fixture is decoded from anchored YAML.
+source_yaml = "\n".join([
+    "&o1",
+    "type: Dataset",
+    "additionalProperties:",
+    "    -",
+    "        &o4",
+    "        type: Annotation",
+    "        name: zero",
+    "        value: 0",
+    "    -",
+    "        *o4",
+    "conformsTo: [process-provenance]",
+    "hasParts:",
+    "    -",
+    "        &o2",
+    "        type: Dataset",
+    "        id: same",
+    "        conformsTo: [administrative]",
+    "        identifiers: [shared]",
+    "        title: \"\"",
+    "    -",
+    "        *o2",
+    "    -",
+    "        &o3",
+    "        type: Dataset",
+    "        id: same",
+    "        conformsTo: [semantic-designation]",
+    "        identifiers: [distinct]",
+    "    -",
+    "        *o1",
+    "identifiers: [detached]",
+    "self:",
+    "    *o1",
+    "",
+])
+detached = DatasetYaml.decode(source_yaml)
+zero = detached.AdditionalProperties[0]
 detached_yaml = DatasetYaml.encode(detached)
 assert detached.Id is None and zero.Id is None
 decoded = DatasetYaml.decode(detached_yaml)
@@ -37,11 +65,6 @@ assert decoded.AdditionalProperties[0] is decoded.AdditionalProperties[1]
 assert decoded.AdditionalProperties[0].Value == 0 and type(decoded.AdditionalProperties[0].Value) is float
 rejects(lambda: DatasetYaml.decode("not: [valid YAML"))
 rejects(lambda: DatasetYaml.decode("type: Sample\nname: invalid root\n"))
-recursive_collection = EntityCollection([])
-recursive_collection.Add(recursive_collection)
-detached.SetEntityProperty("bad", recursive_collection)
-rejects(lambda: DatasetYaml.encode(detached))
-detached.RemoveEntityProperty("bad")
 
 folder = str(Path("build/out/arc-management") / ("native-python-" + uuid4().hex))
 arc = ARC.create(folder, Dataset(["process-provenance", "semantic-designation", "administrative"], ["native"]))
@@ -95,9 +118,7 @@ try:
     assert arc.Entity.get_property(quality, "score") == 0
     assert arc.Entity.get_property(quality, "accepted") is False
     assert arc.Entity.has_property(quality, "missing")
-    replacement = Annotation("replaced")
-    replacement.Id = value.Id
-    replacement.Value = ""
+    replacement = EntityObject.with_id(Annotation("replaced", value=""), value.Id)
     arc.Annotation.upsert(replacement)
     assert value.Value == "" and value is not replacement
     arc.save()
@@ -119,9 +140,7 @@ finally:
 print("Native Python management checks passed.")
 
 def root():
-    value = Dataset(["process-provenance"], ["native"])
-    value.Id = "root"
-    return value
+    return EntityObject.with_id(Dataset(["process-provenance"], ["native"]), "root")
 
 path = str(Path(folder) / "collection.sqlite")
 session = Session.create_file(path)
@@ -130,11 +149,9 @@ second = session.create_arc(root())
 assert isinstance(first, ManagedGraph)
 assert not hasattr(first, "save") and not hasattr(first, "bind_folder")
 rejects(lambda: session.import_yaml(detached_yaml))
-sample = Sample("first")
-sample.Id = "same"
+sample = Sample("first", id="same")
 assert first.Sample.add(sample) is sample
-other = Sample("second")
-other.Id = "same"
+other = Sample("second", id="same")
 assert second.Sample.add(other) is other
 numeric = first.Annotation.create("numeric boundary")
 first.Annotation.set_value_number(numeric, 0)
@@ -170,9 +187,8 @@ resumed.History.redo()
 assert resumed.Sample.get("same").Name == "changed"
 assert session.open_arc(second_id).Sample.get("same").Name == "independent"
 rejects(lambda: Session.create_file(path))
-import_root = Dataset(["process-provenance"], ["import"])
 import_child = Dataset(["administrative"], ["child"])
-import_root.HasParts = [import_child, import_child]
+import_root = Dataset.with_has_parts(Dataset(["process-provenance"], ["import"]), [import_child, import_child])
 imported_graph = session.import_yaml(DatasetYaml.encode(import_root))
 assert import_root.Id is None and import_child.Id is None
 assert imported_graph.Model.Id is not None

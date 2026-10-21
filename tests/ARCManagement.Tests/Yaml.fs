@@ -8,6 +8,8 @@ open Fable.Pyxpecto
 let private root () = Dataset(["process-provenance"], ["root"])
 let private same actual expected = Expect.isTrue (obj.ReferenceEquals(actual, expected)) "Shared entity reference"
 let private different actual expected = Expect.isFalse (obj.ReferenceEquals(actual, expected)) "Distinct entity reference"
+let private setProperty (target: EntityObject) key value =
+    target.Common <- { target.Common with Properties = target.Common.Properties.With(key, value) }
 let private decode body = DatasetYaml.decode("type: Dataset\nconformsTo: [process-provenance]\nidentifiers: [root]\n" + body)
 let private anchored body = decode ("self: &child\n  type: Custom\n" + body)
 
@@ -15,9 +17,8 @@ let tests = testList "Detached and managed YAML" [
     testCase "idless cyclic graphs keep absence references order and duplicates" (fun _ ->
         let source = root()
         let child = Dataset(["administrative"], ["child"])
-        source.HasParts.Add(child)
-        source.HasParts.Add(child)
-        child.HasParts.Add(source)
+        source.State <- { source.State with HasParts = [child; child] }
+        child.State <- { child.State with HasParts = [source] }
         let collection = source.HasParts
         let yaml = DatasetYaml.encode(source)
         Expect.equal (DatasetYaml.encode(source)) yaml "Local reference names are deterministic"
@@ -25,29 +26,26 @@ let tests = testList "Detached and managed YAML" [
         Expect.isTrue (yaml.Contains("*o1")) "Cycle uses local reference"
         Expect.isFalse (yaml.Contains("id:")) "No domain IDs were invented on the wire"
         same source.HasParts collection
-        same source.HasParts[0] child
+        same (Seq.item 0 source.HasParts) child
         Expect.isNone source.Id "Encoding leaves root ID absent"
         Expect.isNone child.Id "Encoding leaves child ID absent"
         let result = DatasetYaml.decode(yaml)
         different result source
-        same result.HasParts[0] result.HasParts[1]
-        same result.HasParts[0].HasParts[0] result
+        same (Seq.item 0 result.HasParts) (Seq.item 1 result.HasParts)
+        same (Seq.item 0 (Seq.item 0 result.HasParts).HasParts) result
         Expect.isNone result.Id "Decoded root ID remains absent"
-        Expect.isNone result.HasParts[0].Id "Decoded child ID remains absent")
+        Expect.isNone (Seq.item 0 result.HasParts).Id "Decoded child ID remains absent")
 
     testCase "equal supplied IDs do not merge detached object instances" (fun _ ->
-        let source = root()
         let first = Sample("first", id = "same")
         let second = Sample("second", id = "same")
         let a = ARCBaseModel.Process("first", input = EntityReference.Sample first)
         let b = ARCBaseModel.Process("second", input = EntityReference.Sample second)
-        source.Processes.Add(a)
-        source.Processes.Add(b)
-        source.Processes.Add(a)
+        let source = Dataset.withProcesses(root(), [a; b; a])
         let result = DatasetYaml.decode(DatasetYaml.encode(source))
-        same result.Processes[0] result.Processes[2]
+        same (Seq.item 0 result.Processes) (Seq.item 2 result.Processes)
         let sample (proc: ARCBaseModel.Process) = match proc.Input with Some(EntityReference.Sample v) -> v | _ -> failwith "Expected Sample"
-        let restoredFirst, restoredSecond = sample result.Processes[0], sample result.Processes[1]
+        let restoredFirst, restoredSecond = sample (Seq.item 0 result.Processes), sample (Seq.item 1 result.Processes)
         different restoredFirst restoredSecond
         Expect.equal restoredFirst.Name "first" "First object retained"
         Expect.equal restoredSecond.Name "second" "Second object retained"
@@ -56,36 +54,34 @@ let tests = testList "Detached and managed YAML" [
         Expect.equal first.Id (Some "same") "Encoding leaves supplied IDs untouched")
 
     testCase "domain IDs remain independent of local reference names" (fun _ ->
-        let source = root()
-        source.Id <- Some "o2"
+        let source = Dataset(["process-provenance"], ["root"], id = "o2")
         let child = Dataset(["administrative"], ["child"], id = "")
-        source.HasParts.Add(child)
-        source.HasParts.Add(source)
+        source.State <- { source.State with HasParts = [child; source] }
         let result = DatasetYaml.decode(DatasetYaml.encode(source))
         Expect.equal result.Id (Some "o2") "Domain ID does not resolve local alias"
-        Expect.equal result.HasParts[0].Id (Some "") "Empty supplied ID preserved"
-        same result.HasParts[1] result)
+        Expect.equal (Seq.item 0 result.HasParts).Id (Some "") "Empty supplied ID preserved"
+        same (Seq.item 1 result.HasParts) result)
 
     testCase "legacy id and ref input remains readable with omitted IDs preserved" (fun _ ->
         let result = decode "id: legacy\nhasParts:\n  - type: Dataset\n    conformsTo: [administrative]\n    identifiers: [child]\n  - $ref: legacy\n"
         Expect.equal result.Id (Some "legacy") "Supplied legacy ID"
-        Expect.isNone result.HasParts[0].Id "Legacy omitted ID is not assigned in detached decoding"
-        same result.HasParts[1] result
+        Expect.isNone (Seq.item 0 result.HasParts).Id "Legacy omitted ID is not assigned in detached decoding"
+        same (Seq.item 1 result.HasParts) result
         let plain = decode ""
         Expect.isNone plain.Id "Unanchored omitted root ID remains absent")
 
     testCase "extensions retain scalar alternatives and shared recursive object references" (fun _ ->
         let source = root()
         let custom = EntityObject("Custom")
-        custom.SetEntityProperty("owner", Entity.Object source)
-        custom.SetEntityProperty("$ref", Entity.Text "literal reference-like extension")
-        custom.SetEntityProperty("$id", Entity.Text "literal ID-like extension")
+        setProperty custom "owner" (Entity.Object source)
+        setProperty custom "$ref" (Entity.Text "literal reference-like extension")
+        setProperty custom "$id" (Entity.Text "literal ID-like extension")
         let values = EntityCollection([
             Entity.Object custom; Entity.Object custom; Entity.Number 0.0; Entity.Number 0.25
             Entity.Text "0"; Entity.Text "false"; Entity.Text ""; Entity.Bool false
             Entity.Null(EntityNull()); Entity.Blob(EntityBlob("AAE=")); Entity.Collection(EntityCollection([]))
         ])
-        source.SetEntityProperty("values", Entity.Collection values)
+        setProperty source "values" (Entity.Collection values)
         let result = DatasetYaml.decode(DatasetYaml.encode(source))
         let values = match result.EntityProperties.Get("values") with Entity.Collection v -> v | _ -> failwith "Expected collection"
         let custom = match values.Get(0) with Entity.Object v -> v | _ -> failwith "Expected object"
@@ -104,33 +100,30 @@ let tests = testList "Detached and managed YAML" [
         Expect.isNone custom.Id "Generic typed objects keep absent ID")
 
     testCase "Annotation values preserve zero fraction text and absence" (fun _ ->
-        let source = root()
-        for value in [Annotation("zero", value = AnnotationValue.Number 0.0); Annotation("fraction", value = AnnotationValue.Number 0.125); Annotation("text", value = AnnotationValue.Text "0.125"); Annotation("absent")] do
-            source.AdditionalProperties.Add(value)
+        let source = Dataset.withAdditionalProperties(root(), [Annotation("zero", value = AnnotationValue.Number 0.0); Annotation("fraction", value = AnnotationValue.Number 0.125); Annotation("text", value = AnnotationValue.Text "0.125"); Annotation("absent")])
         let result = DatasetYaml.decode(DatasetYaml.encode(source))
-        Expect.equal result.AdditionalProperties[0].Value (Some(AnnotationValue.Number 0.0)) "Numeric zero"
-        Expect.equal result.AdditionalProperties[1].Value (Some(AnnotationValue.Number 0.125)) "Fraction"
-        Expect.equal result.AdditionalProperties[2].Value (Some(AnnotationValue.Text "0.125")) "Quoted numeric text"
-        Expect.isNone result.AdditionalProperties[3].Value "Absent value")
+        Expect.equal (Seq.item 0 result.AdditionalProperties).Value (Some(AnnotationValue.Number 0.0)) "Numeric zero"
+        Expect.equal (Seq.item 1 result.AdditionalProperties).Value (Some(AnnotationValue.Number 0.125)) "Fraction"
+        Expect.equal (Seq.item 2 result.AdditionalProperties).Value (Some(AnnotationValue.Text "0.125")) "Quoted numeric text"
+        Expect.isNone (Seq.item 3 result.AdditionalProperties).Value "Absent value")
 
     testCase "domain alternative objects and URLs retain their types and cycles" (fun _ ->
-        let source = root()
         let terms = DefinedTermSet("terms")
         let term = DefinedTerm("term", inDefinedTermSet = DefinedTermSetReference.TermSet terms)
         let url = DefinedTerm("url", inDefinedTermSet = DefinedTermSetReference.Url "https://example.org/terms")
         let parameter = FormalParameter(name = "parameter")
         let annotation = Annotation("value", instanceOf = parameter)
-        parameter.DefaultValue <- Some annotation
+        parameter.State <- { parameter.State with DefaultValue = Some annotation }
         let recipe = Recipe(parameters = [parameter; parameter], intendedUse = RecipeIntendedUse.Term term)
         let proc = ARCBaseModel.Process("process", executesRecipe = recipe, parameterValues = [annotation])
-        source.Processes.Add(proc)
-        source.SetEntityProperty("urlTerm", Entity.Object url)
+        let source = Dataset.withProcesses(root(), [proc])
+        setProperty source "urlTerm" (Entity.Object url)
         let result = DatasetYaml.decode(DatasetYaml.encode(source))
-        let recipe = result.Processes[0].ExecutesRecipe.Value
-        same recipe.Parameters[0] recipe.Parameters[1]
-        let annotation = recipe.Parameters[0].DefaultValue.Value
-        same annotation.InstanceOf.Value recipe.Parameters[0]
-        same result.Processes[0].ParameterValues[0] annotation
+        let recipe = (Seq.item 0 result.Processes).ExecutesRecipe.Value
+        same (Seq.item 0 recipe.Parameters) (Seq.item 1 recipe.Parameters)
+        let annotation = (Seq.item 0 recipe.Parameters).DefaultValue.Value
+        same annotation.InstanceOf.Value (Seq.item 0 recipe.Parameters)
+        same (Seq.item 0 (Seq.item 0 result.Processes).ParameterValues) annotation
         match recipe.IntendedUse with
         | Some(RecipeIntendedUse.Term v) ->
             match v.InDefinedTermSet with
@@ -144,8 +137,8 @@ let tests = testList "Detached and managed YAML" [
 
     testCase "unanchored full entities in an anchored document remain separate" (fun _ ->
         let result = decode "hasParts:\n  - &first\n    type: Dataset\n    id: same\n    conformsTo: [administrative]\n    identifiers: [child]\n  - type: Dataset\n    id: same\n    conformsTo: [administrative]\n    identifiers: [child]\n  - *first\n"
-        different result.HasParts[0] result.HasParts[1]
-        same result.HasParts[0] result.HasParts[2])
+        different (Seq.item 0 result.HasParts) (Seq.item 1 result.HasParts)
+        same (Seq.item 0 result.HasParts) (Seq.item 2 result.HasParts))
 
     testCase "malformed required fields and unresolved legacy references fail" (fun _ ->
         for yaml in ["type: Sample\nname: sample\n"; "type: Dataset\nconformsTo: [process-provenance]\nidentifiers: [root]\nhasParts:\n  - $ref: missing\n"; "type: Dataset\ntype: Dataset\n"] do
@@ -164,23 +157,16 @@ let tests = testList "Detached and managed YAML" [
             Expect.throws (fun () -> anchored body |> ignore) "Mixed reference syntax rejected")
 
     testCase "encoding invalid detached graphs leaves caller IDs and references intact" (fun _ ->
-        let source = root()
         let annotation = Annotation("invalid", value = AnnotationValue.Number Double.NaN)
-        source.AdditionalProperties.Add(annotation)
+        let source = Dataset.withAdditionalProperties(root(), [annotation])
         Expect.throws (fun () -> DatasetYaml.encode(source) |> ignore) "Nonfinite number rejected"
         Expect.isNone source.Id "Root ID unchanged on failure"
         Expect.isNone annotation.Id "Annotation ID unchanged on failure"
-        same source.AdditionalProperties[0] annotation
-        let source = root()
-        let collection = EntityCollection([])
-        collection.Add(Entity.Collection collection)
-        source.SetEntityProperty("recursiveCollection", Entity.Collection collection)
-        Expect.throws (fun () -> DatasetYaml.encode(source) |> ignore) "Self-containing collection rejected"
-        Expect.isNone source.Id "No IDs assigned before collection failure")
+        same (Seq.item 0 source.AdditionalProperties) annotation)
 
     testCase "session YAML import adopts an independent graph and normal ID policy" (fun _ ->
         let source = root()
-        source.HasParts.Add(source)
+        source.State <- { source.State with HasParts = [source] }
         let yaml = DatasetYaml.encode(source)
         use session = Session.createInMemory()
         let first = session.importYaml(yaml)
@@ -188,14 +174,12 @@ let tests = testList "Detached and managed YAML" [
         Expect.isSome first.Model.Id "Managed import assigns omitted IDs"
         Expect.isNone source.Id "Source remains detached and idless"
         different first.Model second.Model
-        same first.Model.HasParts[0] first.Model
+        same (Seq.item 0 first.Model.HasParts) first.Model
         Expect.notEqual first.ArcId second.ArcId "Every import creates an independent entry"
         Expect.isFalse first.History.CanUndo "Import does not create an edit command"
         Expect.equal (session.listArcs()).Count 2 "No implicit extra entries"
         Expect.isNone session.DatabasePath "Import requires no filesystem repository"
-        let duplicate = root()
-        duplicate.HasParts.Add(Dataset(["administrative"], ["one"], id = "collision"))
-        duplicate.HasParts.Add(Dataset(["administrative"], ["two"], id = "collision"))
+        let duplicate = Dataset.withHasParts(root(), [Dataset(["administrative"], ["one"], id = "collision"); Dataset(["administrative"], ["two"], id = "collision")])
         let duplicateYaml = DatasetYaml.encode(duplicate)
         Expect.throws (fun () -> session.importYaml(duplicateYaml) |> ignore) "Managed import rejects distinct objects with equal IDs"
         Expect.equal (session.listArcs()).Count 2 "Failed import leaves repository unchanged"
@@ -216,10 +200,10 @@ let tests = testList "Detached and managed YAML" [
         Expect.isTrue graph.History.CanRedo "Export leaves redo branch intact"
         same (graph.Sample.get(sample.Id.Value)) sample
         let detached = DatasetYaml.decode(yaml)
-        Expect.equal detached.Processes[0].Name "attached" "Exports retained root state"
+        Expect.equal (Seq.item 0 detached.Processes).Name "attached" "Exports retained root state"
         Expect.equal detached.Id graph.Model.Id "Assigned domain ID retained"
         graph.History.redo()
         Expect.equal proc.Name "changed" "History remains usable"
-        graph.Model.Title <- Some "unsupported direct mutation"
+        graph.Model.State <- { graph.Model.State with Title = Some "unsupported direct mutation" }
         Expect.throws (fun () -> graph.toYaml() |> ignore) "Managed export detects direct mutation")
 ]

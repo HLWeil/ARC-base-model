@@ -1,6 +1,5 @@
 namespace ARCBaseModel
 open Fable.Core
-open System.Collections.Generic
 
 /// Portable recursive values; each erased alternative has a distinct runtime representation.
 [<Erase; RequireQualifiedAccess>]
@@ -12,56 +11,74 @@ type Entity =
     | Bool of bool
     | Null of EntityNull
     | Blob of EntityBlob
+/// Shared identity and type data, replaced as a unit by the copy methods.
+and internal EntityCommon =
+    { Id: string option
+      AdditionalTypes: seq<string>
+      Properties: EntityPropertyBag }
 /// A typed object with optional identity and named extension values.
 and [<AttachMembers>] EntityObject(entityType: string, ?id: string, ?additionalTypes: seq<string>) =
     let _type = Construction.required "entityType" entityType
-    let mutable _id = id
-    let mutable _additionalTypes = Construction.collection additionalTypes
-    let _properties = EntityPropertyBag()
-    do _properties.Reserve(["type"; "id"; "additionalTypes"])
+    let mutable common =
+        { Id = id
+          AdditionalTypes = Construction.optionalCollection "additionalTypes" additionalTypes
+          Properties = EntityPropertyBag.Empty() }
+    let mutable reserved = set ["type"; "id"; "additionalTypes"]
     member _.Type = _type
-    member _.Id with get() = _id and set(value) = _id <- value
-    member _.AdditionalTypes with get() = _additionalTypes and set(value) = _additionalTypes <- Construction.copy value
-    member _.EntityProperties = _properties
-    member _.AddEntityProperty(key: string, value: Entity) = _properties.Add(key, value)
-    member _.SetEntityProperty(key: string, value: Entity) = _properties.Set(key, value)
-    member _.RemoveEntityProperty(key: string) = _properties.Remove(key)
-/// Case-sensitive extension properties; core names are reserved.
-and [<AttachMembers>] EntityPropertyBag() =
-    let _values = Dictionary<string, Entity>()
-    let _reserved = HashSet<string>()
-    let check key =
+    member _.Id = common.Id
+    member _.AdditionalTypes = common.AdditionalTypes
+    member _.EntityProperties = common.Properties
+    member internal _.Common with get() = common and set(value) = common <- value
+    member internal _.Reserved = reserved
+    member internal _.ReserveProperties(names: string list) = reserved <- Set.union reserved (Set.ofList names)
+    member internal this.CloneObject() : EntityObject =
+#if FABLE_COMPILER
+        unbox<EntityObject> (Construction.shallowCopy (box this))
+#else
+        this.MemberwiseClone() :?> EntityObject
+#endif
+    static member internal Copy<'T when 'T :> EntityObject>(value: 'T, change: 'T -> unit) : 'T =
+        let source = Construction.required "value" value :> EntityObject
+        let copy = unbox<'T> (source.CloneObject())
+        change copy
+        copy
+    static member withId<'T when 'T :> EntityObject>(value: 'T, replacement: string option) : 'T =
+        EntityObject.Copy(value, fun copy -> copy.Common <- { copy.Common with Id = replacement })
+    static member withAdditionalTypes<'T when 'T :> EntityObject>(value: 'T, replacement: seq<string>) : 'T =
+        let types = Construction.collection "additionalTypes" replacement
+        EntityObject.Copy(value, fun copy -> copy.Common <- { copy.Common with AdditionalTypes = types })
+    static member withProperty<'T when 'T :> EntityObject>(value: 'T, key: string, replacement: Entity) : 'T =
         Construction.required "key" key |> ignore
-        if _reserved.Contains(key) then invalidArg "key" "Reserved core property name."
-    member internal _.Reserve(keys: seq<string>) =
-        for key in keys do _reserved.Add(key) |> ignore
-    member _.Keys = ResizeArray<string>(_values.Keys)
-    member _.Contains(key: string) =
-        let found, _ = _values.TryGetValue(key)
-        found
+        Construction.required "replacement" replacement |> ignore
+        if (Construction.required "value" value).Reserved.Contains(key) then
+            invalidArg "key" "Reserved core property name."
+        EntityObject.Copy(value, fun copy ->
+            copy.Common <- { copy.Common with Properties = copy.Common.Properties.With(key, replacement) })
+    static member withoutProperty<'T when 'T :> EntityObject>(value: 'T, key: string) : 'T =
+        Construction.required "key" key |> ignore
+        EntityObject.Copy(value, fun copy ->
+            copy.Common <- { copy.Common with Properties = copy.Common.Properties.Without(key) })
+/// Case-sensitive extension properties. The owning object reserves its core property names.
+and [<AttachMembers>] EntityPropertyBag internal (values: Map<string, Entity>) =
+    let keys = Construction.collection "keys" (values |> Map.toSeq |> Seq.map fst)
+    static member internal Empty() = EntityPropertyBag(Map.empty)
+    member _.Keys : seq<string> = keys
+    member _.Contains(key: string) = (values.TryFind(Construction.required "key" key)).IsSome
     member _.Get(key: string) =
-        match _values.TryGetValue(key) with
-        | true, value -> value
-        | false, _ -> invalidArg "key" "Missing extension property."
-    member _.Add(key: string, value: Entity) =
-        check key
-        if _values.ContainsKey(key) then invalidArg "key" "Duplicate extension property."
-        _values.Add(key, value)
-    member _.Set(key: string, value: Entity) =
-        check key
-        _values.[key] <- value
-    member _.Remove(key: string) = _values.Remove(key)
-/// An eagerly copied collection preserving order, duplicates, and object references.
+        match values.TryFind(Construction.required "key" key) with
+        | Some value -> value
+        | None -> invalidArg "key" "Missing extension property."
+    member internal _.With(key: string, value: Entity) = EntityPropertyBag(values.Add(key, value))
+    member internal _.Without(key: string) = EntityPropertyBag(values.Remove(key))
+    member internal _.Values = values
+/// An eagerly copied immutable collection preserving order, duplicates, and object references.
 and [<AttachMembers>] EntityCollection(values: seq<Entity>) =
-    let _values = ResizeArray<Entity>(values)
-    member _.Count = _values.Count
+    let items = Seq.toArray values
+    let count = items.Length
+    member _.Count = count
     member _.Get(index: int) =
-        if index < 0 || index >= _values.Count then invalidArg "index" "Index outside collection."
-        _values.[index]
-    member _.Set(index: int, value: Entity) =
-        if index < 0 || index >= _values.Count then invalidArg "index" "Index outside collection."
-        _values.[index] <- value
-    member _.Add(value: Entity) = _values.Add(value)
+        if index < 0 || index >= count then invalidArg "index" "Index outside collection."
+        items.[index]
 /// Explicit null, distinct from a missing property.
 and [<AttachMembers>] EntityNull() =
     member _.IsNull = true

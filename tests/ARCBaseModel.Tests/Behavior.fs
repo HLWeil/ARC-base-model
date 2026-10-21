@@ -8,6 +8,27 @@ open Fable.Pyxpecto
 let private same actual expected message =
     Expect.isTrue (Object.ReferenceEquals(actual, expected)) message
 
+let private messageOf (action: unit -> unit) =
+    try
+        action ()
+        ""
+    with error -> error.Message
+
+// The Fable targets have no ICollection check. Their native consumers assert frozen arrays and tuples.
+let private expectReadOnly (collection: obj) =
+#if !FABLE_COMPILER
+    match collection with
+    | :? System.Collections.Generic.ICollection<Annotation> as typed ->
+        Expect.isTrue typed.IsReadOnly "Annotation collections are read-only"
+        Expect.throws (fun () -> typed.Add(Annotation("extra"))) "Add on a read-only collection"
+    | :? System.Collections.Generic.ICollection<string> as typed ->
+        Expect.isTrue typed.IsReadOnly "String collections are read-only"
+        Expect.throws (fun () -> typed.Add("extra")) "Add on a read-only collection"
+    | _ -> ()
+#else
+    ignore collection
+#endif
+
 let private sampleOf value =
     match value with
     | EntityReference.Sample sample -> sample
@@ -100,12 +121,19 @@ let private construction = testList "construction" [
         for profiles in combinations do
             Suspect.sequenceEqual (Dataset(profiles, [ "id" ]).ConformsTo) profiles "All profile combinations use one entity"
 
-    testCase "construction checks do not add continuous conformance rules" <| fun _ ->
+    testCase "dataset copies apply the constructor validation and leave the source unchanged" <| fun _ ->
         let dataset = Dataset([ "administrative" ], [ "id" ])
-        dataset.ConformsTo.Clear()
-        dataset.Identifiers <- ResizeArray()
-        Expect.equal dataset.ConformsTo.Count 0 "Live collection mutation remains possible"
-        Expect.equal dataset.Identifiers.Count 0 "Replacing a collection does not invoke a validator"
+        let constructorProfiles = messageOf (fun () -> Dataset([], [ "id" ]) |> ignore)
+        let constructorUnrecognized = messageOf (fun () -> Dataset([ "other" ], [ "id" ]) |> ignore)
+        let constructorIdentifiers = messageOf (fun () -> Dataset([ "administrative" ], []) |> ignore)
+        Expect.notEqual constructorProfiles "" "The constructor rejects empty profiles"
+        Expect.equal (messageOf (fun () -> Dataset.withConformsTo(dataset, []) |> ignore)) constructorProfiles "Same message for empty profiles"
+        Expect.equal (messageOf (fun () -> Dataset.withConformsTo(dataset, [ "other" ]) |> ignore)) constructorUnrecognized "Same message for unrecognized profiles"
+        Expect.equal (messageOf (fun () -> Dataset.withIdentifiers(dataset, []) |> ignore)) constructorIdentifiers "Same message for empty identifiers"
+        let copy = Dataset.withConformsTo(dataset, [ "process-provenance"; "custom" ])
+        Suspect.sequenceEqual copy.ConformsTo [ "process-provenance"; "custom" ] "A valid replacement is accepted"
+        Suspect.sequenceEqual dataset.ConformsTo [ "administrative" ] "The source keeps its profiles"
+        same copy.Identifiers dataset.Identifiers "Untouched collections are shared"
 ]
 
 let private collections = testList "collections and identity" [
@@ -115,37 +143,48 @@ let private collections = testList "collections and identity" [
         let supplied = ResizeArray([ first; second; first ])
         let sample = Sample("sample", additionalProperties = supplied)
         supplied.Clear()
-        Expect.equal sample.AdditionalProperties.Count 3 "Stored collection is independent of constructor input"
-        same sample.AdditionalProperties[0] first "First annotation is not copied"
-        same sample.AdditionalProperties[1] second "Ordering is preserved"
-        same sample.AdditionalProperties[2] first "Repeated annotation reference is preserved"
-        first.Name <- "changed"
-        Expect.equal sample.AdditionalProperties[2].Name "changed" "Shared reference remains live"
+        Expect.equal (Seq.length sample.AdditionalProperties) 3 "Stored collection is independent of constructor input"
+        same (Seq.item 0 sample.AdditionalProperties) first "First annotation is not copied"
+        same (Seq.item 1 sample.AdditionalProperties) second "Ordering is preserved"
+        same (Seq.item 2 sample.AdditionalProperties) first "Repeated annotation reference is preserved"
+        let renamed = Annotation.withName(first, "changed")
+        Expect.equal renamed.Name "changed" "The copy carries the new name"
+        Expect.equal (Seq.item 2 sample.AdditionalProperties).Name "first" "Copying a referenced object does not change its holders"
 
-    testCase "collection setters copy containers and getters expose live collections" <| fun _ ->
+    testCase "collection copies replace the container and getters are read-only" <| fun _ ->
         let sample = Sample("sample")
         let annotation = Annotation("metadata")
         let replacement = ResizeArray([ annotation; annotation ])
-        sample.AdditionalProperties <- replacement
+        let updated = Sample.withAdditionalProperties(sample, replacement)
         replacement.Add(Annotation("external"))
-        Expect.equal sample.AdditionalProperties.Count 2 "Setter copied the container"
-        same sample.AdditionalProperties[1] annotation "Setter kept duplicate entity references"
-        let live = sample.AdditionalProperties
-        live.Add(annotation)
-        Expect.equal sample.AdditionalProperties.Count 3 "Getter exposes a live mutable container"
+        Expect.equal (Seq.length updated.AdditionalProperties) 2 "The copy consumed the supplied container"
+        same (Seq.item 1 updated.AdditionalProperties) annotation "The copy kept duplicate entity references"
+        Expect.equal (Seq.length sample.AdditionalProperties) 0 "The source is unchanged"
+        expectReadOnly (box updated.AdditionalProperties)
+        let appended = Sample.withAdditionalProperties(updated, Seq.append updated.AdditionalProperties [ annotation ])
+        Expect.equal (Seq.length appended.AdditionalProperties) 3 "An appended copy has the extra element"
+        Expect.equal (Seq.length updated.AdditionalProperties) 2 "The previous collection is unchanged"
+        let renamed = Sample.withName(updated, "renamed")
+        same renamed.AdditionalProperties updated.AdditionalProperties "Untouched collections are shared"
+        Expect.equal sample.Name "sample" "Name copy leaves the source unchanged"
 
     testCase "empty defaults and string collection containers are independent" <| fun _ ->
         let first = Recipe()
         let second = Recipe()
-        first.Components.Add(Annotation("instrument"))
-        first.AdditionalTypes.Add("custom")
-        Expect.equal second.Components.Count 0 "Each instance owns its default collections"
-        Expect.equal first.AdditionalProperties.Count 0 "Different collection properties do not share storage"
-        Expect.equal second.AdditionalTypes.Count 0 "Classification defaults are independent"
+        let extended = Recipe.withComponents(first, [ Annotation("instrument") ])
+        let typed = EntityObject.withAdditionalTypes(first, [ "custom" ])
+        Expect.equal (Seq.length first.Components) 0 "Copies leave the source collections empty"
+        Expect.equal (Seq.length second.Components) 0 "Each instance has its own default collections"
+        Expect.equal (Seq.length extended.AdditionalProperties) 0 "Different collection properties do not share storage"
+        Expect.equal (Seq.length second.AdditionalTypes) 0 "Classification defaults are independent"
+        Expect.isTrue (box typed :? Recipe) "withAdditionalTypes returns the concrete class"
+        Expect.equal (Seq.length typed.AdditionalTypes) 1 "The copy has the classification"
+        expectReadOnly (box typed.AdditionalTypes)
         let supplied = ResizeArray([ "a"; "a"; "b" ])
-        second.AdditionalTypes <- supplied
+        let retyped = EntityObject.withAdditionalTypes(second, supplied)
         supplied.Clear()
-        Suspect.sequenceEqual second.AdditionalTypes [ "a"; "a"; "b" ] "String collections preserve order and duplicates"
+        Suspect.sequenceEqual retyped.AdditionalTypes [ "a"; "a"; "b" ] "String collections preserve order and duplicates"
+        Expect.equal (Seq.length second.AdditionalTypes) 0 "The source classifications are unchanged"
 
     testCase "distinct same-ID and same-field instances remain distinct" <| fun _ ->
         let first = Sample("same", id = "sample:1")
@@ -155,52 +194,66 @@ let private collections = testList "collections and identity" [
         let descriptor1 = Descriptor(EntityReference.Sample first)
         let descriptor2 = Descriptor(EntityReference.Sample second)
         let dataset = Dataset([ "semantic-designation" ], [ "id" ], descriptors = [ descriptor1; descriptor2; descriptor1 ])
-        same (sampleOf dataset.Descriptors[0].Describes) first "First object is retained"
-        same (sampleOf dataset.Descriptors[1].Describes) second "Second object is not merged by Id"
-        same dataset.Descriptors[2] descriptor1 "Duplicate descriptors survive"
+        same (sampleOf (Seq.item 0 dataset.Descriptors).Describes) first "First object is retained"
+        same (sampleOf (Seq.item 1 dataset.Descriptors).Describes) second "Second object is not merged by Id"
+        same (Seq.item 2 dataset.Descriptors) descriptor1 "Duplicate descriptors survive"
 
-    testCase "optional IDs can be assigned and cleared without identity side effects" <| fun _ ->
+    testCase "optional IDs are assigned and cleared on copies without identity side effects" <| fun _ ->
         let sample = Sample("sample")
         let descriptor = Descriptor(EntityReference.Sample sample)
-        same (MappingProbe.AssignSampleId(sample, Some "sql:1")) sample "ID assignment returns the same object"
-        Expect.equal (MappingProbe.ReadSampleId(sample)) (Some "sql:1") "Layer 2 can explicitly use the domain Id"
-        same (sampleOf descriptor.Describes) sample "Existing references survive ID mutation"
-        MappingProbe.AssignSampleId(sample, None) |> ignore
-        Expect.isNone sample.Id "IDs remain clearable"
+        let assigned = MappingProbe.AssignSampleId(sample, Some "sql:1")
+        Expect.isFalse (Object.ReferenceEquals(assigned, sample)) "ID assignment returns a new object"
+        Expect.equal (MappingProbe.ReadSampleId(assigned)) (Some "sql:1") "Layer 2 can explicitly use the domain Id"
+        Expect.isNone sample.Id "The source keeps its absent Id"
+        same (sampleOf descriptor.Describes) sample "Existing references keep pointing at the source"
+        let generic = EntityObject.withId(assigned, Some "other")
+        Expect.isTrue (box generic :? Sample) "withId returns the same concrete class"
+        Expect.equal generic.Id (Some "other") "The replacement Id is set"
+        Expect.equal assigned.Id (Some "sql:1") "The source keeps its Id"
+        Expect.equal generic.Name "sample" "Other fields are carried over"
+        Expect.isNone (EntityObject.withId(assigned, None)).Id "IDs remain clearable"
 ]
 
 let private domain = testList "linked model" [
     testCase "annotation alternatives and optional values preserve zero and empty text" <| fun _ ->
         let annotation = Annotation("temperature")
         Expect.isNone annotation.Value "Initially absent"
-        annotation.Value <- Some(AnnotationValue.Number 0.0)
-        match annotation.Value with
+        let zero = Annotation.withValue(annotation, Some(AnnotationValue.Number 0.0))
+        match zero.Value with
         | Some(AnnotationValue.Number value) -> Expect.equal value 0.0 "Zero is a value"
         | _ -> failwith "Numeric zero was lost"
-        annotation.Value <- Some(AnnotationValue.Text "")
-        match annotation.Value with
+        let empty = Annotation.withValue(zero, Some(AnnotationValue.Text ""))
+        match empty.Value with
         | Some(AnnotationValue.Text value) -> Expect.equal value "" "Empty text is a value"
         | _ -> failwith "Empty text was lost"
-        annotation.Value <- None
-        annotation.Unit <- Some ""
-        Expect.equal annotation.Unit (Some "") "Empty optional string is distinct from None"
-        annotation.Unit <- None
-        Expect.isNone annotation.Value "Value cleared"
-        Expect.isNone annotation.Unit "Unit cleared"
+        Expect.isTrue (MappingProbe.IsNumber(zero.Value.Value)) "The earlier copy keeps its number"
+        let blankUnit = Annotation.withUnit(empty, Some "")
+        Expect.equal blankUnit.Unit (Some "") "Empty optional string is distinct from None"
+        let cleared = Annotation.withUnit(Annotation.withValue(blankUnit, None), None)
+        Expect.isNone cleared.Value "Value cleared"
+        Expect.isNone cleared.Unit "Unit cleared"
+        Expect.equal blankUnit.Unit (Some "") "Clearing does not touch the source"
+        Expect.isNone annotation.Value "The original is still absent"
 
-    testCase "annotations and formal parameters can link mutually without copying" <| fun _ ->
+    testCase "annotations and formal parameters link to the exact supplied objects" <| fun _ ->
         let parameter = FormalParameter(name = "temperature", nameTAN = "https://example.org/temperature")
         let annotation = Annotation("temperature", value = AnnotationValue.Number 23.5, unit = "C", nameTAN = "key", valueTAN = "value", unitTAN = "unit", instanceOf = parameter)
-        parameter.DefaultValue <- Some annotation
+        let linked = FormalParameter.withDefaultValue(parameter, Some annotation)
+        same linked.DefaultValue.Value annotation "DefaultValue retains annotation identity"
         same annotation.InstanceOf.Value parameter "InstanceOf retains parameter identity"
-        same parameter.DefaultValue.Value annotation "DefaultValue retains annotation identity"
+        Expect.isNone parameter.DefaultValue "The source parameter has no default"
+        let relinked = Annotation.withInstanceOf(annotation, Some linked)
+        same relinked.InstanceOf.Value linked "withInstanceOf links the supplied parameter"
+        same annotation.InstanceOf.Value parameter "The source annotation keeps its parameter"
+        let renamed = Annotation.withName(annotation, "renamed")
+        same linked.DefaultValue.Value annotation "A copy of a referenced object does not change the referencing object"
+        Expect.equal renamed.Name "renamed" "The copy has the new name"
         Expect.equal annotation.NameTAN (Some "key") "Key TAN retained"
         Expect.equal annotation.ValueTAN (Some "value") "Value TAN retained"
         Expect.equal annotation.UnitTAN (Some "unit") "Unit TAN retained"
         Expect.equal parameter.NameTAN (Some "https://example.org/temperature") "Parameter TAN retained"
-        parameter.DefaultValue <- None
-        Expect.isNone parameter.DefaultValue "Optional default clears"
-        same annotation.InstanceOf.Value parameter "Clearing one link does not maintain an automatic backlink"
+        Expect.isNone (FormalParameter.withDefaultValue(linked, None)).DefaultValue "Optional default clears"
+        same linked.DefaultValue.Value annotation "Clearing on a copy leaves the source link"
 
     testCase "one Dataset combines profiles with independently profiled recursive children" <| fun _ ->
         let sample = Sample("sample")
@@ -210,19 +263,19 @@ let private domain = testList "linked model" [
         let grandchild = Dataset([ "administrative" ], [ "grandchild" ])
         let child = Dataset([ "semantic-designation" ], [ "child" ], descriptors = [ descriptor ], hasParts = [ grandchild ])
         let parent = Dataset([ "administrative"; "process-provenance" ], [ "parent" ], processes = [ transformation ], dataFiles = [ data ], hasParts = [ child ])
-        Suspect.sequenceEqual parent.HasParts[0].ConformsTo [ "semantic-designation" ] "Child did not inherit parent profiles"
-        Suspect.sequenceEqual parent.HasParts[0].HasParts[0].ConformsTo [ "administrative" ] "Mixed profiles nest at arbitrary depths"
-        same (dataOf parent.Processes[0].Output.Value) parent.DataFiles[0] "Process and Dataset share the same Data"
-        same (dataOf child.Descriptors[0].Describes) data "Cross-profile reference retains identity"
-        Expect.equal parent.Descriptors.Count 0 "Descriptor is not automatically registered in ancestors"
+        Suspect.sequenceEqual (Seq.item 0 parent.HasParts).ConformsTo [ "semantic-designation" ] "Child did not inherit parent profiles"
+        Suspect.sequenceEqual (Seq.item 0 (Seq.item 0 parent.HasParts).HasParts).ConformsTo [ "administrative" ] "Mixed profiles nest at arbitrary depths"
+        same (dataOf (Seq.item 0 parent.Processes).Output.Value) (Seq.item 0 parent.DataFiles) "Process and Dataset share the same Data"
+        same (dataOf (Seq.item 0 child.Descriptors).Describes) data "Cross-profile reference retains identity"
+        Expect.equal (Seq.length parent.Descriptors) 0 "Descriptor is not automatically registered in ancestors"
 
     testCase "Data fragments retain their own paths and selectors" <| fun _ ->
         let deepest = Data("other.csv", selector = "row=7", selectorFormat = "https://www.rfc-editor.org/rfc/rfc7111", encodingFormat = "text/csv")
         let fragment = Data("data.csv", selector = "row=2", hasParts = [ deepest ])
         let file = Data("data.csv", hasParts = [ fragment; fragment ])
-        same file.HasParts[0] fragment "Fragments preserve identity"
-        same file.HasParts[1] fragment "Repeated fragments preserve duplicate references"
-        Expect.equal file.HasParts[0].HasParts[0].Path "other.csv" "Nested paths are never inferred from parents"
+        same (Seq.item 0 file.HasParts) fragment "Fragments preserve identity"
+        same (Seq.item 1 file.HasParts) fragment "Repeated fragments preserve duplicate references"
+        Expect.equal (Seq.item 0 (Seq.item 0 file.HasParts).HasParts).Path "other.csv" "Nested paths are never inferred from parents"
         Expect.equal deepest.Selector (Some "row=7") "Selector preserved as text"
         Expect.equal deepest.EncodingFormat (Some "text/csv") "Encoding preserved"
         Expect.equal deepest.SelectorFormat (Some "https://www.rfc-editor.org/rfc/rfc7111") "Selector format preserved"
@@ -234,18 +287,18 @@ let private domain = testList "linked model" [
         Expect.isNone transformation.ExecutesRecipe "Absent recipe is valid"
         let sample = Sample("sample")
         let data = Data("data.csv")
-        transformation.Input <- Some(EntityReference.Sample sample)
-        transformation.Output <- Some(EntityReference.Data data)
-        same (sampleOf transformation.Input.Value) sample "Sample input"
-        same (dataOf transformation.Output.Value) data "Data output"
-        transformation.Input <- Some(EntityReference.Data data)
-        transformation.Output <- Some(EntityReference.Sample sample)
-        same (dataOf transformation.Input.Value) data "Endpoint alternative can change"
-        same (sampleOf transformation.Output.Value) sample "Either endpoint accepts either type"
-        transformation.Input <- None
-        transformation.Output <- None
-        Expect.isNone transformation.Input "Input cleared"
-        Expect.isNone transformation.Output "Output cleared"
+        let forward = Process.withOutput(Process.withInput(transformation, Some(EntityReference.Sample sample)), Some(EntityReference.Data data))
+        same (sampleOf forward.Input.Value) sample "Sample input"
+        same (dataOf forward.Output.Value) data "Data output"
+        Expect.isNone transformation.Input "The source input stays absent"
+        let swapped = Process.withOutput(Process.withInput(forward, Some(EntityReference.Data data)), Some(EntityReference.Sample sample))
+        same (dataOf swapped.Input.Value) data "Endpoint alternative can change"
+        same (sampleOf swapped.Output.Value) sample "Either endpoint accepts either type"
+        same (sampleOf forward.Input.Value) sample "The earlier copy keeps its alternative"
+        let cleared = Process.withOutput(Process.withInput(swapped, None), None)
+        Expect.isNone cleared.Input "Input cleared"
+        Expect.isNone cleared.Output "Output cleared"
+        Expect.isSome swapped.Input "Clearing leaves the source copy"
 
     testCase "recipe parameters and components retain shared annotations" <| fun _ ->
         let parameter = FormalParameter(name = "temperature")
@@ -254,19 +307,22 @@ let private domain = testList "linked model" [
         let recipe = Recipe(name = "measure", description = "measurement protocol", intendedUse = RecipeIntendedUse.Term term, parameters = [ parameter; parameter ], components = [ annotation ], additionalProperties = [ annotation ], version = "v1", url = "protocol.txt")
         let transformation = Process("measurement", executesRecipe = recipe, parameterValues = [ annotation; annotation ])
         same transformation.ExecutesRecipe.Value recipe "Recipe reference retained"
-        same recipe.Parameters[0] parameter "Parameters retained"
-        same recipe.Parameters[1] parameter "Duplicate parameter retained"
-        same recipe.Components[0] transformation.ParameterValues[1] "Annotations shared across relationships"
-        same recipe.AdditionalProperties[0] annotation "Metadata reference retained"
+        same (Seq.item 0 recipe.Parameters) parameter "Parameters retained"
+        same (Seq.item 1 recipe.Parameters) parameter "Duplicate parameter retained"
+        same (Seq.item 0 recipe.Components) (Seq.item 1 transformation.ParameterValues) "Annotations shared across relationships"
+        same (Seq.item 0 recipe.AdditionalProperties) annotation "Metadata reference retained"
         Expect.equal recipe.Description (Some "measurement protocol") "Description preserved"
         Expect.equal recipe.Version (Some "v1") "Version preserved"
         Expect.equal recipe.Url (Some "protocol.txt") "URLs are not normalized"
-        recipe.IntendedUse <- Some(RecipeIntendedUse.Text "custom")
-        match recipe.IntendedUse with
+        let custom = Recipe.withIntendedUse(recipe, Some(RecipeIntendedUse.Text "custom"))
+        match custom.IntendedUse with
         | Some(RecipeIntendedUse.Text text) -> Expect.equal text "custom" "Text alternative is available"
         | _ -> failwith "Expected textual intended use"
-        recipe.IntendedUse <- None
-        Expect.isNone recipe.IntendedUse "Intended use cleared"
+        same custom.Parameters recipe.Parameters "Untouched collections are shared"
+        match recipe.IntendedUse with
+        | Some(RecipeIntendedUse.Term original) -> same original term "The source keeps its term"
+        | _ -> failwith "The source intended use changed"
+        Expect.isNone (Recipe.withIntendedUse(custom, None)).IntendedUse "Intended use cleared"
 
     testCase "administrative entities preserve affiliations authors metadata and dates" <| fun _ ->
         let organization = Organization("Lab", url = "https://example.org")
@@ -276,12 +332,12 @@ let private domain = testList "linked model" [
         let status = DefinedTerm("published")
         let article = ScholarlyArticle("A study", authors = [ agent; agent ], identifiers = [ "doi:1"; "pmid:2" ], creativeWorkStatus = status, additionalProperties = [ property ])
         let dataset = Dataset([ "administrative" ], [ "accession:1" ], title = "Study", description = "Description", license = "custom license", datePublished = "2026", dateCreated = "yesterday", dateModified = "today", agents = [ agent ], citations = [ article ], additionalProperties = [ property ])
-        same dataset.Agents[0] article.Authors[0] "Dataset agent and author share one object"
-        same article.Authors[1] agent "Duplicate authors retained"
-        same agent.Affiliations[1] organization "Duplicate affiliations retained"
-        same agent.JobTitles[0] role "Role is a term reference"
+        same (Seq.item 0 dataset.Agents) (Seq.item 0 article.Authors) "Dataset agent and author share one object"
+        same (Seq.item 1 article.Authors) agent "Duplicate authors retained"
+        same (Seq.item 1 agent.Affiliations) organization "Duplicate affiliations retained"
+        same (Seq.item 0 agent.JobTitles) role "Role is a term reference"
         same article.CreativeWorkStatus.Value status "Publication status remains a reference"
-        same dataset.AdditionalProperties[0] article.AdditionalProperties[0] "Metadata is not copied"
+        same (Seq.item 0 dataset.AdditionalProperties) (Seq.item 0 article.AdditionalProperties) "Metadata is not copied"
         Suspect.sequenceEqual agent.Emails [ "ada@example.org"; "ada@example.org" ] "Email order and duplicates retained"
         Suspect.sequenceEqual article.Identifiers [ "doi:1"; "pmid:2" ] "All article identifiers retained"
         Expect.equal agent.GivenName (Some "Ada") "Given name retained"
@@ -359,53 +415,77 @@ let private mapping = testList "transpilable explicit mappings" [
         match MappingProbe.ReadTermSet(termSetRow) with
         | Some(DefinedTermSetReference.TermSet value) -> same value termSet "Term-set identity preserved"
         | _ -> failwith "Expected term-set alternative"
-        term.InDefinedTermSet <- Some(DefinedTermSetReference.Url "https://example.org/ontology")
-        let urlRow = MappingProbe.WriteTermSet(term.InDefinedTermSet)
+        let urlTerm = DefinedTerm.withInDefinedTermSet(term, Some(DefinedTermSetReference.Url "https://example.org/ontology"))
+        let urlRow = MappingProbe.WriteTermSet(urlTerm.InDefinedTermSet)
         Expect.isNone urlRow.TermSet "URL selects only text column"
         match MappingProbe.ReadTermSet(urlRow) with
         | Some(DefinedTermSetReference.Url value) -> Expect.equal value "https://example.org/ontology" "URL preserved"
         | _ -> failwith "Expected URL alternative"
-        term.InDefinedTermSet <- None
-        Expect.isNone (MappingProbe.ReadTermSet(MappingProbe.WriteTermSet(term.InDefinedTermSet))) "Optional relationship cleared"
+        let clearedTerm = DefinedTerm.withInDefinedTermSet(urlTerm, None)
+        Expect.isNone (MappingProbe.ReadTermSet(MappingProbe.WriteTermSet(clearedTerm.InDefinedTermSet))) "Optional relationship cleared"
+        Expect.isSome term.InDefinedTermSet "The source term keeps its term set"
         Expect.throws (fun () -> MappingProbe.ReadTermSet(TermSetColumns(url = "url", termSet = termSet)) |> ignore) "Conflicting term-set columns"
 ]
 
 let private extensions = testList "extensions" [
-    testCase "dictionary properties and inherited identity" <| fun _ ->
+    testCase "extension property copies preserve alternatives and reject reserved names" <| fun _ ->
         let sample = Sample("leaf")
         let target = EntityObject("QualityAssessment")
-        sample.SetEntityProperty("quality", Entity.Object target)
-        sample.SetEntityProperty("zero", Entity.Number 0.)
-        sample.SetEntityProperty("quality", Entity.Object target)
-        target.SetEntityProperty("back", Entity.Object sample)
-        Expect.equal (sample.EntityProperties.Keys |> Seq.sort |> Seq.toArray) [|"quality"; "zero"|] "Replacement preserves key membership"
-        let keys = sample.EntityProperties.Keys
-        keys.Clear()
-        Expect.isTrue (sample.EntityProperties.Contains("quality")) "Key snapshot cannot mutate bag"
-        match sample.EntityProperties.Get("quality") with
-        | Entity.Object value -> same value target "Preserves object identity"
-        | _ -> failwith "Expected object"
+        let values = EntityCollection([ Entity.Number 1.0 ])
+        let alternatives = [
+            "object", Entity.Object target
+            "collection", Entity.Collection values
+            "number", Entity.Number 0.
+            "text", Entity.Text ""
+            "bool", Entity.Bool false
+            "null", Entity.Null(EntityNull())
+            "blob", Entity.Blob(EntityBlob("AA=="))
+        ]
+        let filled = alternatives |> List.fold (fun (current: Sample) (key, value) -> EntityObject.withProperty(current, key, value)) sample
+        Expect.isTrue (box filled :? Sample) "withProperty returns the same concrete class"
+        Expect.equal (filled.EntityProperties.Keys |> Seq.sort |> Seq.toArray) [| "blob"; "bool"; "collection"; "null"; "number"; "object"; "text" |] "Every alternative is stored"
+        match filled.EntityProperties.Get("object"), filled.EntityProperties.Get("collection") with
+        | Entity.Object value, Entity.Collection collection ->
+            same value target "Preserves object identity"
+            same collection values "Preserves collection identity"
+        | _ -> failwith "Expected object and collection"
+        Expect.isTrue (filled.EntityProperties.Contains("null")) "Explicit null is present"
+        Expect.isFalse (filled.EntityProperties.Contains("missing")) "Absent key"
+        Expect.throws (fun () -> filled.EntityProperties.Get("missing") |> ignore) "Missing key"
+        Expect.equal (sample.EntityProperties.Keys |> Seq.length) 0 "The source bag is unchanged"
         Expect.isNone target.Id "No inferred ID"
-        Expect.throws (fun () -> sample.EntityProperties.Add("name", Entity.Text "other")) "Reserved property"
-        Expect.throws (fun () -> sample.SetEntityProperty("type", Entity.Text "other")) "Reserved type"
-        Expect.throws (fun () -> sample.AddEntityProperty("zero", Entity.Text "other")) "Duplicate key"
-        sample.SetEntityProperty("Name", Entity.Text "case sensitive")
-        sample.SetEntityProperty("null", Entity.Null(EntityNull()))
-        Expect.isTrue (sample.EntityProperties.Contains("null")) "Explicit null is present"
-        Expect.throws (fun () -> sample.EntityProperties.Get("missing") |> ignore) "Missing key"
-        Expect.isTrue (sample.RemoveEntityProperty("zero")) "Remove existing"
-        Expect.isFalse (sample.RemoveEntityProperty("zero")) "Remove missing"
+        let replaced = EntityObject.withProperty(filled, "number", Entity.Text "now text")
+        Expect.equal (MappingProbe.ClassifyExtension(filled.EntityProperties.Get("number"))) "number" "The earlier copy keeps the old value"
+        Expect.equal (MappingProbe.ClassifyExtension(replaced.EntityProperties.Get("number"))) "text" "Replacement changes the alternative"
+        Expect.equal (replaced.EntityProperties.Keys |> Seq.length) 7 "Replacement preserves key membership"
+        let removed = EntityObject.withoutProperty(replaced, "number")
+        Expect.isFalse (removed.EntityProperties.Contains("number")) "Removal drops the key"
+        Expect.isTrue (replaced.EntityProperties.Contains("number")) "Removal leaves the source"
+        Expect.isTrue (box removed :? Sample) "withoutProperty returns the same concrete class"
+        for reserved in [ "type"; "id"; "additionalTypes"; "name" ] do
+            Expect.throws (fun () -> EntityObject.withProperty(sample, reserved, Entity.Text "other") |> ignore) "Reserved property"
+        Expect.isTrue (EntityObject.withProperty(sample, "Name", Entity.Text "case sensitive").EntityProperties.Contains("Name")) "Names are case-sensitive"
+        expectReadOnly (box filled.EntityProperties.Keys)
 
-    testCase "value alternatives and base64" <| fun _ ->
+    testCase "value alternatives, immutable collections and base64" <| fun _ ->
         let obj = EntityObject("Custom")
         let values = EntityCollection([Entity.Object obj; Entity.Object obj])
         Expect.equal values.Count 2 "Duplicates retained"
+        match values.Get(1) with
+        | Entity.Object value -> same value obj "Elements keep their identity"
+        | _ -> failwith "Expected object"
         Expect.throws (fun () -> values.Get(-1) |> ignore) "Negative index"
-        Expect.throws (fun () -> values.Set(2, Entity.Text "outside")) "Out of range index"
+        Expect.throws (fun () -> values.Get(2) |> ignore) "Out of range index"
         let input = ResizeArray<Entity>([Entity.Object obj])
         let copied = EntityCollection(input)
         input.Clear()
         Expect.equal copied.Count 1 "Input container copied"
+        let enumerations = ref 0
+        let counted = Seq.map (fun value -> enumerations.Value <- enumerations.Value + 1; value) [ Entity.Text "a"; Entity.Text "b" ]
+        let consumed = EntityCollection(counted)
+        Expect.equal consumed.Count 2 "Both elements are read"
+        Expect.equal enumerations.Value 2 "The input sequence is consumed once"
+        Expect.equal (MappingProbe.ClassifyExtension(consumed.Get(0))) "text" "Elements are kept in order"
         let cases = [Entity.Number 0., "number"; Entity.Text "", "text"; Entity.Bool false, "bool";
                      Entity.Object obj, "object"; Entity.Collection values, "collection";
                      Entity.Null(EntityNull()), "null"; Entity.Blob(EntityBlob("AA==")), "blob"]

@@ -22,7 +22,9 @@ module internal Model =
     let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no session ID; add it through ARC operations first.")
     let kind (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Type
     let id (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Id
-    let setId (entity: obj) id = (unbox<EntityObject> entity).Id <- id
+    let setId (entity: obj) id =
+        let value = unbox<EntityObject> entity
+        value.Common <- { value.Common with Id = id }
     let captureExtension (reference: obj -> string) value =
         let rec capture ancestors value =
             match value with
@@ -177,9 +179,9 @@ module internal Model =
         let value = unbox<EntityObject> entity
         let extensions = value.EntityProperties.Keys |> Seq.map (fun key -> key, captureExtension reference (value.EntityProperties.Get(key))) |> Map.ofSeq
         { Id = sessionId; Kind = kind entity; SuppliedId = id entity; Properties = Map.ofList properties; Extensions = extensions }
-    let text key row = match Map.tryFind key row.Properties with Some(Text v) -> Some v | None -> None | _ -> invalidOp ("Expected text: " + key)
-    let texts key row = match Map.tryFind key row.Properties with Some(Texts v) -> v | None -> [] | _ -> invalidOp ("Expected text collection: " + key)
-    let links key row = match Map.tryFind key row.Properties with Some(Links v) -> v | None -> [] | _ -> invalidOp ("Expected entity reference: " + key)
+    let text key (row: EntityRow) = match Map.tryFind key row.Properties with Some(Text v) -> Some v | None -> None | _ -> invalidOp ("Expected text: " + key)
+    let texts key (row: EntityRow) = match Map.tryFind key row.Properties with Some(Texts v) -> v | None -> [] | _ -> invalidOp ("Expected text collection: " + key)
+    let links key (row: EntityRow) = match Map.tryFind key row.Properties with Some(Links v) -> v | None -> [] | _ -> invalidOp ("Expected entity reference: " + key)
     let create row : obj =
         let name key = text key row |> Option.defaultWith (fun () -> invalidOp ("Missing " + key))
         match row.Kind with
@@ -198,111 +200,111 @@ module internal Model =
         | "Recipe" -> box (Recipe())
         | _ -> box (EntityObject(row.Kind))
     let restore (resolve: string -> obj) row (entity: obj) =
-        let replace target values = ResizeArray.replace target values
+        let coll values = Construction.collection "values" values
+        let many key (convert: obj -> 'T) = links key row |> List.map (resolve >> convert) |> coll
         let one key = links key row |> List.tryHead |> Option.map resolve
         let endpoint key = one key |> Option.map (function :? Sample as v -> EntityReference.Sample v | :? Data as v -> EntityReference.Data v | _ -> invalidOp "Invalid endpoint")
-        setId entity (Some row.Id)
+        // The bag is extended through the model's own With so that its Map is built by the model's bundle.
+        // On JavaScript the model and management bundles carry separate Map implementations, and a Map from one cannot be read by the other.
+        let properties = row.Extensions |> Map.fold (fun (bag: EntityPropertyBag) key cell -> bag.With(key, restoreExtension resolve cell)) (EntityPropertyBag.Empty())
         match entity with
         | :? Organization as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Url <- text "url" row
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <- ({ Name = text "name" row |> Option.get; Url = text "url" row } : OrganizationState)
         | :? Agent as v ->
-            v.Name <- text "name" row |> Option.get
-            v.GivenName <- text "givenName" row
-            v.FamilyName <- text "familyName" row
-            replace v.Emails (texts "emails" row)
-            replace v.Affiliations (links "affiliations" row |> List.map (resolve >> unbox<Organization>))
-            replace v.Identifiers (texts "identifiers" row)
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.JobTitles (links "jobTitles" row |> List.map (resolve >> unbox<DefinedTerm>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Name = text "name" row |> Option.get
+                   GivenName = text "givenName" row
+                   FamilyName = text "familyName" row
+                   Emails = coll (texts "emails" row)
+                   Affiliations = many "affiliations" unbox<Organization>
+                   Identifiers = coll (texts "identifiers" row)
+                   AdditionalProperties = many "additionalProperties" unbox<Annotation>
+                   JobTitles = many "jobTitles" unbox<DefinedTerm> } : AgentState)
         | :? ScholarlyArticle as v ->
-            v.Headline <- text "headline" row |> Option.get
-            replace v.Identifiers (texts "identifiers" row)
-            replace v.Authors (links "authors" row |> List.map (resolve >> unbox<Agent>))
-            v.CreativeWorkStatus <- one "creativeWorkStatus" |> Option.map unbox<DefinedTerm>
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Headline = text "headline" row |> Option.get
+                   Identifiers = coll (texts "identifiers" row)
+                   Authors = many "authors" unbox<Agent>
+                   CreativeWorkStatus = one "creativeWorkStatus" |> Option.map unbox<DefinedTerm>
+                   AdditionalProperties = many "additionalProperties" unbox<Annotation> } : ScholarlyArticleState)
         | :? Annotation as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Value <- Map.tryFind "value" row.Properties |> Option.map (function Text x -> AnnotationValue.Text x | Number x -> AnnotationValue.Number x | _ -> invalidOp "Invalid Annotation value")
-            v.Unit <- text "unit" row
-            v.NameTAN <- text "nameTAN" row
-            v.ValueTAN <- text "valueTAN" row
-            v.UnitTAN <- text "unitTAN" row
-            v.InstanceOf <- one "instanceOf" |> Option.map unbox<FormalParameter>
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Name = text "name" row |> Option.get
+                   Value = Map.tryFind "value" row.Properties |> Option.map (function Text x -> AnnotationValue.Text x | Number x -> AnnotationValue.Number x | _ -> invalidOp "Invalid Annotation value")
+                   Unit = text "unit" row
+                   NameTAN = text "nameTAN" row
+                   ValueTAN = text "valueTAN" row
+                   UnitTAN = text "unitTAN" row
+                   InstanceOf = one "instanceOf" |> Option.map unbox<FormalParameter> } : AnnotationState)
         | :? FormalParameter as v ->
-            v.Name <- text "name" row
-            v.NameTAN <- text "nameTAN" row
-            v.DefaultValue <- one "defaultValue" |> Option.map unbox<Annotation>
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Name = text "name" row
+                   NameTAN = text "nameTAN" row
+                   DefaultValue = one "defaultValue" |> Option.map unbox<Annotation> } : FormalParameterState)
         | :? Dataset as v ->
-            replace v.ConformsTo (texts "conformsTo" row)
-            replace v.Identifiers (texts "identifiers" row)
-            v.Title <- text "title" row
-            v.Description <- text "description" row
-            v.License <- text "license" row
-            v.DatePublished <- text "datePublished" row
-            v.DateCreated <- text "dateCreated" row
-            v.DateModified <- text "dateModified" row
-            replace v.HasParts (links "hasParts" row |> List.map (resolve >> unbox<Dataset>))
-            replace v.DataFiles (links "dataFiles" row |> List.map (resolve >> unbox<Data>))
-            replace v.Agents (links "agents" row |> List.map (resolve >> unbox<Agent>))
-            replace v.Citations (links "citations" row |> List.map (resolve >> unbox<ScholarlyArticle>))
-            replace v.Processes (links "processes" row |> List.map (resolve >> unbox<ARCBaseModel.Process>))
-            replace v.Descriptors (links "descriptors" row |> List.map (resolve >> unbox<Descriptor>))
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ ConformsTo = coll (texts "conformsTo" row)
+                   Identifiers = coll (texts "identifiers" row)
+                   Title = text "title" row
+                   Description = text "description" row
+                   License = text "license" row
+                   DatePublished = text "datePublished" row
+                   DateCreated = text "dateCreated" row
+                   DateModified = text "dateModified" row
+                   HasParts = many "hasParts" unbox<Dataset>
+                   DataFiles = many "dataFiles" unbox<Data>
+                   Agents = many "agents" unbox<Agent>
+                   Citations = many "citations" unbox<ScholarlyArticle>
+                   Processes = many "processes" unbox<ARCBaseModel.Process>
+                   Descriptors = many "descriptors" unbox<Descriptor>
+                   AdditionalProperties = many "additionalProperties" unbox<Annotation> } : DatasetState)
         | :? DefinedTermSet as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Identifier <- text "identifier" row
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <- ({ Name = text "name" row |> Option.get; Identifier = text "identifier" row } : DefinedTermSetState)
         | :? DefinedTerm as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Identifier <- text "identifier" row
-            v.TAN <- text "tan" row
-            v.InDefinedTermSet <- Map.tryFind "inDefinedTermSet" row.Properties |> Option.map (function Text x -> DefinedTermSetReference.Url x | Links [x] -> DefinedTermSetReference.TermSet(unbox (resolve x)) | _ -> invalidOp "Invalid alternative")
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Name = text "name" row |> Option.get
+                   Identifier = text "identifier" row
+                   TAN = text "tan" row
+                   InDefinedTermSet = Map.tryFind "inDefinedTermSet" row.Properties |> Option.map (function Text x -> DefinedTermSetReference.Url x | Links [x] -> DefinedTermSetReference.TermSet(unbox (resolve x)) | _ -> invalidOp "Invalid alternative") } : DefinedTermState)
         | :? Descriptor as v ->
-            v.Describes <- endpoint "describes" |> Option.get
-            replace v.Annotations (links "annotations" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Describes = endpoint "describes" |> Option.get
+                   Annotations = many "annotations" unbox<Annotation> } : DescriptorState)
         | :? Sample as v ->
-            v.Name <- text "name" row |> Option.get
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Name = text "name" row |> Option.get
+                   AdditionalProperties = many "additionalProperties" unbox<Annotation> } : SampleState)
         | :? Data as v ->
-            v.Path <- text "path" row |> Option.get
-            v.Selector <- text "selector" row
-            v.SelectorFormat <- text "selectorFormat" row
-            v.EncodingFormat <- text "encodingFormat" row
-            replace v.HasParts (links "hasParts" row |> List.map (resolve >> unbox<Data>))
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Path = text "path" row |> Option.get
+                   Selector = text "selector" row
+                   SelectorFormat = text "selectorFormat" row
+                   EncodingFormat = text "encodingFormat" row
+                   HasParts = many "hasParts" unbox<Data>
+                   AdditionalProperties = many "additionalProperties" unbox<Annotation> } : DataState)
         | :? ARCBaseModel.Process as v ->
-            v.Name <- text "name" row |> Option.get
-            v.Input <- endpoint "input"
-            v.Output <- endpoint "output"
-            v.ExecutesRecipe <- one "executesRecipe" |> Option.map unbox<Recipe>
-            replace v.ParameterValues (links "parameterValues" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Name = text "name" row |> Option.get
+                   Input = endpoint "input"
+                   Output = endpoint "output"
+                   ExecutesRecipe = one "executesRecipe" |> Option.map unbox<Recipe>
+                   ParameterValues = many "parameterValues" unbox<Annotation> } : ProcessState)
         | :? Recipe as v ->
-            v.Name <- text "name" row
-            replace v.Parameters (links "parameters" row |> List.map (resolve >> unbox<FormalParameter>))
-            v.Description <- text "description" row
-            v.IntendedUse <- Map.tryFind "intendedUse" row.Properties |> Option.map (function Text x -> RecipeIntendedUse.Text x | Links [x] -> RecipeIntendedUse.Term(unbox (resolve x)) | _ -> invalidOp "Invalid alternative")
-            replace v.AdditionalProperties (links "additionalProperties" row |> List.map (resolve >> unbox<Annotation>))
-            replace v.Components (links "components" row |> List.map (resolve >> unbox<Annotation>))
-            v.Version <- text "version" row
-            v.Url <- text "url" row
-            replace v.AdditionalTypes (texts "additionalTypes" row)
-        | :? EntityObject as v -> replace v.AdditionalTypes (texts "additionalTypes" row)
+            v.State <-
+                ({ Name = text "name" row
+                   Parameters = many "parameters" unbox<FormalParameter>
+                   Description = text "description" row
+                   IntendedUse = Map.tryFind "intendedUse" row.Properties |> Option.map (function Text x -> RecipeIntendedUse.Text x | Links [x] -> RecipeIntendedUse.Term(unbox (resolve x)) | _ -> invalidOp "Invalid alternative")
+                   AdditionalProperties = many "additionalProperties" unbox<Annotation>
+                   Components = many "components" unbox<Annotation>
+                   Version = text "version" row
+                   Url = text "url" row } : RecipeState)
+        | :? EntityObject -> ()
         | _ -> invalidArg "entity" "Expected a typed entity object."
-        let value = unbox<EntityObject> entity
-        for key in value.EntityProperties.Keys do value.RemoveEntityProperty(key) |> ignore
-        for KeyValue(key, cell) in row.Extensions do value.SetEntityProperty(key, restoreExtension resolve cell)
+        (unbox<EntityObject> entity).Common <-
+            ({ Id = Some row.Id
+               AdditionalTypes = coll (texts "additionalTypes" row)
+               Properties = properties } : EntityCommon)
     let specifications kind =
         match kind with
         | "Organization" -> ["name", "text", "", true; "url", "text", "", false; "additionalTypes", "strings", "", false]
@@ -353,7 +355,7 @@ module internal Model =
             for KeyValue(key, cell) in row.Extensions do
                 if key = "type" || key = "id" || spec |> List.exists (fun (name,_,_,_) -> name = key) then
                     invalidArg "key" "Reserved core property name."
-                probe.SetEntityProperty(key, Entity.Null(EntityNull()))
+                EntityObject.withProperty(probe, key, Entity.Null(EntityNull())) |> ignore
                 validateExtension cell
             for key, _, _, mandatory in spec do
                 if mandatory && not (Map.containsKey key row.Properties) then invalidOp ("Missing required property: " + key)

@@ -16,7 +16,7 @@ let private fixture () =
     let term = DefinedTerm("Term",identifier="T:1",tan="TAN",inDefinedTermSet=DefinedTermSetReference.TermSet ontology,additionalTypes=["term"])
     let parameter = FormalParameter(name="Parameter",nameTAN="parameter-tan",additionalTypes=["parameter"])
     let number = Annotation("Number",value=AnnotationValue.Number 0.25,unit="unit",nameTAN="name-tan",valueTAN="value-tan",unitTAN="unit-tan",instanceOf=parameter,additionalTypes=["annotation"])
-    parameter.DefaultValue <- Some number
+    parameter.State <- { parameter.State with DefaultValue = Some number }
     let text = Annotation("Text",value=AnnotationValue.Text "42")
     let absent = Annotation("Absent")
     let sample = Sample("Sample",additionalProperties=[number;text;number;absent],additionalTypes=["sample"])
@@ -58,7 +58,7 @@ let tests = testList "Full base-model management" [
         for source in ["sql";"yml"] do
             let resumed = ARC.openFolder(path,source)
             let root = resumed.Model
-            Expect.equal root.ConformsTo.Count 3 "Profiles"
+            Expect.equal (Seq.length root.ConformsTo) 3 "Profiles"
             Expect.equal (Seq.toList root.Identifiers) ["root";"root"] "Ordered duplicate identifiers"
             Expect.equal root.Title (Some "Title") "Title"
             Expect.equal root.Description (Some "Description") "Description"
@@ -66,19 +66,19 @@ let tests = testList "Full base-model management" [
             Expect.equal root.DatePublished (Some "published") "Date"
             Expect.equal root.DateCreated (Some "created") "Date"
             Expect.equal root.DateModified (Some "modified") "Date"
-            same root.HasParts[0] root.HasParts[1]
-            same root.Processes[0] root.Processes[1]
-            same root.DataFiles[0] root.DataFiles[2]
-            same root.DataFiles[0].HasParts[0] root.DataFiles[1]
-            same root.DataFiles[0].HasParts[0] root.DataFiles[0].HasParts[1]
-            let proc = root.Processes[0]
+            same (Seq.item 0 root.HasParts) (Seq.item 1 root.HasParts)
+            same (Seq.item 0 root.Processes) (Seq.item 1 root.Processes)
+            same (Seq.item 0 root.DataFiles) (Seq.item 2 root.DataFiles)
+            same (Seq.item 0 (Seq.item 0 root.DataFiles).HasParts) (Seq.item 1 root.DataFiles)
+            same (Seq.item 0 (Seq.item 0 root.DataFiles).HasParts) (Seq.item 1 (Seq.item 0 root.DataFiles).HasParts)
+            let proc = (Seq.item 0 root.Processes)
             let recipe = proc.ExecutesRecipe.Value
-            let parameter = recipe.Parameters[0]
+            let parameter = (Seq.item 0 recipe.Parameters)
             let number = parameter.DefaultValue.Value
             same number.InstanceOf.Value parameter
-            same proc.ParameterValues[0] number
-            same recipe.Components[0] number
-            same recipe.Parameters[0] recipe.Parameters[1]
+            same (Seq.item 0 proc.ParameterValues) number
+            same (Seq.item 0 recipe.Components) number
+            same (Seq.item 0 recipe.Parameters) (Seq.item 1 recipe.Parameters)
             Expect.equal recipe.Description (Some "description") "Recipe description"
             Expect.equal recipe.Version (Some "1") "Version"
             Expect.equal recipe.Url (Some "recipe-url") "URL"
@@ -87,27 +87,27 @@ let tests = testList "Full base-model management" [
             Expect.equal number.NameTAN (Some "name-tan") "Name TAN"
             Expect.equal number.ValueTAN (Some "value-tan") "Value TAN"
             Expect.equal number.UnitTAN (Some "unit-tan") "Unit TAN"
-            Expect.equal root.AdditionalProperties[1].Value (Some(AnnotationValue.Text "42")) "Text remains text"
-            Expect.isNone root.AdditionalProperties[2].Value "Absence remains absent"
-            match proc.Output with Some(EntityReference.Data v) -> same v root.DataFiles[0] | _ -> failwith "Expected Data output"
-            let agent = root.Agents[0]
-            same root.Agents[0] root.Agents[1]
-            same root.Citations[0].Authors[0] agent
-            same root.Citations[0].Authors[0] root.Citations[0].Authors[1]
-            same agent.Affiliations[0] agent.Affiliations[1]
+            Expect.equal (Seq.item 1 root.AdditionalProperties).Value (Some(AnnotationValue.Text "42")) "Text remains text"
+            Expect.isNone (Seq.item 2 root.AdditionalProperties).Value "Absence remains absent"
+            match proc.Output with Some(EntityReference.Data v) -> same v (Seq.item 0 root.DataFiles) | _ -> failwith "Expected Data output"
+            let agent = (Seq.item 0 root.Agents)
+            same (Seq.item 0 root.Agents) (Seq.item 1 root.Agents)
+            same (Seq.item 0 (Seq.item 0 root.Citations).Authors) agent
+            same (Seq.item 0 (Seq.item 0 root.Citations).Authors) (Seq.item 1 (Seq.item 0 root.Citations).Authors)
+            same (Seq.item 0 agent.Affiliations) (Seq.item 1 agent.Affiliations)
             Expect.equal (Seq.toList agent.Emails) ["a@example.org";"a@example.org"] "Emails"
             Expect.equal agent.GivenName (Some "Given") "Given name"
             Expect.equal agent.FamilyName (Some "Family") "Family name"
-            Expect.equal agent.Affiliations[0].Url (Some "organization-url") "Organization URL"
-            same agent.JobTitles[0] root.Citations[0].CreativeWorkStatus.Value
+            Expect.equal (Seq.item 0 agent.Affiliations).Url (Some "organization-url") "Organization URL"
+            same (Seq.item 0 agent.JobTitles) (Seq.item 0 root.Citations).CreativeWorkStatus.Value
             match recipe.IntendedUse with
             | Some(RecipeIntendedUse.Term term) ->
-                same term agent.JobTitles[0]
+                same term (Seq.item 0 agent.JobTitles)
                 Expect.equal term.TAN (Some "TAN") "Term TAN"
                 match term.InDefinedTermSet with Some(DefinedTermSetReference.TermSet set) -> Expect.equal set.Identifier (Some "ontology") "Full term set" | _ -> failwith "Expected term set"
             | _ -> failwith "Expected term"
-            same root.Descriptors[0] root.HasParts[0].Descriptors[0]
-            match root.Descriptors[1].Describes with EntityReference.Data v -> same v root.DataFiles[1] | _ -> failwith "Expected Data descriptor"
+            same (Seq.item 0 root.Descriptors) (Seq.item 0 (Seq.item 0 root.HasParts).Descriptors)
+            match (Seq.item 1 root.Descriptors).Describes with EntityReference.Data v -> same v (Seq.item 1 root.DataFiles) | _ -> failwith "Expected Data descriptor"
             Expect.isFalse resumed.HasSessionOnlyObjects "All shared references remain reachable"
             resumed.close() )
     testCase "value replacement covers every entity group and retains canonical instances through undo redo and resume" (fun _ ->
@@ -145,9 +145,9 @@ let tests = testList "Full base-model management" [
         arc.ScholarlyArticle.upsert(ScholarlyArticle("Replacement",id=article.Id.Value))
         same arc.Model root
         same (arc.Process.get(proc.Id.Value)) proc
-        same sample.AdditionalProperties sampleProperties
-        Expect.equal sample.AdditionalProperties.Count 0 "Full replacement clears collections"
-        Expect.equal root.HasParts.Count 0 "Detached upsert clears relationships"
+        Expect.equal (Seq.length sampleProperties) 4 "Previously returned collection is unchanged"
+        Expect.equal (Seq.length sample.AdditionalProperties) 0 "Full replacement clears collections"
+        Expect.equal (Seq.length root.HasParts) 0 "Detached upsert clears relationships"
         Expect.equal annotation.Value (Some(AnnotationValue.Text "")) "Empty text is present"
         Expect.isNone recipe.IntendedUse "Replacement clears alternatives"
         Expect.isNone parameter.DefaultValue "Replacement clears reference"
@@ -161,18 +161,18 @@ let tests = testList "Full base-model management" [
         let resumed = ARC.openFolder(path,"sql")
         Expect.equal (resumed.Sample.get(sample.Id.Value)).Name "Replacement" "Upserts survive SQL recovery"
         for _ in 1..13 do resumed.History.undo()
-        Expect.equal resumed.Model.HasParts.Count 2 "Persisted history restores full graph"
-        same resumed.Model.Agents[0] resumed.Model.Citations[0].Authors[0]
+        Expect.equal (Seq.length resumed.Model.HasParts) 2 "Persisted history restores full graph"
+        same (Seq.item 0 resumed.Model.Agents) (Seq.item 0 (Seq.item 0 resumed.Model.Citations).Authors)
         resumed.close())
 
     testCase "typed alternatives and ordered association edits are reversible" (fun _ ->
         let path = folder()
         let arc = ARC.create(path,fixture())
         let root = arc.Model
-        let proc = root.Processes[0]
-        let data = root.DataFiles[0]
+        let proc = (Seq.item 0 root.Processes)
+        let data = (Seq.item 0 root.DataFiles)
         let sample = (arc.Sample.list() |> Seq.head)
-        let number = root.AdditionalProperties[0]
+        let number = (Seq.item 0 root.AdditionalProperties)
         let recipe = proc.ExecutesRecipe.Value
         let term = (arc.DefinedTerm.list() |> Seq.head)
         let termset = (arc.DefinedTermSet.list() |> Seq.head)
@@ -203,40 +203,40 @@ let tests = testList "Full base-model management" [
         Expect.equal term.InDefinedTermSet (Some(DefinedTermSetReference.Url termset.Id.Value)) "URL matching an ID stays URL"
         arc.DefinedTerm.setInDefinedTermSetEntity(term,termset) |> ignore
         arc.Recipe.setComponents(recipe,[number;number;number]) |> ignore
-        same recipe.Components originalComponents
+        Expect.equal (Seq.length originalComponents) 2 "Previously returned collection is unchanged"
         arc.Recipe.removeComponent(recipe,number) |> ignore
-        Expect.equal recipe.Components.Count 2 "Remove one duplicate occurrence"
+        Expect.equal (Seq.length recipe.Components) 2 "Remove one duplicate occurrence"
         arc.History.undo()
-        Expect.equal recipe.Components.Count 3 "Duplicate order restored"
-        arc.Dataset.addPart(root,root.HasParts[0]) |> ignore
-        Expect.equal root.HasParts.Count 3 "Duplicate Dataset membership allowed"
-        Expect.throws (fun () -> arc.Dataset.movePart(root.HasParts[0],root) |> ignore) "Ambiguous move does not collapse duplicates"
-        arc.Dataset.removePart(root,root.HasParts[0]) |> ignore
-        Expect.equal root.HasParts.Count 2 "Only one membership removed"
+        Expect.equal (Seq.length recipe.Components) 3 "Duplicate order restored"
+        arc.Dataset.addPart(root,(Seq.item 0 root.HasParts)) |> ignore
+        Expect.equal (Seq.length root.HasParts) 3 "Duplicate Dataset membership allowed"
+        Expect.throws (fun () -> arc.Dataset.movePart((Seq.item 0 root.HasParts),root) |> ignore) "Ambiguous move does not collapse duplicates"
+        arc.Dataset.removePart(root,(Seq.item 0 root.HasParts)) |> ignore
+        Expect.equal (Seq.length root.HasParts) 2 "Only one membership removed"
         arc.save()
         arc.close()
         let resumed = ARC.openFolder(path,"yml")
-        Expect.equal resumed.Model.HasParts.Count 2 "Duplicate references survive YAML"
-        let value = resumed.Model.AdditionalProperties[0]
+        Expect.equal (Seq.length resumed.Model.HasParts) 2 "Duplicate references survive YAML"
+        let value = (Seq.item 0 resumed.Model.AdditionalProperties)
         Expect.equal value.Value (Some(AnnotationValue.Text "42")) "Alternative survives YAML"
         resumed.close())
 
     testCase "shared containment deletion preserves other owners and required references reject deletion" (fun _ ->
         let arc = ARC.create(folder(),fixture())
-        let shared = arc.Model.HasParts[0]
+        let shared = (Seq.item 0 arc.Model.HasParts)
         let owner = arc.Dataset.create("other")
         arc.Dataset.addPart(owner,shared) |> ignore
         arc.Dataset.addPart(arc.Model,owner) |> ignore
         arc.Dataset.delete(owner) |> ignore
         same (arc.Dataset.get(shared.Id.Value)) shared
-        Expect.equal arc.Model.HasParts.Count 2 "Other memberships retained"
+        Expect.equal (Seq.length arc.Model.HasParts) 2 "Other memberships retained"
         arc.History.undo()
-        same arc.Model.HasParts[2] owner
+        same (Seq.item 2 arc.Model.HasParts) owner
         let sample = (arc.Sample.list() |> Seq.head)
         Expect.throws (fun () -> arc.Sample.delete(sample) |> ignore) "Descriptor requires its target"
         same (arc.Sample.get(sample.Id.Value)) sample
         let data = (arc.Data.list() |> Seq.head)
-        data.Path <- "out-of-band"
+        data.State <- { data.State with Path = "out-of-band" }
         Expect.throws (fun () -> arc.save()) "New entity types also detect direct mutation"
         arc.close())
 
@@ -245,47 +245,46 @@ let tests = testList "Full base-model management" [
         let arc = ARC.create(path,fixture())
         let value = Recipe(name="New",components=[Annotation("New component")])
         arc.Recipe.add(value) |> ignore
-        let recipeId, annotationId = value.Id.Value, value.Components[0].Id.Value
+        let recipeId, annotationId = value.Id.Value, (Seq.item 0 value.Components).Id.Value
         arc.History.undo()
         Expect.isNone value.Id "Assigned recipe ID undone"
-        Expect.isNone value.Components[0].Id "Assigned component ID undone"
+        Expect.isNone (Seq.item 0 value.Components).Id "Assigned component ID undone"
         arc.History.redo()
         same (arc.Recipe.get(recipeId)) value
-        same (arc.Annotation.get(annotationId)) value.Components[0]
-        let bad = Recipe(name="Bad",components=[Annotation("Pending")])
-        bad.Components.Add(Annotation("Collision",id=arc.Model.Id.Value))
+        same (arc.Annotation.get(annotationId)) (Seq.item 0 value.Components)
+        let bad = Recipe(name="Bad",components=[Annotation("Pending"); Annotation("Collision",id=arc.Model.Id.Value)])
         Expect.throws (fun () -> arc.Recipe.add(bad) |> ignore) "Nested cross-type collision rejected"
         Expect.isNone bad.Id "No root ID assigned"
-        Expect.isNone bad.Components[0].Id "No nested ID assigned"
+        Expect.isNone (Seq.item 0 bad.Components).Id "No nested ID assigned"
         arc.Recipe.setComponents(value,[]) |> ignore
         arc.close()
         let resumed = ARC.openFolder(path,"sql")
         resumed.History.undo()
         let restored = resumed.Recipe.get(recipeId)
-        Expect.equal restored.Components.Count 1 "Collection history survives restart"
-        same restored.Components[0] (resumed.Annotation.get(annotationId))
+        Expect.equal (Seq.length restored.Components) 1 "Collection history survives restart"
+        same (Seq.item 0 restored.Components) (resumed.Annotation.get(annotationId))
         resumed.close())
 
     testCase "recursive Dataset and Data graphs preserve identity through SQL and YAML" (fun _ ->
         let path = folder()
         let arc = ARC.create(path,fixture())
-        let child = arc.Model.HasParts[0]
-        let data = arc.Model.DataFiles[0]
+        let child = (Seq.item 0 arc.Model.HasParts)
+        let data = (Seq.item 0 arc.Model.DataFiles)
         arc.Dataset.addPart(child,arc.Model) |> ignore
         arc.Data.addPart(data,data) |> ignore
         arc.save()
         arc.close()
         for source in ["sql";"yml"] do
             let resumed = ARC.openFolder(path,source)
-            same resumed.Model.HasParts[0].HasParts[0] resumed.Model
-            same resumed.Model.DataFiles[0].HasParts[2] resumed.Model.DataFiles[0]
+            same (Seq.item 0 (Seq.item 0 resumed.Model.HasParts).HasParts) resumed.Model
+            same (Seq.item 2 (Seq.item 0 resumed.Model.DataFiles).HasParts) (Seq.item 0 resumed.Model.DataFiles)
             Expect.isFalse resumed.HasSessionOnlyObjects "Reachability terminates on cycles"
             resumed.close())
 
     testCase "SQL failures roll back rich upserts and incompatible repository versions are rejected" (fun _ ->
         let path = folder()
         let arc = ARC.create(path,fixture())
-        let recipe = arc.Model.Processes[0].ExecutesRecipe.Value
+        let recipe = (Seq.item 0 arc.Model.Processes).ExecutesRecipe.Value
         let original = recipe.Components
         use sql = PolyglotSQLite.Sqlite.OpenFile(arc.DatabasePath)
         sql.ExecuteScript("CREATE TRIGGER reject_recipe BEFORE INSERT ON recipe WHEN instr(NEW.payload,'Rejected')>0 BEGIN SELECT RAISE(ABORT,'injected'); END;")
@@ -293,8 +292,8 @@ let tests = testList "Full base-model management" [
         let replacement = Recipe(name="Rejected",components=[component],id=recipe.Id.Value)
         Expect.throws (fun () -> arc.Recipe.upsert(replacement)) "SQL rejects the planned graph"
         Expect.equal recipe.Name (Some "Recipe") "Canonical values restored"
-        same recipe.Components original
-        Expect.equal recipe.Components.Count 2 "Canonical references preserved"
+        Expect.isTrue (Seq.forall2 (fun a b -> Object.ReferenceEquals(a,b)) recipe.Components original) "Canonical collection contents restored"
+        Expect.equal (Seq.length recipe.Components) 2 "Canonical references preserved"
         Expect.isNone component.Id "Pending ID restored"
         Expect.equal (arc.Annotation.list()).Count 3 "No partial registration"
         Expect.equal (sql.Scalar("SELECT count(*) FROM history").Value.AsInteger()) 0L "No history appended"
@@ -310,7 +309,7 @@ let tests = testList "Full base-model management" [
         Expect.throws (fun () -> ARC.openFolder(path,"yml") |> ignore) "Explicit IO selection does not replace an incompatible repository"
         use imported = ARCManagement.Session.createInMemory()
         let resumed = ARC.importFolder(imported,path)
-        Expect.equal resumed.Model.Processes[0].ExecutesRecipe.Value.Components.Count 2 "Independent import reads saved graph"
+        Expect.equal (Seq.length (Seq.item 0 resumed.Model.Processes).ExecutesRecipe.Value.Components) 2 "Independent import reads saved graph"
         resumed.close())
 
     testCase "re-registering an undone instance reuses its retained identity without aliases" (fun _ ->
@@ -326,7 +325,7 @@ let tests = testList "Full base-model management" [
         same (arc.Data.get(id)) data
         Expect.isTrue arc.HasSessionOnlyObjects "Registry remains consistent"
         arc.History.undo()
-        data.Id <- Some "renamed"
+        data.Common <- { data.Common with Id = Some "renamed" }
         Expect.throws (fun () -> arc.Data.add(data) |> ignore) "Retained identity cannot alias another key"
         arc.close())
 
@@ -334,8 +333,8 @@ let tests = testList "Full base-model management" [
         let path = folder()
         let root = Dataset(["process-provenance"], ["extensions"])
         let custom = EntityObject("QualityAssessment")
-        custom.SetEntityProperty("back", Entity.Object root)
-        root.SetEntityProperty("quality", Entity.Object custom)
+        custom.Common <- { custom.Common with Properties = custom.Common.Properties.With("back", Entity.Object root) }
+        root.Common <- { root.Common with Properties = root.Common.Properties.With("quality", Entity.Object custom) }
         let arc = ARC.create(path, root)
         let customId = custom.Id.Value
         same (arc.Entity.get(customId)) custom
@@ -355,9 +354,6 @@ let tests = testList "Full base-model management" [
         Expect.throws (fun () -> arc.Entity.setProperty(root, "type", Entity.Text "override") |> ignore) "Reserved key"
         Expect.throws (fun () -> arc.Entity.addProperty(custom, "score", Entity.Number 1.) |> ignore) "Duplicate key"
         Expect.throws (fun () -> arc.Entity.setNumberProperty(custom, "bad", Double.NaN) |> ignore) "Nonfinite number"
-        let cycle = EntityCollection([])
-        cycle.Add(Entity.Collection cycle)
-        Expect.throws (fun () -> arc.Entity.setProperty(custom, "cycle", Entity.Collection cycle) |> ignore) "Collection cycles are rejected safely"
         Expect.throws (fun () -> arc.Entity.setObjectProperty(custom, "detached", EntityObject("Detached")) |> ignore) "Detached reference"
         Expect.throws (fun () -> arc.Entity.delete(custom) |> ignore) "Referenced extension object"
         arc.save()
@@ -398,7 +394,7 @@ let tests = testList "Full base-model management" [
         Expect.isFalse (arc.Entity.hasProperty(arc.Model, "custom")) "Removed"
         arc.History.undo()
         Expect.isTrue (arc.Entity.hasProperty(arc.Model, "custom")) "Restored"
-        arc.Model.SetEntityProperty("custom", Entity.Text "direct mutation")
+        arc.Model.Common <- { arc.Model.Common with Properties = arc.Model.Common.Properties.With("custom", Entity.Text "direct mutation") }
         Expect.throws (fun () -> arc.save()) "Direct extension mutation detected"
         arc.close())
 
