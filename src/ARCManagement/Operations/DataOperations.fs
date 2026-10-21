@@ -25,13 +25,13 @@ type DataOperations internal (session: GraphContext) =
     member _.setEncodingFormat(value: Data, replacement: string) =
         session.Change<Data>(session.Id(value,"Data"),"encodingFormat", (fun () -> Some(Text(Model.required "encodingFormat" replacement))),"Data.setEncodingFormat")
     member _.clearEncodingFormat(value: Data) = session.Change<Data>(session.Id(value,"Data"),"encodingFormat", (fun () -> None),"Data.clearEncodingFormat")
-    member _.setHasParts(value: Data, replacement: seq<string>) =
-        session.Change<Data>(session.Id(value,"Data"),"hasParts", (fun () -> Some(Links(replacement |> List.ofSeq))),"Data.setHasParts")
-    member _.addPart(value: Data, target: string) = session.Collection<Data>(session.Id(value,"Data"),"hasParts",target,true,"Data.addPart")
-    member _.removePart(value: Data, target: string) = session.Collection<Data>(session.Id(value,"Data"),"hasParts",target,false,"Data.removePart")
-    member _.setAdditionalProperties(value: Data, replacement: seq<string>) =
-        session.Change<Data>(session.Id(value,"Data"),"additionalProperties", (fun () -> Some(Links(replacement |> List.ofSeq))),"Data.setAdditionalProperties")
-    member _.addAdditionalProperty(value: Data, target: string) = session.Collection<Data>(session.Id(value,"Data"),"additionalProperties",target,true,"Data.addAdditionalProperty")
-    member _.removeAdditionalProperty(value: Data, target: string) = session.Collection<Data>(session.Id(value,"Data"),"additionalProperties",target,false,"Data.removeAdditionalProperty")
+    member _.setHasParts(value: Data, replacement: seq<Data>) =
+        session.Change<Data>(session.Id(value,"Data"),"hasParts", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Data")) |> List.ofSeq))),"Data.setHasParts")
+    member _.addPart(value: Data, target: Data) = session.Collection<Data>(session.Id(value,"Data"),"hasParts",target,"Data",true,"Data.addPart")
+    member _.removePart(value: Data, target: Data) = session.Collection<Data>(session.Id(value,"Data"),"hasParts",target,"Data",false,"Data.removePart")
+    member _.setAdditionalProperties(value: Data, replacement: seq<Annotation>) =
+        session.Change<Data>(session.Id(value,"Data"),"additionalProperties", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Annotation")) |> List.ofSeq))),"Data.setAdditionalProperties")
+    member _.addAdditionalProperty(value: Data, target: Annotation) = session.Collection<Data>(session.Id(value,"Data"),"additionalProperties",target,"Annotation",true,"Data.addAdditionalProperty")
+    member _.removeAdditionalProperty(value: Data, target: Annotation) = session.Collection<Data>(session.Id(value,"Data"),"additionalProperties",target,"Annotation",false,"Data.removeAdditionalProperty")
     member _.setAdditionalTypes(value: Data, replacement: seq<string>) =
         session.Change<Data>(session.Id(value,"Data"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Data.setAdditionalTypes")

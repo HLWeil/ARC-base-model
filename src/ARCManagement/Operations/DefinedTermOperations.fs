@@ -26,4 +26,4 @@ type DefinedTermOperations internal (session: GraphContext) =
     member _.setAdditionalTypes(value: DefinedTerm, replacement: seq<string>) =
         session.Change<DefinedTerm>(session.Id(value,"DefinedTerm"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"DefinedTerm.setAdditionalTypes")
     member _.setInDefinedTermSetUrl(value: DefinedTerm, replacement: string) = session.Change<DefinedTerm>(session.Id(value,"DefinedTerm"),"inDefinedTermSet", (fun () -> Some(Text(Model.required "url" replacement))),"DefinedTerm.setInDefinedTermSetUrl")
-    member _.setInDefinedTermSetEntity(value: DefinedTerm, replacement: string) = session.Change<DefinedTerm>(session.Id(value,"DefinedTerm"),"inDefinedTermSet", (fun () -> Some(Links [replacement])),"DefinedTerm.setInDefinedTermSetEntity")
+    member _.setInDefinedTermSetEntity(value: DefinedTerm, replacement: DefinedTermSet) = session.Reference<DefinedTerm>(session.Id(value,"DefinedTerm"),"inDefinedTermSet",replacement,"DefinedTermSet","DefinedTerm.setInDefinedTermSetEntity")

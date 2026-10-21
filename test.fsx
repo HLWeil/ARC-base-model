@@ -67,15 +67,37 @@ open ARCtrl
 // resumed.Dataset.setTitle("Resumed Dataset") |> ignore
 
 
-let mySession = ARCManagement.Session.createInMemory()
+let mySession = ARCManagement.Session.openFile(@"C:\Users\HLWei\Downloads\test\session.db")
 
 
 
 
-let graph = mySession.createArc(Dataset(["process-provenance"], ["example-arc"]))
+let graph = mySession.openArc(mySession.listArcs().[0].ArcId)
+
+mySession.ARCs
+
+// mySession.createArc(Dataset(["process-provenance"], ["example-arc"]))
+
+let myProcess = graph.Process.create("measurement")
+
+let sample = graph.Sample.create("leaf")
+
+graph.Dataset.addProcess(graph.Model, myProcess.Value) |> ignore
+graph.History.redo()
+
+ARCManagement.DatasetYaml.encode(graph.Model)
 
 
-graph.Dataset.setTitle(graph.Model, "My New Title") |> ignore
+
+graph.Dataset.addProcess(graph.Model, myProcess) |> ignore
+
+
+
+let r = graph.Dataset.setTitle(graph.Model, "My New Title") 
+
+r.Value
+Dataset.withAgents
+
 
 
 let myArc = 

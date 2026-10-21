@@ -20,8 +20,8 @@ type FormalParameterOperations internal (session: GraphContext) =
     member _.setNameTAN(value: FormalParameter, replacement: string) =
         session.Change<FormalParameter>(session.Id(value,"FormalParameter"),"nameTAN", (fun () -> Some(Text(Model.required "nameTAN" replacement))),"FormalParameter.setNameTAN")
     member _.clearNameTAN(value: FormalParameter) = session.Change<FormalParameter>(session.Id(value,"FormalParameter"),"nameTAN", (fun () -> None),"FormalParameter.clearNameTAN")
-    member _.setDefaultValue(value: FormalParameter, replacement: string) =
-        session.Change<FormalParameter>(session.Id(value,"FormalParameter"),"defaultValue", (fun () -> Some(Links [replacement])),"FormalParameter.setDefaultValue")
+    member _.setDefaultValue(value: FormalParameter, replacement: Annotation) =
+        session.Reference<FormalParameter>(session.Id(value,"FormalParameter"),"defaultValue",replacement,"Annotation","FormalParameter.setDefaultValue")
     member _.clearDefaultValue(value: FormalParameter) = session.Change<FormalParameter>(session.Id(value,"FormalParameter"),"defaultValue", (fun () -> None),"FormalParameter.clearDefaultValue")
     member _.setAdditionalTypes(value: FormalParameter, replacement: seq<string>) =
         session.Change<FormalParameter>(session.Id(value,"FormalParameter"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"FormalParameter.setAdditionalTypes")

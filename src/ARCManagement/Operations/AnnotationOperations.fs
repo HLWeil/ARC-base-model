@@ -31,8 +31,8 @@ type AnnotationOperations internal (session: GraphContext) =
     member _.setUnitTAN(value: Annotation, replacement: string) =
         session.Change<Annotation>(session.Id(value,"Annotation"),"unitTAN", (fun () -> Some(Text(Model.required "unitTAN" replacement))),"Annotation.setUnitTAN")
     member _.clearUnitTAN(value: Annotation) = session.Change<Annotation>(session.Id(value,"Annotation"),"unitTAN", (fun () -> None),"Annotation.clearUnitTAN")
-    member _.setInstanceOf(value: Annotation, replacement: string) =
-        session.Change<Annotation>(session.Id(value,"Annotation"),"instanceOf", (fun () -> Some(Links [replacement])),"Annotation.setInstanceOf")
+    member _.setInstanceOf(value: Annotation, replacement: FormalParameter) =
+        session.Reference<Annotation>(session.Id(value,"Annotation"),"instanceOf",replacement,"FormalParameter","Annotation.setInstanceOf")
     member _.clearInstanceOf(value: Annotation) = session.Change<Annotation>(session.Id(value,"Annotation"),"instanceOf", (fun () -> None),"Annotation.clearInstanceOf")
     member _.setAdditionalTypes(value: Annotation, replacement: seq<string>) =
         session.Change<Annotation>(session.Id(value,"Annotation"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Annotation.setAdditionalTypes")

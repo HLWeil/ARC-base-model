@@ -16,9 +16,9 @@ type SampleOperations internal (session: GraphContext) =
     member _.delete(value: Sample, ?cascade: bool) = session.Delete(session.Id(value,"Sample"),"Sample",defaultArg cascade false)
     member _.setName(value: Sample, replacement: string) =
         session.Change<Sample>(session.Id(value,"Sample"),"name", (fun () -> Some(Text(Model.required "name" replacement))),"Sample.setName")
-    member _.setAdditionalProperties(value: Sample, replacement: seq<string>) =
-        session.Change<Sample>(session.Id(value,"Sample"),"additionalProperties", (fun () -> Some(Links(replacement |> List.ofSeq))),"Sample.setAdditionalProperties")
-    member _.addAdditionalProperty(value: Sample, target: string) = session.Collection<Sample>(session.Id(value,"Sample"),"additionalProperties",target,true,"Sample.addAdditionalProperty")
-    member _.removeAdditionalProperty(value: Sample, target: string) = session.Collection<Sample>(session.Id(value,"Sample"),"additionalProperties",target,false,"Sample.removeAdditionalProperty")
+    member _.setAdditionalProperties(value: Sample, replacement: seq<Annotation>) =
+        session.Change<Sample>(session.Id(value,"Sample"),"additionalProperties", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Annotation")) |> List.ofSeq))),"Sample.setAdditionalProperties")
+    member _.addAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(session.Id(value,"Sample"),"additionalProperties",target,"Annotation",true,"Sample.addAdditionalProperty")
+    member _.removeAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(session.Id(value,"Sample"),"additionalProperties",target,"Annotation",false,"Sample.removeAdditionalProperty")
     member _.setAdditionalTypes(value: Sample, replacement: seq<string>) =
         session.Change<Sample>(session.Id(value,"Sample"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Sample.setAdditionalTypes")

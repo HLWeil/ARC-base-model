@@ -307,35 +307,40 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
             | Some origin when origin.ArcId<>arcId -> invalidArg "value" "The subject was read from a different ARC."
             | _ -> Model.entityId entity.Id
         | _ -> invalidArg "value" "Expected an entity value with a persisted ID."
+    member this.EndpointId(value: EntityReference) =
+        match value with
+        | EntityReference.Sample target -> this.Id(target,"Sample")
+        | EntityReference.Data target -> this.Id(target,"Data")
     member _.Change<'T>(id:string,key:string,value:unit -> Cell option,kind:string) =
         write kind RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
             let value=unbox<Cell option> prepared
             let before = requiredRow (if kind.StartsWith("Entity.") then "" else kind.Split('.')[0]) id
-            let targetKind = if kind.EndsWith("Sample") then Some "Sample" elif kind.EndsWith("Data") then Some "Data" else None
-            match targetKind,value with
-            | Some targetKind,Some(Links ids) -> for target in ids do requiredRow targetKind target |> ignore
-            | _ -> ()
             let next = {before with Properties=match value with Some cell -> Map.add key cell before.Properties | None -> Map.remove key before.Properties}
             partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
-    member _.Extension<'T>(id:string,key:string,value:unit -> Entity option,addOnly:bool) =
+    member this.Reference<'T>(id,key,target:EntityObject,targetKind,kind:string) =
+        write kind RuntimeResults.packed<'T> (fun () -> box(this.Id(target,targetKind))) (fun prepared ->
+            let targetId=unbox<string> prepared
+            let before=requiredRow (kind.Split('.')[0]) id
+            requiredRow targetKind targetId |> ignore
+            let next={before with Properties=Map.add key (Links [targetId]) before.Properties}
+            partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
+    member this.Endpoint<'T>(id,key,target:EntityReference,kind) =
+        match target with
+        | EntityReference.Sample value -> this.Reference<'T>(id,key,value,"Sample",kind)
+        | EntityReference.Data value -> this.Reference<'T>(id,key,value,"Data",kind)
+    member this.Extension<'T>(id:string,key:string,value:unit -> Entity option,addOnly:bool) =
         write "Entity.setProperty" RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
             let value=unbox<Entity option> prepared
             let before = requiredRow "" id
             if addOnly && Map.containsKey key before.Extensions then invalidArg "key" "Duplicate extension property."
-            let capture value = Model.captureExtension (fun target -> let targetId=Model.id target |> Model.entityId in requiredRow "" targetId |> ignore; targetId) value
+            let capture value = Model.captureExtension (fun target -> let entity=unbox<EntityObject> target in let targetId=this.Id(entity,"") in requiredRow entity.Type targetId |> ignore; targetId) value
             let next = {before with Extensions=match value with Some value -> Map.add key (capture value) before.Extensions | None -> Map.remove key before.Extensions}
             partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
-    member _.ExtensionCell<'T>(id:string,key:string,value:unit -> ExtensionCell option,addOnly:bool) =
-        write "Entity.setProperty" RuntimeResults.packed<'T> (fun () -> box(value())) (fun prepared ->
-            let value=unbox<ExtensionCell option> prepared
-            let before=requiredRow "" id
-            if addOnly && Map.containsKey key before.Extensions then invalidArg "key" "Duplicate extension property."
-            let next={before with Extensions=match value with Some cell -> Map.add key cell before.Extensions | None -> Map.remove key before.Extensions}
-            partial [before],partial [next],Some id) |> unbox<WriteResult<'T>>
-    member _.Collection<'T>(id,key,targetId,append,kind) =
-        write kind RuntimeResults.packed<'T> (fun () -> box()) (fun _ ->
+    member this.Collection<'T>(id,key,target:EntityObject,targetKind,append,kind) =
+        write kind RuntimeResults.packed<'T> (fun () -> box(this.Id(target,targetKind))) (fun prepared ->
+            let targetId=unbox<string> prepared
             let before=requiredRow (kind.Split('.')[0]) id
-            requiredRow "" targetId |> ignore
+            requiredRow targetKind targetId |> ignore
             let values=Model.links key before
             if not append && not (List.contains targetId values) then invalidOp "Target is not attached."
             let rec remove = function [] -> [] | head::tail when head=targetId -> tail | head::tail -> head::remove tail
@@ -355,10 +360,10 @@ type internal GraphContext(repository: Repository, arcId: string, _supplied: (st
                 let values=Model.links key item |> List.filter ((<>) id)
                 {item with Properties=Map.add key (Links(if item.Id=destinationId then values@[id] else values)) item.Properties})
             partial owners,partial next,Some id) |> unbox<WriteResult<'T>>
-    member _.CreateDescriptor(targetId:string) =
-        write "Descriptor.add" RuntimeResults.packed<Descriptor> (fun () -> box()) (fun _ ->
-            let target=requiredRow "" targetId
-            if target.Kind<>"Sample" && target.Kind<>"Data" then invalidArg "targetId" "Expected Sample or Data."
+    member this.CreateDescriptor(target:EntityReference) =
+        write "Descriptor.add" RuntimeResults.packed<Descriptor> (fun () -> box(this.EndpointId(target),Model.kind (Model.endpoint target))) (fun prepared ->
+            let targetId,targetKind=unbox<string*string> prepared
+            requiredRow targetKind targetId |> ignore
             let id=Identifier.newId()
             let value={Id=id;Kind="Descriptor";SuppliedId=None
                        Properties=Map.ofList ["describes",Links[targetId];"annotations",Links [];"additionalTypes",Texts []]

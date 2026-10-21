@@ -1,7 +1,7 @@
 ﻿from arc_management import Session, DatasetYaml, ManagedGraph, SnapshotConflictException
 from arc_management.arctrl import ARC
 from arc_management import SampleOperations
-from arc_base_model import Dataset, Sample, Process, ModelBuilder
+from arc_base_model import Dataset, Sample, Data, Process, ModelBuilder
 from pathlib import Path
 from time import time_ns
 
@@ -45,8 +45,45 @@ check(types.Value.Name == "B", "Older subjects preserve current fields")
 unchanged = graph.Sample.upsert(types.Value, baseline=types.Value)
 check(not unchanged.Changed and unchanged.Operation is None, "Explicit no-op")
 proc = graph.Process.add(Process("p"))
-linked = graph.Process.set_input_sample(proc.Value, added.Value.Id)
+linked = graph.Process.set_input_sample(proc.Value, added.Value)
 check(isinstance(linked.Value.Input, Sample), "Native erased alternative")
+rejects(lambda: graph.Process.set_input_sample(proc.Value, added.Value.Id))
+rejects(lambda: graph.Process.set_input(proc.Value, graph.Model))
+rejects(lambda: graph.Dataset.add_process(graph.Model, proc.Value.Id))
+rejects(lambda: graph.Dataset.add_process(graph.Model, added.Value))
+rejects(lambda: graph.Dataset.add_process(graph.Model, None))
+rejects(lambda: graph.Dataset.set_processes(graph.Model, [proc.Value.Id]))
+rejects(lambda: graph.Entity.set_object_property(graph.Model, "process", proc.Value.Id))
+rejects(lambda: graph.Descriptor.create(added.Value.Id))
+relation_graph = session.create_arc(Dataset(["process-provenance"], ["relations"]))
+relation_process = relation_graph.Process.create("process").Value
+relation_sample = relation_graph.Sample.create("sample").Value
+relation_data = relation_graph.Data.create("data").Value
+enumerations = 0
+
+
+def relationship_iterable():
+    global enumerations
+    enumerations += 1
+    yield relation_process
+    yield relation_process
+
+
+relations = relation_graph.Dataset.set_processes(relation_graph.Model, relationship_iterable())
+check(enumerations == 1 and relations.Value.Processes[0] is relations.Value.Processes[1], "Iterable consumed once with sharing")
+relation_graph.Dataset.remove_process(relation_graph.Model, relation_process)
+check(len(relation_graph.Model.Processes) == 1 and len(relations.Value.Processes) == 2, "Remove preserves earlier snapshot")
+relation_graph.Dataset.add_process(relation_graph.Model, relation_process)
+relation_graph.Process.set_input(relation_process, relation_sample)
+relation_graph.Process.set_output(relation_process, relation_data)
+check(isinstance(relation_graph.Process.get(relation_process.Id).Output, Data), "Native Data alternative")
+relation_graph.Descriptor.create(relation_sample)
+relation_descriptor = relation_graph.Descriptor.create(relation_data).Value
+relation_graph.Descriptor.set_describes(relation_descriptor, relation_sample)
+relation_graph.Entity.set_object_property(relation_graph.Model, "process", relation_process)
+relation_graph.Entity.add_object_property(relation_graph.Model, "sample", relation_sample)
+rejects(lambda: relation_graph.Dataset.add_process(relation_graph.Model, proc.Value))
+rejects(lambda: relation_graph.Entity.set_object_property(relation_graph.Model, "foreign", proc.Value))
 read = graph.read_model()
 root = graph.Dataset.upsert(Dataset.with_processes(read, [linked.Value, linked.Value]), baseline=read)
 check(isinstance(root.Value.Processes, tuple), "Immutable native tuple")

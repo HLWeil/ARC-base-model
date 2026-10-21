@@ -32,8 +32,8 @@ let arc = ARC.bind(graph, "./arc-a")
 let graph = arc.ManagedGraph
 let sample = arc.Sample.create("sample")
 let proc = arc.Process.create("process")
-let linked = arc.Process.setInputSample(proc.Value, sample.Value.Id.Value)
-arc.Dataset.addProcess(graph.Model, proc.Value.Id.Value) |> ignore
+let linked = arc.Process.setInputSample(proc.Value, sample.Value)
+arc.Dataset.addProcess(graph.Model, proc.Value) |> ignore
 arc.save()
 let arcId = graph.ArcId
 arc.close()

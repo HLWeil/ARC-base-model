@@ -71,9 +71,9 @@ let tests = testList "Mutation safety regressions" [
         use session = Session.createInMemory()
         let graph = session.createArc(root())
         let added = graph.Sample.add(Sample("target",id="s"))
-        let linked = graph.Entity.setObjectProperty(graph.Entity.get("root"),"sample","s")
+        let linked = graph.Entity.setObjectProperty(graph.Entity.get("root"),"sample",graph.Sample.get("s"))
         Expect.throws (fun () -> graph.Sample.delete(graph.Sample.get("s"),cascade=true) |> ignore) "Explicit extension edit required"
-        Expect.isTrue (graph.Entity.hasProperty("root","sample")) "Extension data retained"
+        Expect.isTrue (graph.Entity.hasProperty(graph.Model,"sample")) "Extension data retained"
         let removed = graph.Entity.removeProperty(graph.Entity.get("root"),"sample")
         graph.Sample.delete(graph.Sample.get("s"),cascade=true) |> ignore
         Expect.isNone (graph.Sample.read("s")) "Explicit removal permits delete")

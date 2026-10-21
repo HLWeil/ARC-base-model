@@ -89,7 +89,7 @@ let run outputPath sizes =
             let first = Process.withName(observed.Processes[0],"changed-"+string counter)
             let changed = Dataset.withProcesses(observed,Seq.append [first] (observed.Processes |> Seq.skip 1))
             graph.Dataset.upsert(changed,baseline=observed,recursive=true) |> ignore)
-        measure "append_duplicate_reference" 3 (fun () -> graph.Dataset.addProcess(original,"p-0") |> ignore)
+        measure "append_duplicate_reference" 3 (fun () -> graph.Dataset.addProcess(original,original.Processes[0]) |> ignore)
         measure "undo" 3 (fun () -> graph.History.undo() |> ignore)
         measure "redo" 3 (fun () -> graph.History.redo() |> ignore)
     Path.ensureDirectoryOfFile outputPath

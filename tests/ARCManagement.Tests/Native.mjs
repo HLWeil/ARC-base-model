@@ -26,8 +26,35 @@ try {
 }
 check(graph.Sample.get(added.Value.Id).Name === "A", "Result construction failure precedes persistent writes");
 const proc = graph.Process.add(new Process("p"));
-const linked = graph.Process.setInputSample(proc.Value, added.Value.Id);
+const linked = graph.Process.setInputSample(proc.Value, added.Value);
 check(linked.Value.Input instanceof Sample, "Native erased alternative");
+rejects(() => graph.Process.setInputSample(proc.Value, added.Value.Id));
+rejects(() => graph.Process.setInput(proc.Value, graph.Model));
+rejects(() => graph.Dataset.addProcess(graph.Model, proc.Value.Id));
+rejects(() => graph.Dataset.addProcess(graph.Model, added.Value));
+rejects(() => graph.Dataset.addProcess(graph.Model, null));
+rejects(() => graph.Dataset.setProcesses(graph.Model, [proc.Value.Id]));
+rejects(() => graph.Entity.setObjectProperty(graph.Model, "process", proc.Value.Id));
+rejects(() => graph.Descriptor.create(added.Value.Id));
+const relationGraph = session.createArc(new Dataset(["process-provenance"], ["relations"]));
+const relationProcess = relationGraph.Process.create("process").Value;
+let enumerations = 0;
+const iterable = { *[Symbol.iterator]() { enumerations++; yield relationProcess; yield relationProcess; } };
+const relations = relationGraph.Dataset.setProcesses(relationGraph.Model, iterable);
+check(enumerations === 1 && relations.Value.Processes[0] === relations.Value.Processes[1], "Native iterable consumed once with sharing");
+relationGraph.Dataset.removeProcess(relationGraph.Model, relationProcess);
+check(relationGraph.Model.Processes.length === 1 && relations.Value.Processes.length === 2, "Removal preserves earlier snapshot");
+relationGraph.Dataset.addProcess(relationGraph.Model, relationProcess);
+check(relationGraph.Model.Processes.length === 2, "Add takes an object");
+rejects(() => relationGraph.Dataset.addProcess(relationGraph.Model, proc.Value));
+rejects(() => relationGraph.Entity.addObjectProperty(relationGraph.Model, "foreign", proc.Value));
+let callbackRan = false;
+rejects(() => relationGraph.Dataset.setProcesses(relationGraph.Model, (function* () {
+    callbackRan = true;
+    relationGraph.Dataset.addProcess(relationGraph.Model, relationProcess);
+    yield relationProcess;
+})()));
+check(callbackRan && relationGraph.Model.Processes.length === 2, "Relationship iterable runs under repository gate");
 const rootRead = graph.readModel();
 const root = graph.Dataset.upsert(Dataset.withProcesses(rootRead, [linked.Value, linked.Value]), { baseline: rootRead });
 rejects(() => root.Value.Processes.push(linked.Value));

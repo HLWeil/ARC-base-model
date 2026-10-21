@@ -1,13 +1,39 @@
 ﻿import * as Management from "arc-management";
 import { Session, ManagedGraph, DatasetYaml, SnapshotConflictException } from "arc-management";
 import { ARC } from "arc-management/arctrl";
-import { Dataset, Sample, Process, ModelBuilder } from "arc-base-model";
+import { Dataset, Sample, Data, Process, ModelBuilder } from "arc-base-model";
 
 function check(value: boolean, message: string): asserts value { if (!value) throw new Error(message); }
 function rejects(action: () => unknown): void { try { action(); } catch { return; } throw new Error("Expected rejection"); }
 const source = Dataset.withId(new Dataset(["process-provenance"], ["root"]), "root");
 const session = Session.createInMemory();
 const graph = session.createArc(source);
+const relationshipGraph = session.createArc(new Dataset(["process-provenance"], ["relationships"]));
+const relationshipProcess = relationshipGraph.Process.create("process").Value;
+const relationshipSample = relationshipGraph.Sample.create("sample").Value;
+const relationshipData = relationshipGraph.Data.create("data").Value;
+relationshipGraph.Dataset.addProcess(relationshipGraph.Model, relationshipProcess);
+relationshipGraph.Dataset.setProcesses(relationshipGraph.Model, new Set([relationshipProcess]));
+const duplicateLinks = relationshipGraph.Dataset.setProcesses(relationshipGraph.Model, (function* () { yield relationshipProcess; yield relationshipProcess; })());
+check(duplicateLinks.Value.Processes[0] === duplicateLinks.Value.Processes[1], "Typed iterable preserves duplicate references");
+check(relationshipGraph.Dataset.removeProcess(relationshipGraph.Model, relationshipProcess).Value.Processes.length === 1, "Remove takes an object");
+relationshipGraph.Process.setInput(relationshipProcess, relationshipSample);
+relationshipGraph.Process.setOutput(relationshipProcess, relationshipData);
+relationshipGraph.Descriptor.create(relationshipSample);
+const relationshipDescriptor = relationshipGraph.Descriptor.create(relationshipData).Value;
+relationshipGraph.Descriptor.setDescribes(relationshipDescriptor, relationshipSample);
+relationshipGraph.Entity.setObjectProperty(relationshipGraph.Model, "process", relationshipProcess);
+relationshipGraph.Entity.addObjectProperty(relationshipGraph.Model, "sample", relationshipSample);
+// @ts-expect-error relationship targets are objects
+if (false) relationshipGraph.Dataset.addProcess(relationshipGraph.Model, relationshipProcess.Id!);
+// @ts-expect-error collection replacements contain objects
+if (false) relationshipGraph.Dataset.setProcesses(relationshipGraph.Model, [relationshipProcess.Id!]);
+// @ts-expect-error relationship targets have the correct entity type
+if (false) relationshipGraph.Dataset.addProcess(relationshipGraph.Model, relationshipSample);
+// @ts-expect-error erased alternatives accept only Sample or Data
+if (false) relationshipGraph.Process.setInput(relationshipProcess, relationshipGraph.Model);
+// @ts-expect-error extension object targets are objects
+if (false) relationshipGraph.Entity.setObjectProperty(relationshipGraph.Model, "process", relationshipProcess.Id!);
 check(graph instanceof ManagedGraph, "Canonical graph instance");
 check(session.openArc(graph.ArcId) === graph, "Native facade cached");
 check(!("ARC" in Management), "Workspace export separate");

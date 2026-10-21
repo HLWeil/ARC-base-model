@@ -36,34 +36,34 @@ type DatasetOperations internal (session: GraphContext) =
     member _.setDateModified(value: Dataset, replacement: string) =
         session.Change<Dataset>(session.Id(value,"Dataset"),"dateModified", (fun () -> Some(Text(Model.required "dateModified" replacement))),"Dataset.setDateModified")
     member _.clearDateModified(value: Dataset) = session.Change<Dataset>(session.Id(value,"Dataset"),"dateModified", (fun () -> None),"Dataset.clearDateModified")
-    member _.setHasParts(value: Dataset, replacement: seq<string>) =
-        session.Change<Dataset>(session.Id(value,"Dataset"),"hasParts", (fun () -> Some(Links(replacement |> List.ofSeq))),"Dataset.setHasParts")
-    member _.addPart(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"hasParts",target,true,"Dataset.addPart")
-    member _.removePart(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"hasParts",target,false,"Dataset.removePart")
-    member _.setDataFiles(value: Dataset, replacement: seq<string>) =
-        session.Change<Dataset>(session.Id(value,"Dataset"),"dataFiles", (fun () -> Some(Links(replacement |> List.ofSeq))),"Dataset.setDataFiles")
-    member _.addDataFile(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"dataFiles",target,true,"Dataset.addDataFile")
-    member _.removeDataFile(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"dataFiles",target,false,"Dataset.removeDataFile")
-    member _.setAgents(value: Dataset, replacement: seq<string>) =
-        session.Change<Dataset>(session.Id(value,"Dataset"),"agents", (fun () -> Some(Links(replacement |> List.ofSeq))),"Dataset.setAgents")
-    member _.addAgent(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"agents",target,true,"Dataset.addAgent")
-    member _.removeAgent(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"agents",target,false,"Dataset.removeAgent")
-    member _.setCitations(value: Dataset, replacement: seq<string>) =
-        session.Change<Dataset>(session.Id(value,"Dataset"),"citations", (fun () -> Some(Links(replacement |> List.ofSeq))),"Dataset.setCitations")
-    member _.addCitation(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"citations",target,true,"Dataset.addCitation")
-    member _.removeCitation(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"citations",target,false,"Dataset.removeCitation")
-    member _.setProcesses(value: Dataset, replacement: seq<string>) =
-        session.Change<Dataset>(session.Id(value,"Dataset"),"processes", (fun () -> Some(Links(replacement |> List.ofSeq))),"Dataset.setProcesses")
-    member _.addProcess(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"processes",target,true,"Dataset.addProcess")
-    member _.removeProcess(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"processes",target,false,"Dataset.removeProcess")
-    member _.setDescriptors(value: Dataset, replacement: seq<string>) =
-        session.Change<Dataset>(session.Id(value,"Dataset"),"descriptors", (fun () -> Some(Links(replacement |> List.ofSeq))),"Dataset.setDescriptors")
-    member _.addDescriptor(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"descriptors",target,true,"Dataset.addDescriptor")
-    member _.removeDescriptor(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"descriptors",target,false,"Dataset.removeDescriptor")
-    member _.setAdditionalProperties(value: Dataset, replacement: seq<string>) =
-        session.Change<Dataset>(session.Id(value,"Dataset"),"additionalProperties", (fun () -> Some(Links(replacement |> List.ofSeq))),"Dataset.setAdditionalProperties")
-    member _.addAdditionalProperty(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"additionalProperties",target,true,"Dataset.addAdditionalProperty")
-    member _.removeAdditionalProperty(value: Dataset, target: string) = session.Collection<Dataset>(session.Id(value,"Dataset"),"additionalProperties",target,false,"Dataset.removeAdditionalProperty")
+    member _.setHasParts(value: Dataset, replacement: seq<Dataset>) =
+        session.Change<Dataset>(session.Id(value,"Dataset"),"hasParts", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Dataset")) |> List.ofSeq))),"Dataset.setHasParts")
+    member _.addPart(value: Dataset, target: Dataset) = session.Collection<Dataset>(session.Id(value,"Dataset"),"hasParts",target,"Dataset",true,"Dataset.addPart")
+    member _.removePart(value: Dataset, target: Dataset) = session.Collection<Dataset>(session.Id(value,"Dataset"),"hasParts",target,"Dataset",false,"Dataset.removePart")
+    member _.setDataFiles(value: Dataset, replacement: seq<Data>) =
+        session.Change<Dataset>(session.Id(value,"Dataset"),"dataFiles", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Data")) |> List.ofSeq))),"Dataset.setDataFiles")
+    member _.addDataFile(value: Dataset, target: Data) = session.Collection<Dataset>(session.Id(value,"Dataset"),"dataFiles",target,"Data",true,"Dataset.addDataFile")
+    member _.removeDataFile(value: Dataset, target: Data) = session.Collection<Dataset>(session.Id(value,"Dataset"),"dataFiles",target,"Data",false,"Dataset.removeDataFile")
+    member _.setAgents(value: Dataset, replacement: seq<Agent>) =
+        session.Change<Dataset>(session.Id(value,"Dataset"),"agents", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Agent")) |> List.ofSeq))),"Dataset.setAgents")
+    member _.addAgent(value: Dataset, target: Agent) = session.Collection<Dataset>(session.Id(value,"Dataset"),"agents",target,"Agent",true,"Dataset.addAgent")
+    member _.removeAgent(value: Dataset, target: Agent) = session.Collection<Dataset>(session.Id(value,"Dataset"),"agents",target,"Agent",false,"Dataset.removeAgent")
+    member _.setCitations(value: Dataset, replacement: seq<ScholarlyArticle>) =
+        session.Change<Dataset>(session.Id(value,"Dataset"),"citations", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"ScholarlyArticle")) |> List.ofSeq))),"Dataset.setCitations")
+    member _.addCitation(value: Dataset, target: ScholarlyArticle) = session.Collection<Dataset>(session.Id(value,"Dataset"),"citations",target,"ScholarlyArticle",true,"Dataset.addCitation")
+    member _.removeCitation(value: Dataset, target: ScholarlyArticle) = session.Collection<Dataset>(session.Id(value,"Dataset"),"citations",target,"ScholarlyArticle",false,"Dataset.removeCitation")
+    member _.setProcesses(value: Dataset, replacement: seq<ARCBaseModel.Process>) =
+        session.Change<Dataset>(session.Id(value,"Dataset"),"processes", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Process")) |> List.ofSeq))),"Dataset.setProcesses")
+    member _.addProcess(value: Dataset, target: ARCBaseModel.Process) = session.Collection<Dataset>(session.Id(value,"Dataset"),"processes",target,"Process",true,"Dataset.addProcess")
+    member _.removeProcess(value: Dataset, target: ARCBaseModel.Process) = session.Collection<Dataset>(session.Id(value,"Dataset"),"processes",target,"Process",false,"Dataset.removeProcess")
+    member _.setDescriptors(value: Dataset, replacement: seq<Descriptor>) =
+        session.Change<Dataset>(session.Id(value,"Dataset"),"descriptors", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Descriptor")) |> List.ofSeq))),"Dataset.setDescriptors")
+    member _.addDescriptor(value: Dataset, target: Descriptor) = session.Collection<Dataset>(session.Id(value,"Dataset"),"descriptors",target,"Descriptor",true,"Dataset.addDescriptor")
+    member _.removeDescriptor(value: Dataset, target: Descriptor) = session.Collection<Dataset>(session.Id(value,"Dataset"),"descriptors",target,"Descriptor",false,"Dataset.removeDescriptor")
+    member _.setAdditionalProperties(value: Dataset, replacement: seq<Annotation>) =
+        session.Change<Dataset>(session.Id(value,"Dataset"),"additionalProperties", (fun () -> Some(Links(replacement |> Seq.map (fun target -> session.Id(target,"Annotation")) |> List.ofSeq))),"Dataset.setAdditionalProperties")
+    member _.addAdditionalProperty(value: Dataset, target: Annotation) = session.Collection<Dataset>(session.Id(value,"Dataset"),"additionalProperties",target,"Annotation",true,"Dataset.addAdditionalProperty")
+    member _.removeAdditionalProperty(value: Dataset, target: Annotation) = session.Collection<Dataset>(session.Id(value,"Dataset"),"additionalProperties",target,"Annotation",false,"Dataset.removeAdditionalProperty")
     member _.setAdditionalTypes(value: Dataset, replacement: seq<string>) =
         session.Change<Dataset>(session.Id(value,"Dataset"),"additionalTypes", (fun () -> Some(Texts(List.ofSeq replacement))),"Dataset.setAdditionalTypes")
     member _.movePart(child: Dataset, destination: Dataset) = session.Move<Dataset>(session.Id(child,"Dataset"),session.Id(destination,"Dataset"),"hasParts","Dataset.movePart")

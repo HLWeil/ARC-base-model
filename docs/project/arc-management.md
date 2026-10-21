@@ -26,7 +26,33 @@ A result preserves sharing/cycles within its graph. Separate reads have no objec
 
 ## Focused edits and complete replacements
 
-Focused commands take an entity value and update the current stored entity with its ID. For example, `graph.Sample.setName(sample, "after")` changes only its name. Older values remain valid subjects after other edits; their other properties are never written back. Subjects require a registered ID and the correct entity kind. Values known to have been read from another ARC are rejected. Detached values with explicit IDs select entities in the graph receiving the command. Relationship inputs still use target IDs, which management validates in the current graph.
+Focused commands take an entity value and update the current stored entity with its ID. For example, `graph.Sample.setName(sample, "after")` changes only its name. Older values remain valid subjects after other edits; their other properties are never written back. Subjects require a registered ID and the correct entity kind. Values known to have been read from another ARC are rejected. Detached values with explicit IDs select entities in the graph receiving the command.
+
+Relationship commands also take typed objects. Collection setters accept iterables of those objects, preserving order and duplicates. Targets must already be registered; older target values link to their current stored state without replacing any target properties. Missing IDs, unknown entities, wrong kinds and known foreign-ARC values fail without changing the graph. The same rules cover single-link setters, `Descriptor.create` and object-valued extensions. `Entity.getProperty(value, key)` and `hasProperty(value, key)` also take entity subjects. `get(id)` and `read(id)` remain ID lookups.
+
+```fsharp
+let process = graph.Process.create("measurement").Value
+let sample = graph.Sample.create("leaf").Value
+graph.Dataset.addProcess(graph.Model, process) |> ignore
+graph.Dataset.setProcesses(graph.Model, [process; process]) |> ignore
+graph.Process.setInputSample(process, sample) |> ignore
+graph.Process.setInput(process, EntityReference.Sample sample) |> ignore
+graph.Dataset.removeProcess(graph.Model, process) |> ignore
+```
+
+JavaScript and Python pass Sample/Data objects directly to the erased alternatives:
+
+```javascript
+graph.Process.setInput(process, sample);
+graph.Descriptor.create(sample);
+graph.Entity.setObjectProperty(graph.Model, "process", process);
+```
+
+```python
+graph.Process.set_input(process, sample)
+graph.Descriptor.create(sample)
+graph.Entity.set_object_property(graph.Model, "process", process)
+```
 
 Focused setters and upserts return `WriteResult` with the updated immutable `Value`, `Changed` and optional `Operation`. Deletion/undo/redo return `CommandResult` without Value. A no-op returns `Changed=false`, no Operation, and preserves internal revision/history/redo.
 

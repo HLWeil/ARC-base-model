@@ -55,7 +55,8 @@ function declarations(publicExports, workspace = false) {
       const arguments_ = node.typeArguments?.map(argument => type(argument, parsed, generics)) ?? [];
       if (["float64", "int32"].includes(name)) return "number";
       if (name === "Option") return `(${arguments_[0]} | undefined)`;
-      if (["IEnumerable", "IEnumerable_1", "IReadOnlyList", "IReadOnlyList_1"].includes(name)) return `ReadonlyArray<${arguments_[0]}>`;
+      if (["IEnumerable", "IEnumerable_1"].includes(name)) return `Iterable<${arguments_[0]}>`;
+      if (["IReadOnlyList", "IReadOnlyList_1"].includes(name)) return `ReadonlyArray<${arguments_[0]}>`;
       if (!names.has(name) && !generics.has(name)) throw new Error(`Unexpected public type ${name}`);
       return name + (arguments_.length ? `<${arguments_.join(", ")}>` : "");
     }
