@@ -7,10 +7,11 @@ index: 8
 
 # ARCBaseModel Layer 1
 
-`ARCBaseModel` implements the [base specification](../spec/index.md) as 13 mutable
+`ARCBaseModel` implements the [base specification](../spec/index.md) as 13 immutable
 F# classes targeting .NET Standard 2.0. The same source produces JavaScript with
 TypeScript declarations and an importable Python package. Native callers use
-ordinary constructors, properties, arrays or lists, and primitive values.
+ordinary constructors, getter-only properties, static `with*` copies, frozen
+arrays or tuples, and primitive values.
 
 One `Dataset` class combines the three base profiles. `ConformsTo` declares one
 or more applicable profiles; it does not select a different runtime class.
@@ -68,11 +69,17 @@ let measurement = Process("measure leaf", input = EntityReference.Sample sample,
 let descriptor = Descriptor(EntityReference.Sample sample, annotations = [ temperature ])
 let dataset = Dataset([ "process-provenance"; "semantic-designation" ], [ "example-study" ])
 
-dataset.Processes.Add(measurement)
-dataset.Descriptors.Add(descriptor)
-dataset.DataFiles.Add(data)
-temperature.Value <- None
+let dataset2 = Dataset.withProcesses(dataset, [ measurement ])
+let dataset3 = Dataset.withDescriptors(dataset2, [ descriptor ])
+let dataset4 = Dataset.withDataFiles(dataset3, [ data ])
+let cleared = Annotation.withValue(temperature, None)
+let renamed = Sample.withName(sample, "leaf 2")
+let identified = EntityObject.withId(sample, Some "sample-1")
 ```
+
+Each `with*` function is a static member that takes the original value and a
+replacement, and returns a new object of the same class. The original is
+unchanged. Unchanged fields and collections are shared with the original.
 
 Constructors require the specification's mandatory data: for example, a Sample
 needs a name, Data needs a path, and Descriptor needs a target. Dataset requires
@@ -81,21 +88,38 @@ nonempty `ConformsTo` and `Identifiers` collections, including at least one of
 profile strings are allowed. Required strings cannot be null; supplied text is
 not trimmed or normalized.
 
-Every entity has a fixed, read-only `Type`, optional mutable `Id`, and mutable
-`AdditionalTypes`. Optional fields default to absence. Native JavaScript uses
-`undefined` to clear them; Python uses `None`. Zero and empty text remain present
-values. Public property names are PascalCase in all three languages.
+Every entity has a fixed, read-only `Type`, an optional `Id`, and
+`AdditionalTypes`. All properties are getter-only. Optional fields default to
+absence. A `with*` copy of an optional property takes an option, so `None` (F# and
+Python) or `undefined` (JavaScript) clears it. Zero and empty text
+remain present values. Public property names are PascalCase in all three
+languages. The static copy functions are `with<Property>` in F# and JavaScript
+and `with_<snake_case>` in Python, for example `withNameTAN` and `with_name_tan`.
 
-Collections are `ResizeArray` in F#, arrays in JavaScript, and lists in Python.
-Construction and collection replacement copy the container while retaining its
-elements. Getters expose the live collection. Order, duplicates, and shared
-entity references are preserved; matching names or IDs do not merge objects.
-Constructor checks do not continuously enforce conformance after mutation.
+`EntityObject` provides the generic `withId`, `withAdditionalTypes`,
+`withProperty`, and `withoutProperty` (Python `with_id`, `with_additional_types`,
+`with_property`, `without_property`). They return the concrete class of their
+argument. Copies run the same validation as the constructors, so a copy cannot
+remove a required value.
+
+Collections are typed `seq<'T>` in F# (`readonly T[]` in TypeScript, `tuple[T, ...]`
+in Python). On .NET they are `ReadOnlyCollection` instances. JavaScript stores
+frozen arrays and Python stores tuples. Construction and `with*` copies consume an input
+iterable once and keep its elements. Getters return the stored collection
+without allocating, and `push` or `append` on it fails. Order, duplicates, and
+shared entity references are preserved, and matching names or IDs do not merge
+objects. Constructor and copy checks run when a value is built, and nothing
+else enforces conformance afterwards.
+
+The model has no public builder and no runtime sealing. Getter-only properties
+reject assignment on every target. The internal state behind them is an
+unsupported bypass. Constructors and copies cannot build cyclic graphs.
+ARCManagement and YAML decoding create cycles through internal state assignment.
 
 ## Alternative values across languages
 
 F# uses named erased unions and ordinary pattern matching. Native consumers
-assign the underlying values directly:
+supply the underlying values directly:
 
 | F# alternative | JavaScript / TypeScript | Python |
 |---|---|---|
@@ -104,11 +128,35 @@ assign the underlying values directly:
 | `RecipeIntendedUse.Text` / `.Term` | string / DefinedTerm instance | str / DefinedTerm instance |
 | `DefinedTermSetReference.Url` / `.TermSet` | string / DefinedTermSet instance | str / DefinedTermSet instance |
 
-For example, JavaScript can assign `annotation.Value = 23.5` and
-`process.Input = sample`. Python uses the same property assignments. Neither
-language constructs Fable union tags or calls Fable runtime helpers. Consumers
-should import the public package entrypoints so all libraries use the same
-entity class definitions.
+For example, JavaScript constructs and copies with plain values:
+
+```javascript
+import { Annotation, Sample, Process, EntityObject } from "arc-base-model";
+
+const temperature = new Annotation("temperature", 23.5);
+const cleared = Annotation.withValue(temperature, undefined);
+const sample = new Sample("leaf", [temperature]);
+const measurement = Process.withInput(new Process("measure leaf"), sample);
+const identified = EntityObject.withId(sample, "sample-1");
+sample.AdditionalProperties.push(cleared); // throws, the array is frozen
+```
+
+Python uses the same classes and snake_case copy functions:
+
+```python
+from arc_base_model import Annotation, Sample, Process, EntityObject
+
+temperature = Annotation("temperature", 23.5)
+cleared = Annotation.with_value(temperature, None)
+sample = Sample("leaf", [temperature])
+measurement = Process.with_input(Process("measure leaf"), sample)
+identified = EntityObject.with_id(sample, "sample-1")
+# sample.AdditionalProperties is a tuple, so it has no append
+```
+
+Neither language constructs Fable union tags or calls Fable runtime helpers.
+Consumers should import the public package entrypoints so all libraries use the
+same entity class definitions.
 
 The executable examples are also acceptance tests:
 
@@ -117,7 +165,7 @@ The executable examples are also acceptance tests:
 - [TypeScript consumer](https://github.com/HLWeil/ProcessCore/blob/main/tests/ARCBaseModel.Native/consumer.ts)
 
 `TestBaseModelNative` exercises these consumers against the staged packages.
-They cover construction, mutation, absence, collections, every alternative,
+They cover construction, pure copies, absence, collections, every alternative,
 reference identity, and a transpiled F# mapping probe. The probe maps alternatives
 to separate SQL-shaped columns and back, proving that native-created values can
 be consumed by F# pattern matching after transpilation. It is a test fixture,
@@ -174,42 +222,48 @@ reuse the same model classes. Layer 1 adds no SQLite schema or driver.
 
 ## Typed extension properties
 
-All thirteen core classes inherit `EntityObject`. Its read-only `Type`, optional mutable `Id`, and mutable `AdditionalTypes` retain their existing meanings. Generic extension objects require a type string, and never receive an inferred ID. See the [normative extension contract](../spec/extensions.md).
+All thirteen core classes inherit `EntityObject`. Its read-only `Type`, optional `Id`, and `AdditionalTypes` are getter-only and change through `withId` and `withAdditionalTypes`. Generic extension objects require a type string, and never receive an inferred ID. See the [normative extension contract](../spec/extensions.md).
 
 ```fsharp
-let sample = Sample("leaf")
-let quality = EntityObject("QualityAssessment")
-quality.SetEntityProperty("accepted", Entity.Bool true)
-quality.SetEntityProperty("score", Entity.Number 0.95)
-sample.SetEntityProperty("lab:quality", Entity.Object quality)
-sample.SetEntityProperty("lab:missingMeasurement", Entity.Null(EntityNull()))
+let quality =
+    EntityObject("QualityAssessment")
+    |> fun q -> EntityObject.withProperty(q, "accepted", Entity.Bool true)
+    |> fun q -> EntityObject.withProperty(q, "score", Entity.Number 0.95)
+let sample =
+    Sample("leaf")
+    |> fun s -> EntityObject.withProperty(s, "lab:quality", Entity.Object quality)
+    |> fun s -> EntityObject.withProperty(s, "lab:missingMeasurement", Entity.Null(EntityNull()))
+let withoutQuality = EntityObject.withoutProperty(sample, "lab:quality")
 ```
 
 JavaScript/TypeScript uses direct scalar and object values:
 
 ```javascript
-const quality = new EntityObject("QualityAssessment");
-quality.SetEntityProperty("score", 0.95);
-sample.SetEntityProperty("lab:quality", quality);
-sample.SetEntityProperty("lab:values", new EntityCollection([0, false, ""]));
-sample.SetEntityProperty("lab:binary", new EntityBlob("AA=="));
-sample.SetEntityProperty("lab:null", new EntityNull());
+const quality = EntityObject.withProperty(new EntityObject("QualityAssessment"), "score", 0.95);
+let sample = new Sample("leaf");
+sample = EntityObject.withProperty(sample, "lab:quality", quality);
+sample = EntityObject.withProperty(sample, "lab:values", new EntityCollection([0, false, ""]));
+sample = EntityObject.withProperty(sample, "lab:binary", new EntityBlob("AA=="));
+sample = EntityObject.withProperty(sample, "lab:null", new EntityNull());
+sample = EntityObject.withoutProperty(sample, "lab:binary");
 ```
 
 Python uses the same attached classes and members:
 
 ```python
 quality = EntityObject("QualityAssessment")
-quality.SetEntityProperty("score", 0.95)
-sample.SetEntityProperty("lab:quality", quality)
-sample.SetEntityProperty("lab:values", EntityCollection([0, False, ""]))
-sample.SetEntityProperty("lab:binary", EntityBlob("AA=="))
-sample.SetEntityProperty("lab:null", EntityNull())
+quality = EntityObject.with_property(quality, "score", 0.95)
+sample = Sample("leaf")
+sample = EntityObject.with_property(sample, "lab:quality", quality)
+sample = EntityObject.with_property(sample, "lab:values", EntityCollection([0, False, ""]))
+sample = EntityObject.with_property(sample, "lab:binary", EntityBlob("AA=="))
+sample = EntityObject.with_property(sample, "lab:null", EntityNull())
+sample = EntityObject.without_property(sample, "lab:binary")
 ```
 
-Import these classes through `arc-base-model` or `arc_base_model`. `EntityCollection` copies the input container, retaining values, duplicates, and object references; `Count`, `Get`, `Set`, and `Add` expose its stored values. `EntityBlob.Base64` returns validated, unmodified canonical standard padded base64.
+Import these classes through `arc-base-model` or `arc_base_model`. `EntityCollection` copies the input container once, retaining values, duplicates, and object references. It is immutable, and `Count` and `Get` read its stored values. `EntityBlob.Base64` returns validated, unmodified canonical standard padded base64.
 
-`AddEntityProperty` rejects duplicate keys. `SetEntityProperty` inserts or replaces. `RemoveEntityProperty` reports whether a key existed. `EntityProperties.Contains` distinguishes absence from explicit null; `Get` throws for a missing key; `Keys` returns a copied collection with no guaranteed enumeration order. Bag `Add`, `Set`, and `Remove` provide the same operations. Core wire names are reserved through both APIs, with exact case-sensitive comparisons.
+`withProperty` inserts a key or replaces its value and returns a new object. `withoutProperty` returns a new object without the key and accepts a key that is already absent. The read-only `EntityProperties` bag offers `Keys`, `Contains`, and `Get`. `Contains` distinguishes absence from explicit null. `Get` throws for a missing key. `Keys` is an immutable collection with no guaranteed enumeration order. Core wire names are reserved, and `withProperty` rejects them with exact case-sensitive comparisons.
 
 Numbers use binary64, matching `AnnotationValue`; integer and float inputs share one alternative. Large integers may lose precision. Python staging adapts Fable numeric checks and unwraps wrapped numeric reads at bag and collection boundaries; future transpiled consumers must apply the existing `compat` pass and share the staged model classes.
 

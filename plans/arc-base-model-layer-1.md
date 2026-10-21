@@ -1,9 +1,6 @@
 # ARCBaseModel: Layer 1 Implementation
 
-Status: the accepted [immutable redesign](mutation_safety_immutable.md) replaces the
-mutable classes and `ResizeArray` collections described here with getter-only classes
-that copy through static `with*` methods and expose frozen collections. This plan
-records the current mutable implementation until that redesign's Layer 1 phases land.
+Status: the immutable conversion from the accepted [immutable redesign](mutation_safety_immutable.md) is implemented. The classes are getter-only, copy through static `with*` methods, and expose frozen collections. Sections below that predate the conversion describe the earlier mutable design only as history, and the implementation state table records the conversion.
 
 ## Property bag dictionary repair
 
@@ -24,6 +21,7 @@ Update this section in every implementation commit, alongside the changes it des
 | Complete base model | Complete | All 13 normative property tables covered. The 23 shared tests pass on .NET, JavaScript, and Python, including all four mappings. |
 | Native artifacts and mapping consumer | Complete | ESM package, checked TS declarations, Python package/stubs, native consumers, and transpiled F# mapping pass `TestBaseModel`. See the pinned Python compatibility adjustment below. |
 | Build integration, documentation, regression checks | Complete | RunTests includes TestBaseModel and passes. Solution/content docs build, runnable guide example, native examples, and existing-suite regression checks pass. |
+| Immutable model | Complete | Verification (2026-10-21): `RunTests` passed with FAKE `Status: Ok`, including `TestBaseModel` with 25/25 shared tests on each of .NET, JavaScript and Python, the native TypeScript/JavaScript/Python consumers and the packed artifacts, and `TestARCManagement` with 145/145 shared tests on each runtime plus native and packed checks. |
 
 ### Commit and verification log
 
@@ -46,7 +44,7 @@ Implement a separate **ARCBaseModel** library and namespace representing all 13 
 
 The library targets **netstandard2.0**. The pinned Fable.Core and resolved FSharp.Core provide compatible assets; no proposed domain operation requires netstandard2.1. Test executables can retain the repository's net10.0 target.
 
-Layer 1 provides domain classes, native entrypoints, documentation, and tests. It preserves supplied values, collection order, duplicates, and entity references. IDs are optional, mutable properties; the model never generates them automatically.
+Layer 1 provides domain classes, native entrypoints, documentation, and tests. It preserves supplied values, collection order, duplicates, and entity references. IDs are optional, getter-only properties changed through `EntityObject.withId`. The model never generates them automatically.
 
 Layer 2 implementations add operational policies. SQLite is one such implementation, not the definition of Layer 2. It may require or assign domain IDs and use them for keys, relationships, and identity resolution. Those policies do not make IDs mandatory in Layer 1.
 
@@ -58,7 +56,7 @@ Graph operations, deduplication, normalization, codecs, persistence, and migrati
 
 Implement the normative entity tables in [the base specification](../docs/spec/index.md). One Dataset class combines the properties of all three base profiles: a Dataset may declare several profiles through ConformsTo. Profiles determine applicable conformance rules, not separate runtime entity types.
 
-Every entity exposes fixed read-only Type, optional mutable Id, and mutable AdditionalTypes. Use attached classes, explicit backing fields, and PascalCase properties; preserve TAN acronyms. Avoid public records, overloaded members, DynamicObj inheritance, and custom equality/hash policies.
+Every entity exposes fixed read-only Type, optional Id, and AdditionalTypes, all getter-only. Use attached classes, an internal immutable state record per class, and PascalCase properties. Preserve TAN acronyms. Avoid public records, overloaded members, DynamicObj inheritance, and custom equality/hash policies.
 
 | Class | Required constructor arguments |
 |---|---|
@@ -70,7 +68,7 @@ Every entity exposes fixed read-only Type, optional mutable Id, and mutable Addi
 | Dataset | conformsTo: seq<string>, identifiers: seq<string> |
 | FormalParameter, Recipe | None |
 
-Optional properties are available through optional constructor arguments and setters. Native examples use minimal constructors followed by assignments, avoiding long positional argument lists.
+Optional properties are available through optional constructor arguments and static `with<Property>` copies (Python `with_<snake_case>`). Native examples use minimal constructors followed by copies, avoiding long positional argument lists.
 
 ### Named erased alternatives
 
@@ -87,13 +85,15 @@ F# callers use meaningful cases and ordinary pattern matching. Native JS/Python 
 
 Classifications, identifiers, URLs, paths, dates, and TANs remain strings. ConformsTo is an open string collection. Numeric annotation values use F# float.
 
-### Construction and mutation
+### Construction and copies
 
 - Reject null required strings/references; do not invent trimming or nonempty-string restrictions absent from the spec.
 - Dataset construction requires nonempty Identifiers and ConformsTo, including at least one recognized, case-sensitive base discriminator. Do not insert identifiers or profiles automatically.
-- Constructor checks establish required initial data. Continuous conformance validation is outside Layer 1; mutable objects can subsequently become incomplete.
-- Optional values default to None and support native omission, assignment, reading, and clearing.
-- Collections use ResizeArray with independent empty defaults. Construction and replacement shallow-copy containers, preserving order, duplicates, and entity references. Getters expose live collections.
+- Constructor checks establish required initial data. Copies run the same validation. Continuous conformance validation is outside Layer 1.
+- Optional values default to None and support native omission, reading, and clearing through `with*` copies that take an option.
+- Collections are typed `seq<'T>`, with independent empty defaults. On .NET they are ReadOnlyCollection instances. JavaScript stores frozen arrays and Python stores tuples. Construction and `with*` copies consume the input once, preserving order, duplicates, and entity references. Getters return the stored collection.
+- `EntityObject` provides generic `withId`, `withAdditionalTypes`, `withProperty`, and `withoutProperty`. The property bag and `EntityCollection` are read-only.
+- There is no public builder and no runtime sealing. Constructors and copies cannot build cycles. ARCManagement and YAML decoding create them through internal state assignment, enabled by `InternalsVisibleTo`.
 - Do not register entities, maintain backlinks, infer identity, or equate distinct instances by ID/name/path.
 - Support recursive Dataset/Data nesting and mutually linked Annotation/FormalParameter instances. Each nested Dataset declares its own profiles; every Data object supplies its own path.
 
@@ -120,7 +120,7 @@ The mapper and native entrypoint must share the same generated model classes. Ch
 
 Implement the remaining profile entities and unified Dataset with every normative property. Keep source ordering explicit, including the mutually recursive Annotation/FormalParameter declarations. Entity tables override stale diagrams/guides.
 
-Keep collection editing on exposed collections. Do not reproduce graph registration or deduplication methods. Add behavioral tests as entities become available.
+Edit collections by replacing them through `with*` copies. Do not reproduce graph registration or deduplication methods. Add behavioral tests as entities become available.
 
 ### 3. Produce native artifacts
 
@@ -150,8 +150,8 @@ Loading reconstructs classes using the shared model runtime. Numeric storage edg
 
 ## Verification and completion
 
-Shared .NET/JS/Python tests cover required construction, optional/assignable IDs, fixed discriminators, independent defaults, all profile combinations, recursive nesting, all alternative cases, numeric zero versus text, optional clearing, collection copying/order/duplicates, shared references, singular endpoints, mutual links, and distinct same-ID instances.
+Shared .NET/JS/Python tests cover required construction, optional IDs with `withId` copies, fixed discriminators, independent defaults, all profile combinations, recursive nesting, all alternative cases, numeric zero versus text, optional clearing, collection copying/order/duplicates, shared references, singular endpoints, mutual links, and distinct same-ID instances.
 
-Native tests import the complete public surface, construct and mutate native values, call the transpiled mapping consumer in both directions, verify class identity, type-check valid/invalid TypeScript calls, and execute documentation examples.
+Native tests import the complete public surface, construct and copy native values, call the transpiled mapping consumer in both directions, verify class identity, type-check valid/invalid TypeScript calls, and execute documentation examples.
 
 Completion requires a passing TestBaseModel, solution build, existing-suite regression checks, and fsdocs or targeted documentation/link verification. Record actual outcomes in the implementation state above. Every logical implementation commit must update this plan; larger commits are acceptable where required to keep a coherent, verified change together.
