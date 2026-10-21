@@ -113,8 +113,8 @@ else enforces conformance afterwards.
 
 The model has no public builder and no runtime sealing. Assigning to a
 getter-only property throws a TypeError in strict-mode JavaScript (which includes
-ES modules) and an AttributeError in Python. The internal state behind them is an
-unsupported bypass. Constructors and copies cannot build cyclic graphs.
+ES modules) and an AttributeError in Python. The internal state behind the
+properties is an unsupported bypass. Constructors and copies cannot build cyclic graphs.
 ARCManagement and YAML decoding create cycles through internal state assignment.
 
 Transitional note: until the management runtime phase of the immutable redesign,

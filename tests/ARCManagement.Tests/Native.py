@@ -63,7 +63,7 @@ assert decoded.HasParts[3] is decoded and decoded.EntityProperties.Get("self") i
 assert decoded.HasParts[0].Title == ""
 assert decoded.AdditionalProperties[0] is decoded.AdditionalProperties[1]
 assert decoded.AdditionalProperties[0].Value == 0 and type(decoded.AdditionalProperties[0].Value) is float
-# A Python int supplied natively must encode as a number and decode as a float. Booleans are no Number values.
+# A Python int supplied natively must encode as a number and decode as a float.
 native_zero = Annotation("zero", 0)
 native_numeric = Dataset.with_additional_properties(Dataset(["administrative"], ["native-number"]), [native_zero, native_zero])
 native_decoded = DatasetYaml.decode(DatasetYaml.encode(native_numeric))

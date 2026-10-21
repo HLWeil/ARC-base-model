@@ -86,8 +86,8 @@ collisions are rejected. ID assignment belongs to management, never Layer 1;
 identity is not inferred from names, paths, or equal values.
 
 Transitional note: until the management runtime phase of the immutable redesign,
-managed graphs update adopted instances in place. They write IDs into instances
-supplied to `add` and `create`, and reassign internal state on edits and undo.
+managed graphs update adopted instances in place. They write IDs into supplied
+graphs and reassign internal state on edits and undo.
 
 Collection edits preserve order, duplicates, and shared references. Removal
 deletes one occurrence without unregistering its target. `movePart` and

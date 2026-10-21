@@ -21,7 +21,7 @@ Update this section in every implementation commit, alongside the changes it des
 | Complete base model | Complete | All 13 normative property tables covered. The 23 shared tests pass on .NET, JavaScript, and Python, including all four mappings. |
 | Native artifacts and mapping consumer | Complete | ESM package, checked TS declarations, Python package/stubs, native consumers, and transpiled F# mapping pass `TestBaseModel`. See the pinned Python compatibility adjustment below. |
 | Build integration, documentation, regression checks | Complete | RunTests includes TestBaseModel and passes. Solution/content docs build, runnable guide example, native examples, and existing-suite regression checks pass. |
-| Immutable model | Complete | Line counts: `src/ARCBaseModel` grew from 474 to 806 lines (state records, about 73 one-line `with*` copies, generic copy helpers), and the management `Runtime/`, `Internal/`, `Storage/` and `Serialization/` directories went from 1,477 to 1,479 lines. Verification (2026-10-21): `RunTests` passed with FAKE `Status: Ok`, including `TestBaseModel` with 25/25 shared tests on each of .NET, JavaScript and Python, the native TypeScript/JavaScript/Python consumers and the packed artifacts, and `TestARCManagement` with 145/145 shared tests on each runtime plus native and packed checks. |
+| Immutable model | Complete | Line counts: `src/ARCBaseModel` grew from 474 to 815 lines, mostly state records and about 73 short `with*` copy members, and the management `Runtime/`, `Internal/`, `Storage/` and `Serialization/` directories went from 1,477 to 1,479 lines. Verification (2026-10-21): `RunTests` passed with FAKE `Status: Ok`, including `TestBaseModel` with 27/27 shared tests on each of .NET, JavaScript and Python, the native TypeScript/JavaScript/Python consumers and the packed artifacts, and `TestARCManagement` with 145/145 shared tests on each runtime plus native and packed checks. |
 
 ### Commit and verification log
 
@@ -56,7 +56,7 @@ Graph operations, deduplication, normalization, codecs, persistence, and migrati
 
 Implement the normative entity tables in [the base specification](../docs/spec/index.md). One Dataset class combines the properties of all three base profiles: a Dataset may declare several profiles through ConformsTo. Profiles determine applicable conformance rules, not separate runtime entity types.
 
-Every entity exposes a fixed read-only Type and AdditionalTypes, plus an optional Id. All are getter-only. Use attached classes with an internal immutable state record per class. Properties are PascalCase. Preserve TAN acronyms. Avoid public records, overloaded members, DynamicObj inheritance, and custom equality/hash policies.
+Every entity exposes a fixed Type, an optional Id and its AdditionalTypes. All are getter-only. Use attached classes with an internal immutable state record per class. Properties are PascalCase. Preserve TAN acronyms. Avoid public records, overloaded members, DynamicObj inheritance, and custom equality/hash policies.
 
 | Class | Required constructor arguments |
 |---|---|

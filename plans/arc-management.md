@@ -127,7 +127,7 @@ Fine-grained mutations return attached `AppliedOperation` values.
 
 Undo/redo is linear and persisted with before/after snapshots. A new edit after
 undo invalidates the redo branch. Hydration and history restoration keep
-canonical instances, shared relationships, and recursive graphs, and replace
+canonical instances and shared or recursive relationships, and replace
 collection containers. Saving preserves history and standalone registered
 objects.
 
