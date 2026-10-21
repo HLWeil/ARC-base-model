@@ -83,20 +83,20 @@ module internal DetachedYaml =
                     let fields = Codec.fields mapping
                     let hasField name = fields |> List.exists (fun (key, _) -> key = name)
                     if hasField "type" then
-                        let specifications = Model.specifications (Codec.value "type" mapping)
+                        let kind = Codec.value "type" mapping
                         let rejectLegacyReference value =
                             match value with
                             | YAMLElement.Value _ | YAMLElement.Object [YAMLElement.Value _] ->
                                 invalidOp "YAML entity aliases cannot be mixed with scalar ID references."
                             | _ -> ()
                         let checkReferences name value =
-                            match specifications |> List.tryFind (fun (key, _, _, _) -> key = name) with
-                            | Some(_, "links", _, _) ->
+                            match Schema.tryProperty kind name |> Option.map (fun p -> p.Shape) with
+                            | Some(Schema.Shape.Links _) ->
                                 match value with
                                 | YAMLElement.Sequence items | YAMLElement.Object [YAMLElement.Sequence items] ->
                                     List.iter rejectLegacyReference items
                                 | _ -> ()
-                            | Some(_, "link", _, _) | Some(_, "alternative", "Sample|Data", _) -> rejectLegacyReference value
+                            | Some(Schema.Shape.Link _) | Some Schema.Shape.SampleOrData -> rejectLegacyReference value
                             | _ -> ()
                         let supplied = Codec.opt "id" mapping
                         let key = "o" + string (suppliedIds.Count + 1)

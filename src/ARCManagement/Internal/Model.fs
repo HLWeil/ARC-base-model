@@ -52,7 +52,6 @@ module internal Model =
         | ExtensionNull -> Entity.Null(EntityNull())
         | ExtensionBlob v -> Entity.Blob(EntityBlob(v))
     let endpoint reference = match reference with EntityReference.Sample v -> box v | EntityReference.Data v -> box v
-    let private coreKinds = ["Organization"; "Agent"; "ScholarlyArticle"; "Annotation"; "FormalParameter"; "Dataset"; "DefinedTermSet"; "DefinedTerm"; "Descriptor"; "Sample"; "Data"; "Process"; "Recipe"]
     let capture sessionId (reference: obj -> string) (entity: obj) =
         let optional key wrap value = value |> Option.map (fun v -> key, wrap v) |> Option.toList
         let strings key values = [key, Texts(List.ofSeq values)]
@@ -173,7 +172,7 @@ module internal Model =
                 @ optional "url" (required "url" >> Text) v.Url
                 @ strings "additionalTypes" v.AdditionalTypes
             | :? EntityObject as v ->
-                if List.contains v.Type coreKinds then invalidArg "entity" "A core discriminator requires its core class."
+                if Schema.isCore v.Type then invalidArg "entity" "A core discriminator requires its core class."
                 strings "additionalTypes" v.AdditionalTypes
             | _ -> invalidArg "entity" "Expected a typed entity object."
         let value = unbox<EntityObject> entity
@@ -305,22 +304,12 @@ module internal Model =
             ({ Id = Some row.Id
                AdditionalTypes = coll (texts "additionalTypes" row)
                Properties = properties } : EntityCommon)
-    let specifications kind =
-        match kind with
-        | "Organization" -> ["name", "text", "", true; "url", "text", "", false; "additionalTypes", "strings", "", false]
-        | "Agent" -> ["name", "text", "", true; "givenName", "text", "", false; "familyName", "text", "", false; "emails", "strings", "", false; "affiliations", "links", "Organization", false; "identifiers", "strings", "", false; "additionalProperties", "links", "Annotation", false; "jobTitles", "links", "DefinedTerm", false; "additionalTypes", "strings", "", false]
-        | "ScholarlyArticle" -> ["headline", "text", "", true; "identifiers", "strings", "", false; "authors", "links", "Agent", false; "creativeWorkStatus", "link", "DefinedTerm", false; "additionalProperties", "links", "Annotation", false; "additionalTypes", "strings", "", false]
-        | "Annotation" -> ["name", "text", "", true; "value", "alternative", "", false; "unit", "text", "", false; "nameTAN", "text", "", false; "valueTAN", "text", "", false; "unitTAN", "text", "", false; "instanceOf", "link", "FormalParameter", false; "additionalTypes", "strings", "", false]
-        | "FormalParameter" -> ["name", "text", "", false; "nameTAN", "text", "", false; "defaultValue", "link", "Annotation", false; "additionalTypes", "strings", "", false]
-        | "Dataset" -> ["conformsTo", "strings", "", true; "identifiers", "strings", "", true; "title", "text", "", false; "description", "text", "", false; "license", "text", "", false; "datePublished", "text", "", false; "dateCreated", "text", "", false; "dateModified", "text", "", false; "hasParts", "links", "Dataset", false; "dataFiles", "links", "Data", false; "agents", "links", "Agent", false; "citations", "links", "ScholarlyArticle", false; "processes", "links", "Process", false; "descriptors", "links", "Descriptor", false; "additionalProperties", "links", "Annotation", false; "additionalTypes", "strings", "", false]
-        | "DefinedTermSet" -> ["name", "text", "", true; "identifier", "text", "", false; "additionalTypes", "strings", "", false]
-        | "DefinedTerm" -> ["name", "text", "", true; "identifier", "text", "", false; "tan", "text", "", false; "inDefinedTermSet", "alternative", "DefinedTermSet", false; "additionalTypes", "strings", "", false]
-        | "Descriptor" -> ["describes", "alternative", "Sample|Data", true; "annotations", "links", "Annotation", false; "additionalTypes", "strings", "", false]
-        | "Sample" -> ["name", "text", "", true; "additionalProperties", "links", "Annotation", false; "additionalTypes", "strings", "", false]
-        | "Data" -> ["path", "text", "", true; "selector", "text", "", false; "selectorFormat", "text", "", false; "encodingFormat", "text", "", false; "hasParts", "links", "Data", false; "additionalProperties", "links", "Annotation", false; "additionalTypes", "strings", "", false]
-        | "Process" -> ["name", "text", "", true; "input", "alternative", "Sample|Data", false; "output", "alternative", "Sample|Data", false; "executesRecipe", "link", "Recipe", false; "parameterValues", "links", "Annotation", false; "additionalTypes", "strings", "", false]
-        | "Recipe" -> ["name", "text", "", false; "parameters", "links", "FormalParameter", false; "description", "text", "", false; "intendedUse", "alternative", "DefinedTerm", false; "additionalProperties", "links", "Annotation", false; "components", "links", "Annotation", false; "version", "text", "", false; "url", "text", "", false; "additionalTypes", "strings", "", false]
-        | _ -> ["additionalTypes", "strings", "", false]
+    let private referenceTargets shape =
+        match shape with
+        | Schema.Shape.Link targets | Schema.Shape.Links targets -> targets
+        | Schema.Shape.TextOrLink target -> [target]
+        | Schema.Shape.SampleOrData -> ["Sample"; "Data"]
+        | _ -> []
     let validate state =
         let ids = state.Entities |> List.map (fun row -> row.Id)
         if (List.distinct ids).Length <> ids.Length then invalidOp "Different entities cannot share a session ID."
@@ -329,21 +318,25 @@ module internal Model =
         if root.Kind <> "Dataset" then invalidOp "Root Dataset is missing."
         for row in state.Entities do
             required "id" row.Id |> ignore
-            let spec = specifications row.Kind
             for key, cell in Map.toList row.Properties do
-                let _, shape, targets, _ = spec |> List.tryFind (fun (name,_,_,_) -> name = key) |> Option.defaultWith (fun () -> invalidOp ("Unknown property: " + key))
+                let shape = (Schema.tryProperty row.Kind key |> Option.defaultWith (fun () -> invalidOp ("Unknown property: " + key))).Shape
                 let valid =
                     match cell with
-                    | Text v -> required key v |> ignore; shape = "text" || (shape = "alternative" && targets <> "Sample|Data")
-                    | Number v -> not (Double.IsNaN v || Double.IsInfinity v) && row.Kind = "Annotation" && key = "value"
+                    | Text v ->
+                        required key v |> ignore
+                        (match shape with Schema.Shape.Text | Schema.Shape.TextOrNumber | Schema.Shape.TextOrLink _ -> true | _ -> false)
+                    | Number v -> not (Double.IsNaN v || Double.IsInfinity v) && shape = Schema.Shape.TextOrNumber
                     | Texts vs ->
                         for v in vs do required key v |> ignore
-                        shape = "strings"
+                        shape = Schema.Shape.Texts
                     | Links vs ->
                         for id in vs do
                             let target = Map.tryFind id rows |> Option.defaultWith (fun () -> invalidOp ("Unknown reference: " + id))
-                            if not (targets.Split('|') |> Array.contains target.Kind) then invalidOp ("Wrong reference type: " + key)
-                        shape = "links" || ((shape = "link" || shape = "alternative") && vs.Length = 1)
+                            if not (referenceTargets shape |> List.contains target.Kind) then invalidOp ("Wrong reference type: " + key)
+                        (match shape with
+                         | Schema.Shape.Links _ -> true
+                         | Schema.Shape.Link _ | Schema.Shape.TextOrLink _ | Schema.Shape.SampleOrData | Schema.Shape.TextOrNumber -> vs.Length = 1
+                         | _ -> false)
                 if not valid then invalidOp ("Invalid property: " + key)
             let probe = unbox<EntityObject> (create row)
             let rec validateExtension = function
@@ -353,12 +346,12 @@ module internal Model =
                 | ExtensionBlob v -> EntityBlob(v) |> ignore
                 | _ -> ()
             for KeyValue(key, cell) in row.Extensions do
-                if key = "type" || key = "id" || spec |> List.exists (fun (name,_,_,_) -> name = key) then
+                if key = "type" || key = "id" || (Schema.tryProperty row.Kind key).IsSome then
                     invalidArg "key" "Reserved core property name."
                 EntityObject.withProperty(probe, key, Entity.Null(EntityNull())) |> ignore
                 validateExtension cell
-            for key, _, _, mandatory in spec do
-                if mandatory && not (Map.containsKey key row.Properties) then invalidOp ("Missing required property: " + key)
+            for property in Schema.properties row.Kind do
+                if property.Required && not (Map.containsKey property.Name row.Properties) then invalidOp ("Missing required property: " + property.Name)
             if row.Kind = "Dataset" then Dataset(texts "conformsTo" row, texts "identifiers" row) |> ignore
     let reachable state =
         let rows = state.Entities |> List.map (fun row -> row.Id, row) |> Map.ofList

@@ -173,9 +173,9 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
                     match cell with
                     | Links ids ->
                         let remaining = ids |> List.filter (fun id -> not (Set.contains id removed))
-                        let _,shape,_,mandatory = Model.specifications row.Kind |> List.find (fun (name,_,_,_) -> name = key)
-                        if remaining = [] && shape <> "links" then
-                            if mandatory then invalidOp ("Cannot delete required target of " + row.Kind + "." + key)
+                        let property = (Schema.tryProperty row.Kind key).Value
+                        if remaining = [] && (match property.Shape with Schema.Shape.Links _ -> false | _ -> true) then
+                            if property.Required then invalidOp ("Cannot delete required target of " + row.Kind + "." + key)
                             None
                         else Some(key,Links remaining)
                     | _ -> Some(key,cell)) |> Map.ofList

@@ -126,15 +126,15 @@ module internal Codec =
                 let row = rows[id]
                 let properties = row.Properties |> Map.toList |> List.choose (fun (key,cell) ->
                     match cell with
-                    | Text v when row.Kind = "Annotation" && key = "value" ->
+                    | Text v when (Schema.tryProperty row.Kind key |> Option.map (fun p -> p.Shape)) = Some Schema.Shape.TextOrNumber ->
                         Some(key, YAMLElement.Value(YAMLContent.create(v, style = ScalarStyle.DoubleQuoted)))
                     | Text v -> Some(key,text v)
                     | Number v -> Some(key,number v)
                     | Texts [] | Links [] -> None
                     | Texts vs -> Some(key,sequence(List.map text vs))
                     | Links vs ->
-                        let _,shape,_,_ = Model.specifications row.Kind |> List.find (fun (name,_,_,_) -> name = key)
-                        Some(key,if shape = "links" then sequence(List.map entity vs) else entity (List.exactlyOne vs)))
+                        let property = (Schema.tryProperty row.Kind key).Value
+                        Some(key,match property.Shape with Schema.Shape.Links _ -> sequence(List.map entity vs) | _ -> entity (List.exactlyOne vs)))
                 let baseFields = match mapping (["type", text row.Kind; "id", text row.Id] @ properties) with YAMLElement.Object fields -> fields | _ -> invalidOp "Expected mapping."
                 YAMLElement.Object(baseFields @ extensionMappings (row.Extensions |> Map.toList |> List.map (fun (key,cell) -> key, extension cell)))
         and extension = function
@@ -158,35 +158,39 @@ module internal Codec =
             | _ ->
                 let kind = value "type" element
                 let suppliedId = id element
-                let specs = Model.specifications kind
+                let specs = Schema.properties kind
                 let properties = fields element |> List.choose (fun (key,e) ->
-                    if key = "id" || key = "type" || not (specs |> List.exists (fun (name,_,_,_) -> name = key)) then None
+                    if key = "id" || key = "type" || (Schema.tryProperty kind key).IsNone then None
                     else
-                        let _,shape,targets,_ = specs |> List.tryFind (fun (name,_,_,_) -> name = key) |> Option.defaultWith (fun () -> invalidOp ("Unknown property: " + key))
+                        let shape = (Schema.tryProperty kind key |> Option.defaultWith (fun () -> invalidOp ("Unknown property: " + key))).Shape
                         let values () = match e with YAMLElement.Sequence vs | YAMLElement.Object [YAMLElement.Sequence vs] -> vs | _ -> invalidOp ("Expected collection: " + key)
                         let cell =
                             match shape with
-                            | "strings" -> Texts(values() |> List.map scalar)
-                            | "links" -> Links(values() |> List.map entity)
-                            | "link" -> Links [entity e]
-                            | "text" -> Text(scalar e)
-                            | _ when kind = "Annotation" && key = "value" ->
+                            | Schema.Shape.Texts -> Texts(values() |> List.map scalar)
+                            | Schema.Shape.Links _ -> Links(values() |> List.map entity)
+                            | Schema.Shape.Link _ -> Links [entity e]
+                            | Schema.Shape.Text -> Text(scalar e)
+                            | Schema.Shape.TextOrNumber ->
                                 let content = match e with YAMLElement.Value v | YAMLElement.Object [YAMLElement.Value v] -> v | _ -> invalidOp "Expected Annotation value."
                                 let mutable numeric = 0.0
                                 if content.Tag <> Some "!!str" && content.Style <> Some ScalarStyle.DoubleQuoted && content.Style <> Some ScalarStyle.SingleQuoted && System.Double.TryParse(content.Value, NumberStyles.Float, CultureInfo.InvariantCulture, &numeric) then Number numeric
                                 else Text content.Value
-                            | _ ->
+                            | Schema.Shape.TextOrLink _ | Schema.Shape.SampleOrData ->
                                 match e with
-                                | YAMLElement.Value _ | YAMLElement.Object [YAMLElement.Value _] when targets <> "Sample|Data" -> Text(scalar e)
+                                | YAMLElement.Value _ | YAMLElement.Object [YAMLElement.Value _] when shape <> Schema.Shape.SampleOrData -> Text(scalar e)
                                 | _ -> Links [entity e]
                         Some(key,cell)) |> Map.ofList
                 // All collections exist even when absent on the wire.
-                let properties = specs |> List.fold (fun props (key,shape,_,_) ->
+                let properties = specs |> List.fold (fun props property ->
+                    let key = property.Name
                     if Map.containsKey key props then props
-                    elif shape = "strings" then Map.add key (Texts []) props
-                    elif shape = "links" then Map.add key (Links []) props else props) properties
+                    else
+                        match property.Shape with
+                        | Schema.Shape.Texts -> Map.add key (Texts []) props
+                        | Schema.Shape.Links _ -> Map.add key (Links []) props
+                        | _ -> props) properties
                 let extensions = fields element |> List.choose (fun (key,e) ->
-                    if key = "id" || key = "type" || specs |> List.exists (fun (name,_,_,_) -> name = key) then None
+                    if key = "id" || key = "type" || (Schema.tryProperty kind key).IsSome then None
                     else Some(key, extension e)) |> Map.ofList
                 let row = { Id = suppliedId; Kind = kind; SuppliedId = opt "id" element; Properties = properties; Extensions = extensions }
                 match rows.TryGetValue suppliedId with

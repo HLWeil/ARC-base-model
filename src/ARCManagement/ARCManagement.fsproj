@@ -16,6 +16,7 @@
     <Compile Include="Helper/WebRequest/WebRequest.Py.fs" />
     <Compile Include="Helper/WebRequest/WebRequest.fs" />
     <Compile Include="Internal/State.fs" />
+    <Compile Include="Internal/Schema.fs" />
     <Compile Include="Internal/Model.fs" />
     <Compile Include="Serialization/YamlCodec.fs" />
     <Compile Include="Serialization/DatasetYaml.fs" />

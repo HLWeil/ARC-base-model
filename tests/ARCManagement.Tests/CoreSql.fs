@@ -57,6 +57,28 @@ let tests = testList "Core SQL profiles" [
         ] do
             Expect.equal (sql.Scalar("SELECT type FROM " + table + " LIMIT 1") |> Option.get |> fun v -> v.AsText()) discriminator "Normative discriminator"
             Expect.throws (fun () -> sql.Execute("UPDATE " + table + " SET type='Wrong'") |> ignore) "No legacy discriminator"))
+    testCase "property table storage matches the core SQL profile" (fun _ -> withCore (fun sql ->
+        let hasColumn table column =
+            (sql.Scalar("SELECT count(*) FROM pragma_table_info('" + table + "') WHERE name='" + column + "'") |> Option.get |> fun v -> v.AsInteger()) = 1L
+        for spec in Schema.entities do
+            for column in ["id"; "type"] do
+                Expect.isTrue (hasColumn spec.Table column) (spec.Table + "." + column)
+            for property in spec.Properties do
+                let name = spec.Kind + "." + property.Name
+                let expectColumn table column = Expect.isTrue (hasColumn table column) (name + " column " + table + "." + column)
+                match property.Storage with
+                | Schema.Storage.Column column -> expectColumn spec.Table column
+                | Schema.Storage.TextOrNumberColumns(text, number) -> expectColumn spec.Table text; expectColumn spec.Table number
+                | Schema.Storage.TextOrLinkColumns(text, link) -> expectColumn spec.Table text; expectColumn spec.Table link
+                | Schema.Storage.SampleOrDataColumns(sample, data) -> expectColumn spec.Table sample; expectColumn spec.Table data
+                | Schema.Storage.Association(table, valueColumn) ->
+                    expectColumn table (spec.Table + "_id")
+                    expectColumn table "position"
+                    expectColumn table valueColumn
+                | Schema.Storage.Endpoint direction ->
+                    Expect.isTrue (direction = "input" || direction = "output") (name + " direction")
+                    expectColumn "process_io" "process_id"
+                    expectColumn "process_io" "direction"))
     testCase "deferred defaults and ordinary statements use existing PolyglotSQLite transactions" (fun _ -> withCore (fun sql ->
         sql.WithTransaction(fun () ->
             sql.Execute("INSERT INTO formal_parameter(id,type,default_value_id) VALUES('p','FormalParameter','a')") |> ignore
