@@ -1,7 +1,8 @@
 namespace ARCManagement.Internal
 
 /// Repository schema version 5. The management tables come first, then the core SQL profile
-/// from schemas/sql/001_core.sql with an arc_id scope column on every table, index and view.
+/// from schemas/sql/001_core.sql. Every table and view carries an arc_id scope column and every
+/// index starts with it.
 /// Each entry is one complete statement. SQLite stores the statement text in sqlite_master,
 /// so validateRepository compares these strings with the stored definitions.
 module internal CoreSchema =
@@ -17,6 +18,8 @@ module internal CoreSchema =
         """CREATE TABLE entity_extension (arc_id TEXT NOT NULL, owner_id TEXT NOT NULL, property TEXT NOT NULL, path TEXT NOT NULL, parent_path TEXT, position INTEGER, storage TEXT NOT NULL CHECK(storage IN ('text','number','bool','null','blob','object','collection')), value_text TEXT, value_number REAL, value_bool INTEGER CHECK(value_bool IN (0,1)), target_id TEXT, PRIMARY KEY(arc_id,owner_id,property,path), FOREIGN KEY(arc_id,owner_id) REFERENCES entity(arc_id,id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(arc_id,target_id) REFERENCES entity(arc_id,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(arc_id,owner_id,property,parent_path) REFERENCES entity_extension(arc_id,owner_id,property,path) DEFERRABLE INITIALLY DEFERRED, CHECK((path='' AND parent_path IS NULL AND position IS NULL) OR (path<>'' AND parent_path IS NOT NULL AND position>=0)), CHECK((storage='text' AND value_text IS NOT NULL AND value_number IS NULL AND value_bool IS NULL AND target_id IS NULL) OR (storage='number' AND value_text IS NULL AND value_number IS NOT NULL AND value_bool IS NULL AND target_id IS NULL) OR (storage='bool' AND value_text IS NULL AND value_number IS NULL AND value_bool IS NOT NULL AND target_id IS NULL) OR (storage='blob' AND value_text IS NOT NULL AND value_number IS NULL AND value_bool IS NULL AND target_id IS NULL) OR (storage='object' AND value_text IS NULL AND value_number IS NULL AND value_bool IS NULL AND target_id IS NOT NULL) OR (storage IN ('null','collection') AND value_text IS NULL AND value_number IS NULL AND value_bool IS NULL AND target_id IS NULL)))"""
         """CREATE INDEX idx_entity_extension_target ON entity_extension(arc_id,target_id)"""
         """CREATE INDEX idx_entity_extension_owner ON entity_extension(arc_id,owner_id)"""
+        """CREATE INDEX idx_entity_extension_text ON entity_extension(arc_id,property,value_text)"""
+        """CREATE INDEX idx_entity_extension_number ON entity_extension(arc_id,property,value_number)"""
         """CREATE TABLE history (arc_id TEXT NOT NULL REFERENCES arc(arc_id), sequence INTEGER NOT NULL, operation_id TEXT NOT NULL, kind TEXT NOT NULL, changes TEXT NOT NULL, PRIMARY KEY(arc_id,sequence))"""
         """CREATE TABLE arc_archive (archive_id TEXT NOT NULL PRIMARY KEY, arc_id TEXT NOT NULL, root_id TEXT NOT NULL, folder TEXT, state TEXT NOT NULL, baseline TEXT, saved_graph TEXT, cursor INTEGER NOT NULL, revision INTEGER NOT NULL)"""
         """CREATE TABLE archived_history (archive_id TEXT NOT NULL REFERENCES arc_archive(archive_id), sequence INTEGER NOT NULL, operation_id TEXT NOT NULL, kind TEXT NOT NULL, changes TEXT NOT NULL, PRIMARY KEY(archive_id,sequence))"""

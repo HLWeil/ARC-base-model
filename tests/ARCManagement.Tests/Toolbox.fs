@@ -321,8 +321,35 @@ let tests = testList "ARC toolbox" [
         let before = scalar db "SELECT total_changes()"
         graph.Dataset.setTitle(graph.Model,"edited") |> ignore
         let changed = scalar db "SELECT total_changes()" - before
-        Expect.isTrue (changed <= 6L) ("Changed rows: " + string changed)
+        Expect.equal changed 3L "Dataset row, history row and arc row"
         Expect.equal (graph.Model.Title) (Some "edited") "Edit applied")
+
+    testCase "appending to a long list inserts one association row" (fun _ ->
+        use session = ARCManagement.Session.createInMemory()
+        let processes = [for index in 1 .. 100 -> ARCBaseModel.Process("process " + string index)]
+        let graph = session.createArc(Dataset(["process-provenance"],["root"],id="root",processes=processes))
+        let extra = graph.Process.create("extra")
+        let db = sql session
+        let before = scalar db "SELECT total_changes()"
+        graph.Dataset.addProcess(graph.Model,extra) |> ignore
+        let changed = scalar db "SELECT total_changes()" - before
+        Expect.equal changed 3L "One dataset_process row, one history row and the arc row"
+        Expect.equal (scalar db "SELECT count(*) FROM dataset_process") 101L "All rows kept"
+        Expect.equal (scalar db ("SELECT position FROM dataset_process WHERE process_id='" + extra.Id.Value + "'")) 100L "Appended at the end")
+
+    testCase "upserting an unchanged entity is a no-op that keeps the redo branch" (fun _ ->
+        use session = ARCManagement.Session.createInMemory()
+        let graph = session.createArc(root())
+        let first = graph.Sample.create("first")
+        graph.Sample.create("second") |> ignore
+        graph.History.undo()
+        let db = sql session
+        let rows = scalar db "SELECT count(*) FROM history"
+        let revision = scalar db "SELECT revision FROM arc"
+        graph.Sample.upsert(first)
+        Expect.isTrue graph.History.CanRedo "Redo branch untouched"
+        Expect.equal (scalar db "SELECT count(*) FROM history") rows "No history row added"
+        Expect.equal (scalar db "SELECT revision FROM arc") revision "Revision unchanged")
 
     testCase "undo and redo of a delete restore the entity, its links and its list position" (fun _ ->
         use session = ARCManagement.Session.createInMemory()

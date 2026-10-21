@@ -190,13 +190,18 @@ module internal Store =
         "UPDATE " + table + " SET " + (columns |> List.mapi (fun index (column, _) -> column + "=$p" + string index) |> String.concat ",") + " WHERE arc_id=$arc AND id=$id",
         ("id", text id) :: (columns |> List.mapi (fun index (_, value) -> "p" + string index, sqlOf value))
 
-    let private listInserts id (table: string, owner: string, valueColumn: string, values: string list) : Op list =
-        values |> List.mapi (fun position value ->
+    /// Insert values from the given list position on.
+    let private listInserts id (start: int) (table: string, owner: string, valueColumn: string, values: string list) : Op list =
+        values |> List.skip start |> List.mapi (fun offset value ->
+            let position = start + offset
             "INSERT INTO " + table + "(arc_id," + owner + ",position," + valueColumn + ") VALUES($arc,$id,$position,$value)",
             ["id", text id; "position", integer position; "value", text value])
 
     let private listDelete id (table: string, owner: string) : Op =
         "DELETE FROM " + table + " WHERE arc_id=$arc AND " + owner + "=$id", ["id", text id]
+
+    let private listDeleteFrom id (position: int) (table: string, owner: string) : Op =
+        "DELETE FROM " + table + " WHERE arc_id=$arc AND " + owner + "=$id AND position >= $position", ["id", text id; "position", integer position]
 
     let private endpointInsert id (direction: string, sample: string option, data: string option) : Op =
         "INSERT INTO process_io(arc_id,process_id,direction,sample_id,data_id) VALUES($arc,$id,$direction,$sample,$data)",
@@ -218,6 +223,9 @@ module internal Store =
     let private extensionDelete id (property: string) : Op =
         "DELETE FROM entity_extension WHERE arc_id=$arc AND owner_id=$id AND property=$property", ["id", text id; "property", text property]
 
+    /// Rows are equal when everything except the pre-adoption supplied ID matches.
+    let private sameIgnoringSuppliedId (a: EntityRow) (b: EntityRow) = obj.ReferenceEquals(a, b) || ({ a with SuppliedId = None } = { b with SuppliedId = None })
+
     /// Apply the difference between two states to one ARC. Call inside a transaction. The ordinal map
     /// supplies positions for known IDs, new IDs follow the highest known ordinal in list order.
     /// The statements run in an order that respects immediate RESTRICT references and immediate CHECK constraints.
@@ -236,7 +244,6 @@ module internal Store =
             | None ->
                 highest <- highest + 1L
                 assigned[row.Id] <- highest
-        let sameRow (a: EntityRow) (b: EntityRow) = obj.ReferenceEquals(a, b) || ({ a with SuppliedId = None } = { b with SuppliedId = None })
         let hasReplacement = after.Entities |> List.exists (fun row -> match beforeRows.TryGetValue row.Id with | true, old -> old.Kind <> row.Kind | _ -> false)
 
         let inserts = ResizeArray<Op>()
@@ -255,7 +262,7 @@ module internal Store =
             | Some spec -> target.Add(coreInsert spec.Table row.Id row.Kind projection.PColumns)
             | None -> ()
         let insertRows (row: EntityRow) (projection: Projection) =
-            for list in projection.PLists do additions.AddRange(listInserts row.Id list)
+            for list in projection.PLists do additions.AddRange(listInserts row.Id 0 list)
             for endpoint in projection.PEndpoints do additions.Add(endpointInsert row.Id endpoint)
             for property, rows in projection.PExtensions do additions.AddRange(extensionInserts row.Id property rows)
         let removeAllRows (row: EntityRow) (projection: Projection) =
@@ -281,15 +288,16 @@ module internal Store =
         for row in before.Entities do
             match afterRows.TryGetValue row.Id with
             | true, next when next.Kind = row.Kind ->
-                let changed = not (sameRow row next)
+                let changed = not (sameIgnoringSuppliedId row next)
                 if changed || (hasReplacement && (row.Kind = "Process" || row.Kind = "Descriptor")) then
                     let old, current = project beforeKind row, project afterKind next
-                    for (table, owner, _, oldValues), (_, _, _, newValues) in List.zip old.PLists current.PLists do
+                    for (table, owner, _, oldValues), ((_, _, _, newValues) as list) in List.zip old.PLists current.PLists do
                         if oldValues <> newValues then
-                            if not (List.isEmpty oldValues) then removals.Add(listDelete row.Id (table, owner))
-                    for list, (_, _, _, oldValues) in List.zip current.PLists old.PLists do
-                        let _, _, _, newValues = list
-                        if oldValues <> newValues then additions.AddRange(listInserts row.Id list)
+                            // Rows before the first difference keep their positions.
+                            let kept = List.zip (List.truncate newValues.Length oldValues) (List.truncate oldValues.Length newValues) |> List.takeWhile (fun (a, b) -> a = b) |> List.length
+                            if oldValues.Length > kept then
+                                removals.Add(if kept = 0 then listDelete row.Id (table, owner) else listDeleteFrom row.Id kept (table, owner))
+                            additions.AddRange(listInserts row.Id kept list)
                     for direction in ["input"; "output"] do
                         let find (endpoints: (string * string option * string option) list) = endpoints |> List.tryFind (fun (name, _, _) -> name = direction)
                         let oldEndpoint, newEndpoint = find old.PEndpoints, find current.PEndpoints
@@ -332,7 +340,7 @@ module internal Store =
             let registry = query "SELECT id,type,ordinal FROM entity WHERE arc_id=$arc ORDER BY ordinal"
             let coreRows = Dictionary<string, Dictionary<string, SqlRow>>()
             let lists = Dictionary<string, Dictionary<string, ResizeArray<string>>>()
-            let collect (table: string) owner (rows: seq<SqlRow>) =
+            let collect (table: string) (rows: seq<SqlRow>) =
                 let owners = Dictionary<string, ResizeArray<string>>()
                 for row in rows do
                     let id = row.Get(0).AsText()
@@ -346,9 +354,9 @@ module internal Store =
                 for property in spec.Properties do
                     match property.Storage with
                     | Schema.Storage.Association(table, valueColumn) ->
-                        collect table spec.Table (query ("SELECT " + spec.Table + "_id," + valueColumn + " FROM " + table + " WHERE arc_id=$arc ORDER BY " + spec.Table + "_id,position"))
+                        collect table (query ("SELECT " + spec.Table + "_id," + valueColumn + " FROM " + table + " WHERE arc_id=$arc ORDER BY " + spec.Table + "_id,position"))
                     | _ -> ()
-            collect "entity_additional_type" "entity" (query "SELECT entity_id,value FROM entity_additional_type WHERE arc_id=$arc ORDER BY entity_id,position")
+            collect "entity_additional_type" (query "SELECT entity_id,value FROM entity_additional_type WHERE arc_id=$arc ORDER BY entity_id,position")
             let endpoints = Dictionary<string, SqlRow>()
             for row in query "SELECT process_id,direction,sample_id,data_id FROM process_io WHERE arc_id=$arc" do
                 endpoints[row.Get(0).AsText() + "/" + row.Get(1).AsText()] <- row
@@ -445,8 +453,6 @@ module internal Store =
             { Root = root; Entities = List.ofSeq entities }, Map.ofSeq ordinals)
 
     // ---- history records ----
-
-    let private sameIgnoringSuppliedId (a: EntityRow) (b: EntityRow) = obj.ReferenceEquals(a, b) || ({ a with SuppliedId = None } = { b with SuppliedId = None })
 
     /// Change records for every entity that differs between two states.
     let changes (before: State) (after: State) (ordinalOf: string -> int64) : Change list =

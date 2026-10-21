@@ -335,7 +335,7 @@ module internal Model =
                             if not (referenceTargets shape |> List.contains target.Kind) then invalidOp ("Wrong reference type: " + key)
                         (match shape with
                          | Schema.Shape.Links _ -> true
-                         | Schema.Shape.Link _ | Schema.Shape.TextOrLink _ | Schema.Shape.SampleOrData | Schema.Shape.TextOrNumber -> vs.Length = 1
+                         | Schema.Shape.Link _ | Schema.Shape.TextOrLink _ | Schema.Shape.SampleOrData -> vs.Length = 1
                          | _ -> false)
                 if not valid then invalidOp ("Invalid property: " + key)
             let probe = unbox<EntityObject> (create row)

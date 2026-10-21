@@ -2,6 +2,7 @@ module ARCManagement.Tests.CoreSql
 
 open ARCManagement.Helper
 
+open System.Collections.Generic
 open System.Globalization
 open Fable.Pyxpecto
 open PolyglotSQLite
@@ -20,21 +21,26 @@ let private text (row: SqlRow) name = row.GetByName(name).AsText()
 let private integer (row: SqlRow) name = row.GetByName(name).AsInteger()
 let private optionalText (row: SqlRow) name = let value = row.GetByName(name) in if value.IsNull then "" else value.AsText()
 
-/// Lower case with whitespace runs reduced to one space.
+/// Lower case with whitespace runs reduced to one space. String literals keep their case and spacing.
 let private normalize (value: string) =
     let builder = System.Text.StringBuilder()
     let mutable pending = false
-    for c in value.ToLowerInvariant() do
-        if c = ' ' || c = '\n' || c = '\r' || c = '\t' then pending <- builder.Length > 0
+    let mutable quoted = false
+    for c in value do
+        if quoted then
+            builder.Append(c) |> ignore
+            if c = '\'' then quoted <- false
+        elif c = ' ' || c = '\n' || c = '\r' || c = '\t' then pending <- builder.Length > 0
         else
             if pending then builder.Append(' ') |> ignore
             pending <- false
-            builder.Append(c) |> ignore
+            if c = '\'' then quoted <- true
+            builder.Append(System.Char.ToLowerInvariant c) |> ignore
     builder.ToString()
 
 /// The text of every CHECK(...) clause in a table definition, sorted.
 let private checks (definition: string) =
-    let lower = definition.ToLowerInvariant()
+    let lower = normalize definition
     let result = ResizeArray<string>()
     let mutable start = lower.IndexOf("check(")
     while start >= 0 do
@@ -47,9 +53,24 @@ let private checks (definition: string) =
                 depth <- depth - 1
                 finished <- depth = 0
             index <- index + 1
-        result.Add(normalize (lower.Substring(start, index - start)))
+        result.Add(lower.Substring(start, index - start))
         start <- lower.IndexOf("check(", index)
     result |> Seq.sort |> List.ofSeq
+
+/// Every REFERENCES clause of a table definition as target table and the text after the column list
+/// (ON DELETE action and deferral marker). The registry reference of the scoped schema is left out.
+let private references (definition: string) =
+    let lower = normalize definition
+    let result = ResizeArray<string * string>()
+    let mutable start = lower.IndexOf("references ")
+    while start >= 0 do
+        let opening = lower.IndexOf("(", start)
+        let closing = lower.IndexOf(")", opening)
+        let mutable stop = closing + 1
+        while stop < lower.Length && lower[stop] <> ',' && lower[stop] <> ')' do stop <- stop + 1
+        result.Add(lower.Substring(start + 11, opening - start - 11).Trim(), lower.Substring(closing + 1, stop - closing - 1).Trim())
+        start <- lower.IndexOf("references ", stop)
+    result |> Seq.filter (fun (target, _) -> target <> "entity") |> Seq.sort |> List.ofSeq
 
 let private columns (db: SqliteConnection) table =
     db.Query("PRAGMA table_info(" + table + ")")
@@ -151,6 +172,95 @@ let tests = testList "Core SQL profiles" [
             sql.Execute("INSERT INTO sample(id,type,name) VALUES('rollback','Sample','Rollback')") |> ignore
             invalidOp "Injected failure")) "Transaction rolled back"
         Expect.equal (sql.Scalar("SELECT count(*) FROM sample WHERE id='rollback'") |> Option.get |> fun v -> v.AsInteger()) 0L "Statement did not commit surrounding transaction"))
+    testCase "typed schema agrees with foreign keys, nullability and coverage of the core SQL profile" (fun _ -> withCore (fun sql ->
+        let tableOf kind = (Schema.tryEntity kind).Value.Table
+        let target table column =
+            sql.Query("SELECT \"table\" FROM pragma_foreign_key_list('" + table + "') WHERE \"from\"='" + column + "'")
+            |> Seq.map (fun row -> row.Get(0).AsText()) |> List.ofSeq
+        let notNull table column =
+            sql.Scalar("SELECT \"notnull\" FROM pragma_table_info('" + table + "') WHERE name='" + column + "'") |> Option.get |> fun v -> v.AsInteger()
+        let mapped = Dictionary<string, Set<string>>()
+        let mutable associations = Set.empty
+        for spec in Schema.entities do
+            let mutable columns = Set.empty
+            for property in spec.Properties do
+                let name = spec.Kind + "." + property.Name
+                match property.Storage with
+                | Schema.Storage.Column column ->
+                    columns <- columns.Add column
+                    if property.Required then Expect.equal (notNull spec.Table column) 1L (name + " is NOT NULL")
+                    match property.Shape with
+                    | Schema.Shape.Link [kind] -> Expect.equal (target spec.Table column) [tableOf kind] (name + " target table")
+                    | Schema.Shape.Link _ -> failwith (name + " has no single target")
+                    | _ -> ()
+                | Schema.Storage.TextOrNumberColumns(a, b) | Schema.Storage.TextOrLinkColumns(a, b) | Schema.Storage.SampleOrDataColumns(a, b) ->
+                    columns <- columns.Add(a).Add(b)
+                | Schema.Storage.Association(table, valueColumn) ->
+                    associations <- associations.Add table
+                    match property.Shape with
+                    | Schema.Shape.Links [kind] -> Expect.equal (target table valueColumn) [tableOf kind] (name + " target table")
+                    | _ -> ()
+                | Schema.Storage.Endpoint _ -> associations <- associations.Add "process_io"
+            mapped[spec.Table] <- columns
+        for spec in Schema.entities do
+            let stored =
+                sql.Query("SELECT name FROM pragma_table_info('" + spec.Table + "')")
+                |> Seq.map (fun row -> row.Get(0).AsText()) |> Seq.filter (fun name -> name <> "id" && name <> "type") |> Set.ofSeq
+            Expect.equal mapped[spec.Table] stored (spec.Kind + " columns are all mapped")
+        let coreTables = sql.Query("SELECT name FROM sqlite_master WHERE type='table'") |> Seq.map (fun row -> row.Get(0).AsText()) |> Set.ofSeq
+        let entityTables = Schema.entities |> List.map (fun spec -> spec.Table) |> Set.ofList
+        Expect.equal coreTables (Set.union entityTables associations) "Every core table is an entity table or a mapped association"))
+    testCase "equal entity IDs in two ARCs validate and join independently" (fun _ ->
+        let scoped = Store.openDatabase ":memory:"
+        try
+            let db = scoped.Connection
+            Store.initialize db
+            let run (statement: string) = db.Execute(statement) |> ignore
+            // Profiles per dataset as (A, B). The datasets d2 and d4 are invalid in A, d1, d3 and d5 in B.
+            let conforms = [
+                "d1", ("process-provenance", "process-provenance"); "d2", ("other", "administrative"); "d3", ("process-provenance", "administrative")
+                "d4", ("process-provenance", "semantic-designation"); "d5", ("administrative", "process-provenance") ]
+            let seed (arc: string) (pick: string * string -> string) =
+                let q (value: string) = "'" + value + "'"
+                db.WithTransaction(fun () ->
+                    run ("INSERT INTO arc(arc_id,root_id,cursor,revision) VALUES(" + q arc + ",'d1',0,0)")
+                    let ids = ResizeArray<string>()
+                    let entity (id: string) (kind: string) =
+                        ids.Add id
+                        run ("INSERT INTO entity(arc_id,id,type,ordinal) VALUES(" + q arc + "," + q id + "," + q kind + "," + string ids.Count + ")")
+                    for sample in ["in"; "out"] do
+                        entity sample "Sample"
+                        run ("INSERT INTO sample(arc_id,id,type,name) VALUES(" + q arc + "," + q sample + ",'Sample','s')")
+                    entity "pr" "Process"
+                    run ("INSERT INTO process(arc_id,id,type,name) VALUES(" + q arc + ",'pr','Process','p')")
+                    run ("INSERT INTO process_io(arc_id,process_id,direction,sample_id) VALUES(" + q arc + ",'pr','input','in')")
+                    run ("INSERT INTO process_io(arc_id,process_id,direction,sample_id) VALUES(" + q arc + ",'pr','output','out')")
+                    entity "ds" "Descriptor"
+                    run ("INSERT INTO descriptor(arc_id,id,type,sample_id) VALUES(" + q arc + ",'ds','Descriptor','in')")
+                    for id, profiles in conforms do
+                        entity id "Dataset"
+                        run ("INSERT INTO dataset(arc_id,id,type,title) VALUES(" + q arc + "," + q id + ",'Dataset'," + (if id = "d5" then "'t'" else "NULL") + ")")
+                        run ("INSERT INTO dataset_conforms_to(arc_id,dataset_id,position,value) VALUES(" + q arc + "," + q id + ",0," + q (pick profiles) + ")")
+                        if not (arc = "B" && id = "d1") then
+                            run ("INSERT INTO dataset_identifier(arc_id,dataset_id,position,value) VALUES(" + q arc + "," + q id + ",0,'i')")
+                        if id = "d3" then run ("INSERT INTO dataset_process(arc_id,dataset_id,position,process_id) VALUES(" + q arc + ",'d3',0,'pr')")
+                        if id = "d4" then run ("INSERT INTO dataset_descriptor(arc_id,dataset_id,position,descriptor_id) VALUES(" + q arc + ",'d4',0,'ds')"))
+            seed "A" fst
+            seed "B" snd
+            let errors =
+                db.Query("SELECT arc_id,dataset_id,message FROM core_validation_errors ORDER BY arc_id,dataset_id")
+                |> Seq.map (fun row -> text row "arc_id", text row "dataset_id", text row "message") |> List.ofSeq
+            Expect.equal errors [
+                "A", "d2", "conformsTo must declare a base profile"
+                "A", "d4", "descriptors require semantic-designation"
+                "B", "d1", "identifiers must be nonempty"
+                "B", "d3", "processes require process-provenance"
+                "B", "d5", "administrative properties require administrative" ] "Each arm fires for exactly one ARC"
+            let edges =
+                db.Query("SELECT arc_id,process_id,input_id,output_id FROM process_edges ORDER BY arc_id")
+                |> Seq.map (fun row -> text row "arc_id", text row "process_id", text row "input_id", text row "output_id") |> List.ofSeq
+            Expect.equal edges ["A", "pr", "in", "out"; "B", "pr", "in", "out"] "Each ARC owns one edge"
+        finally scoped.Close())
     testCase "scoped core tables conform to the normative profile" (fun _ ->
         let core = Store.openDatabase ":memory:"
         let scoped = Store.openDatabase ":memory:"
@@ -190,10 +300,12 @@ let tests = testList "Core SQL profiles" [
                 for index in indexes core.Connection table do Expect.isTrue (List.contains index strippedIndexes) (table + " index " + String.concat "," index)
                 for index in strippedIndexes do
                     if not (List.contains index (indexes core.Connection table)) then Expect.equal index.Length 1 (table + " added index")
-                // CHECK constraints stay unchanged.
+                // ON DELETE actions and the deferral marker come from the normative clause text.
+                Expect.equal (references scopedTables[table]) (references coreSql) (table + " reference actions")
+                // CHECK constraints stay unchanged, including the case of string literals.
                 Expect.equal (checks scopedTables[table]) (checks coreSql) (table + " checks")
             let views = definitions scoped.Connection "view" |> List.map fst
-            Expect.equal views ["core_validation_errors"; "process_edges"] "Scoped views"
+            Expect.equal (List.sort views) (definitions core.Connection "view" |> List.map fst |> List.sort) "Scoped views"
             for view in views do
                 Expect.equal (columns scoped.Connection view |> List.head |> fun (name, _, _, _, _) -> name) "arc_id" (view + " scope column")
         finally

@@ -57,9 +57,10 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
         if (Store.metadata db arcId).GetByName("revision").AsInteger() <> revision then
             invalidOp "ARC changed through another connection. Close this ARC and reopen it with session.openArc or ARC.openFolder."
     // The preset map carries recorded list positions for entities that an undo or redo restores.
-    let update next nextCursor kind action operationId (preset: Map<string, int64>) =
+    let update (previous: State) next nextCursor kind action operationId (preset: Map<string, int64>) =
         Model.validate next
-        let previous = state
+        // An edit that changes no entity writes nothing, so revision, history and the redo branch stay as they are.
+        if action = "apply" && List.isEmpty (Store.changes previous next (fun _ -> 0L)) then () else
         try
             let sorted, updated =
                 db.WithTransaction(fun () ->
@@ -81,7 +82,7 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
                                 Model.setId entities[row.Id] row.SuppliedId
                     sorted, updated)
             state <- sorted; ordinals <- updated; cursor <- nextCursor; revision <- revision + 1L
-        with _ -> restore previous; reraise()
+        with _ -> restore state; reraise()
     do
         Model.validate state
         for id,value in supplied do
@@ -116,7 +117,7 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
         check()
         let next = transform state
         let operationId = Identifier.newId()
-        update next (cursor + 1) kind "apply" operationId ordinals
+        update state next (cursor + 1) kind "apply" operationId ordinals
         AppliedOperation(operationId, kind))
     member this.Change(entity: obj, key: string, value: Cell option, kind: string) =
         let id = this.Id(entity)
@@ -243,7 +244,7 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
             repository.Claim(arcId,value)
             entities.Add(id,value)
         try
-            if next <> state then update next (cursor + 1) operationKind "apply" (Identifier.newId()) ordinals
+            if next <> state then update state next (cursor + 1) operationKind "apply" (Identifier.newId()) ordinals
         with _ ->
             for KeyValue(id,row) in replacements do
                 Model.restore (fun id -> entities[id]) row entities[id]
@@ -262,9 +263,9 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
         if sequence <= 0 || rows.Count = 0 then invalidOp (if redo then "Nothing to redo." else "Nothing to undo.")
         let row = rows[0]
         let records = row.GetByName("changes").AsText() |> Codec.decodeChanges
-        state <- Store.restoreSuppliedIds state records redo
-        let next, preset = Store.applyChanges state ordinals records redo
-        update next (if redo then cursor + 1 else cursor - 1) (row.GetByName("kind").AsText())
+        let restored = Store.restoreSuppliedIds state records redo
+        let next, preset = Store.applyChanges restored ordinals records redo
+        update restored next (if redo then cursor + 1 else cursor - 1) (row.GetByName("kind").AsText())
             (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText()) preset)
     member _.AssertRevision() = ensureOpen(); assertRevision()
     member _.SetBinding(path: string) =
