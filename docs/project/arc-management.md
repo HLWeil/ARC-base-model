@@ -166,32 +166,41 @@ Object references preserve canonical identity and support cycles, including
 through collections. Self-containing collection containers are rejected; express
 cycles through typed objects. Reachability follows extension references.
 
-Schema version **5** creates the tables, indexes, and views of the normative
-core SQL profile ([001_core.sql](../../schemas/sql/001_core.sql)) with an added
-`arc_id` column. Primary keys and foreign keys are composite over `arc_id`, the
-registry foreign key cascades on delete, and association targets have extra
-`(arc_id, target)` indexes. `process_edges` and `core_validation_errors` are
-scoped by `arc_id`. The writer does not run `core_validation_errors`, because
-`Model.validate` governs writes. The view stays available for queries.
+Schema version **5** creates the tables and indexes of the normative core SQL
+profile ([001_core.sql](../../schemas/sql/001_core.sql)) with an added `arc_id`
+column, plus the profile's views. Primary keys and foreign keys are composite
+over `arc_id`, and the registry foreign key cascades on delete. Association
+targets have extra `(arc_id, target)` indexes. `process_edges` and
+`core_validation_errors` are scoped by `arc_id`. The writer checks every write
+with `Model.validate` and does not run `core_validation_errors`. `Model.validate`
+is less strict than that view, so a stored ARC can report rows there. A Dataset
+with processes whose `conformsTo` lacks process-provenance passes the write check
+and appears in the view. The view stays available for queries.
 
 Management tables add `repository`, `arc` (root, folder, baseline, saved graph,
 cursor, revision), the entity registry `entity` (id, type, ordinal),
 `entity_additional_type` for non-core typed objects, `entity_extension`
-(blob extensions keep base64 text in `value_text`), `history`, `arc_archive`, and
-`archived_history`. Each `history` row holds one operation as encoded change
-records with entity ID, ordinal, and before/after rows. Ordinals keep list
-positions through undo and redo.
+(blob extensions keep canonical base64 text in `value_text`, and value lookup
+indexes cover `(arc_id, property, value_text)` and `(arc_id, property, value_number)`),
+`history`, `arc_archive`, and `archived_history`. Each `history` row holds one
+operation as encoded change records. A record holds the entity ID and ordinal,
+plus the before and after rows of one changed entity. History therefore grows with
+the size of the changed entities and is independent of the rest of the graph. One
+Dataset with a long process list carries that list in each of its edits. Ordinals
+keep list positions through undo and redo.
 
 A write inserts new rows, removes changed association, endpoint, and extension
 rows, updates scalars, clears outgoing references of removed rows, deletes
 descriptors, then other core rows, then registry rows, inserts same-ID kind
 replacements, and adds rows. A title edit writes three rows: the dataset update,
-the history insert, and the `arc` update. The store has no journal, typed payload
-tables, mirror tables, or full state snapshots in history. `SuppliedId` is not
-stored.
+the history insert, and the `arc` update. Association list edits keep the common
+prefix, so appending one element writes one row. The store has no journal, typed
+payload tables, mirror tables, or full state snapshots in history. The registry
+and core tables do not store `SuppliedId`. History change records and archived
+state do, so undoing an adoption after reopening restores absent IDs.
 
 Opening compares every expected object in `sqlite_master` with its exact SQL
-text. A version 4 database is rejected with a hint to re-import the ARC from
+text. Opening rejects a version 4 database with a hint to re-import the ARC from
 `arc.yml`, and there is no migration. The runtime still keeps canonical live
 instances and rejects a stale handle. There is no extra entity surrogate-key
 system or public cross-entry search API. PolyglotSQLite owns all providers.

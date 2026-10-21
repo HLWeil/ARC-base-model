@@ -152,33 +152,43 @@ provider dependencies stay inside that library.
 Schema version **5** (`CoreSchema.version`, 93 DDL statements in
 `Storage/CoreSchema.fs`) holds the tables, indexes and views of
 `schemas/sql/001_core.sql` with `arc_id` added. Keys and foreign keys are
-composite, the registry foreign key cascades on delete, and association targets
+composite, and the registry foreign key cascades on delete. Association targets
 have extra `(arc_id, target)` indexes. `process_edges` and `core_validation_errors`
-are scoped by `arc_id`. The writer does not run `core_validation_errors`, because
-`Model.validate` governs writes. The view stays available for queries.
+are scoped by `arc_id`. The writer checks every write with `Model.validate` and
+does not run `core_validation_errors`. `Model.validate` is less strict than that
+view, so a stored ARC can report rows there. A Dataset with processes whose
+`conformsTo` lacks process-provenance passes the write check and appears in the
+view. The view stays available for queries.
 
 Management tables are `repository`, `arc` (root, folder, baseline, saved graph,
 cursor, revision, replacing `session`), the registry `entity` (id, type, ordinal),
 `entity_additional_type` for non-core typed objects, `entity_extension` (blob
-extensions keep base64 text in `value_text`), `history`, `arc_archive` and
-`archived_history`. A `history` row is one operation with encoded change records
-(entity ID, ordinal, before/after rows). The journal, typed payload tables,
+extensions keep canonical base64 text in `value_text`, with value lookup indexes on
+`(arc_id, property, value_text)` and `(arc_id, property, value_number)`),
+`history`, `arc_archive` and `archived_history`. A `history` row is one operation
+with encoded change records. Each record holds the entity ID and ordinal, plus the
+before and after rows of one changed entity, so history grows with the size of the
+changed entities and is independent of the rest of the graph. The journal, typed payload tables,
 `entity_value`, `entity_reference`, the `dataset_part` and `dataset_process`
-mirrors, and full state snapshots in history are gone. `SuppliedId` is not stored.
+mirrors, and full state snapshots in history are gone. The registry and core
+tables do not store `SuppliedId`. History change records and archived state do.
 
 Writes apply the difference between two in-memory states in a fixed order: insert
 new rows, remove changed association, endpoint and extension rows, update
 scalars, clear outgoing references of removed rows, delete descriptors, then other
 core rows, then registry rows, insert same-ID kind replacements, and add rows. A
 title edit writes three rows (dataset update, history insert, `arc` update).
+Association list edits keep the common prefix, so appending one element writes one
+row.
 Undo and redo apply the recorded before/after rows through the same writer and
 keep list positions through ordinals.
 
 Opening checks that every expected object exists in `sqlite_master` with
 identical SQL text. Version 4 databases are rejected with a re-import hint, and
 there is no migration. A conformance test compares the scoped tables with
-`001_core.sql` (columns, keys, foreign keys, index keys, CHECKs, and the views with
-`arc_id`). The runtime still keeps canonical live instances and rejects a stale
+`001_core.sql` (columns, keys, foreign keys with actions and deferrability, index
+keys, CHECKs with literal case, and the view set). A two-ARC behavioral test covers
+every `core_validation_errors` arm and `process_edges`. The runtime still keeps canonical live instances and rejects a stale
 handle. Automatic refresh comes with the runtime phase. A public cross-ARC query
 API is not implemented.
 
@@ -203,8 +213,8 @@ Folder operations are independent of repository opening:
   changed, automatic reload is allowed only without pending edits or standalone
   objects; otherwise it reports a conflict. Explicit `"sql"` accepts retained
   working state and the observed baseline; `"yml"` replaces the entry from IO.
-- YAML replacement archives only the displaced ARC's metadata, state, history,
-  and history change records inside the repository. It does not rename or replace the shared
+- YAML replacement archives only the displaced ARC's metadata, state, and
+  history change records inside the repository. It does not rename or replace the shared
   database, or alter other ARCs.
 - `ARC.create` and `ARC.openFolder` privately own a session at
   `.arc/arc.sqlite`; closing their ARC closes that session. Convenience
@@ -319,23 +329,9 @@ servers remain outside this plan. New production dependencies require approval.
 
 ## Verification and completion criteria
 
-Current separation verification (2026-10-16): `TestARCManagement` passed
-**145/145 shared tests on each of .NET, JavaScript, and Python**, plus handwritten
-TypeScript/JavaScript/Python consumers, declaration checks, packed npm artifacts,
-and Python wheels. Emitted Python classes/stubs were inspected for leaked
-internals and imprecise `Any` signatures; JavaScript declarations passed staging
-checks. `TestBaseModel` passed **25/25 shared tests on each runtime**, plus native
-consumers, declarations, and packed artifacts. Relative links across ten updated
-Markdown documents resolve.
+Storage verification (2026-10-22): `RunTests` passed with FAKE Status Ok. `TestARCManagement` ran 151/151 shared tests on .NET, JavaScript and Python plus native and packed checks before the review fixes. The review fixes add tests and are verified in the following commit.
 
-`BuildSolution` passed with the corrected solution path. The repository-wide
-`RunTests` aggregate completed with exit code 0 and `Status: Ok`, including the
-management and base-model checks above. PolyglotSQLite passed 41 .NET, 36
-JavaScript, and 36 Python cases, native/packed checks, and all nine cross-runtime
-database writer/reader combinations. Core SQL passed 63 cases each on Node and
-Python. ProcessCore passed 659 JavaScript and 660 .NET cases, with two ignored
-cases on each runtime. The legacy ProcessCore `runTestsPy` target remains excluded
-by the existing aggregate; it was not run and is not passing Python evidence.
+A cross-runtime database writer/reader test for the version 5 store is planned for the close-out acceptance step.
 
 Historical baseline: before the `add` rename and project/API separation, the
 former management aggregate passed:

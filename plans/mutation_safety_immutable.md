@@ -143,7 +143,7 @@ Management tables:
 | `arc` | Root ID, folder, baseline, saved graph, history cursor, revision. Replaces `session` and drops its `state` text |
 | `entity` | Registry of every entity, including generic typed objects: ID, type, ordinal |
 | `entity_additional_type` | `additionalTypes` of non-core typed objects |
-| `entity_extension` | Extension values and references, as in version 4 |
+| `entity_extension` | Extension values and references. Blob values are canonical base64 text in `value_text`, because the model represents blobs as base64 text, so the version 4 `value_blob` column is gone. Value lookup indexes cover `(arc_id, property, value_text)` and `(arc_id, property, value_number)` |
 | `history` | Per operation: encoded before/after rows of the changed entities |
 | `arc_archive`, `archived_history` | State and history displaced by explicit `"yml"` recovery |
 
@@ -152,8 +152,9 @@ the `dataset_part`/`dataset_process` mirrors are removed.
 
 - Writes update changed scalar columns, replace only changed association rows, insert
   new entities and delete removed entities last, because the profile's `ON DELETE
-  RESTRICT` is checked immediately. A title edit is a single `UPDATE`, and history grows
-  with the size of the change.
+  RESTRICT` is checked immediately. A title edit is a single `UPDATE`. List edits keep
+  the common prefix, so appending one element writes one row. History grows with the
+  size of the changed entities and is independent of the rest of the graph.
 - Opening and refreshing read each core and association table once per ARC, plus the
   registry and extensions.
 - Opening validates the required tables and constraints without initializing or

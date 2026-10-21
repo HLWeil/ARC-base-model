@@ -105,7 +105,7 @@ and checkpoint commit fails, explicitly select a source before retrying.
 
 `recoverFolder(source)` performs reconciliation explicitly. Opening a database or
 wrapping a bound graph does not inspect files. YAML replacement archives only the
-selected entry's metadata, a state text, and history change records inside the
+selected entry's metadata and state text, plus its history change records, inside the
 existing repository (`arc_archive` and `archived_history`). It preserves sibling entries and the shared database file.
 
 Losing the database and its archives loses unsaved and session-only work that
