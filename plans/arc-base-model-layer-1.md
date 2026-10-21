@@ -56,7 +56,7 @@ Graph operations, deduplication, normalization, codecs, persistence, and migrati
 
 Implement the normative entity tables in [the base specification](../docs/spec/index.md). One Dataset class combines the properties of all three base profiles: a Dataset may declare several profiles through ConformsTo. Profiles determine applicable conformance rules, not separate runtime entity types.
 
-Every entity exposes a fixed Type, an optional Id and its AdditionalTypes. All are getter-only. Use attached classes with an internal immutable state record per class. Properties are PascalCase. Preserve TAN acronyms. Avoid public records, overloaded members, DynamicObj inheritance, and custom equality/hash policies.
+Every entity exposes a fixed Type and an optional Id. It also has AdditionalTypes. All are getter-only. Use attached classes with an internal immutable state record per class. Properties are PascalCase. Preserve TAN acronyms. Avoid public records, overloaded members, DynamicObj inheritance, and custom equality/hash policies.
 
 | Class | Required constructor arguments |
 |---|---|
