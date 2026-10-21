@@ -213,8 +213,8 @@ Folder operations are independent of repository opening:
   changed, automatic reload is allowed only without pending edits or standalone
   objects; otherwise it reports a conflict. Explicit `"sql"` accepts retained
   working state and the observed baseline; `"yml"` replaces the entry from IO.
-- YAML replacement archives only the displaced ARC's metadata, state, and
-  history change records inside the repository. It does not rename or replace the shared
+- YAML replacement archives the displaced ARC's metadata and state, together with
+  its history change records, inside the repository. It does not rename or replace the shared
   database, or alter other ARCs.
 - `ARC.create` and `ARC.openFolder` privately own a session at
   `.arc/arc.sqlite`; closing their ARC closes that session. Convenience
@@ -329,7 +329,7 @@ servers remain outside this plan. New production dependencies require approval.
 
 ## Verification and completion criteria
 
-Storage verification (2026-10-22): `RunTests` passed with FAKE Status Ok. `TestARCManagement` ran 151/151 shared tests on .NET, JavaScript and Python plus native and packed checks before the review fixes. The review fixes add tests and are verified in the following commit.
+Storage verification (2026-10-22, after the review fixes): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 155/155 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. `TestBaseModel` ran 27/27 shared tests on each runtime with native and packed checks. PolyglotSQLite passed 41 .NET, 36 JavaScript and 36 Python cases, its native and packed checks, and all nine cross-runtime database writer/reader combinations. Core SQL passed 63 cases each on Node and Python. ProcessCore passed 659 JavaScript and 660 .NET cases, with two ignored cases on each runtime. The legacy ProcessCore `runTestsPy` target remains excluded by the aggregate.
 
 A cross-runtime database writer/reader test for the version 5 store is planned for the close-out acceptance step.
 
