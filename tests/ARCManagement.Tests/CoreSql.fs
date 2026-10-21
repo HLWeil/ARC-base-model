@@ -219,7 +219,17 @@ let tests = testList "Core SQL profiles" [
             // Profiles per dataset as (A, B). The datasets d2 and d4 are invalid in A, d1, d3 and d5 in B.
             let conforms = [
                 "d1", ("process-provenance", "process-provenance"); "d2", ("other", "administrative"); "d3", ("process-provenance", "administrative")
-                "d4", ("process-provenance", "semantic-designation"); "d5", ("administrative", "process-provenance") ]
+                "d4", ("process-provenance", "semantic-designation"); "d5", ("administrative", "process-provenance")
+                // Each trigger row exists in one ARC only. Both twins declare a base profile that is not the one the arm requires.
+                "e3", ("semantic-designation", "semantic-designation"); "e4", ("process-provenance", "process-provenance")
+                "e5", ("process-provenance", "process-provenance"); "e6", ("process-provenance", "process-provenance")
+                "e7", ("process-provenance", "process-provenance") ]
+            let triggers = [
+                "A", "e3", "INSERT INTO dataset_process(arc_id,dataset_id,position,process_id) VALUES($arc,'e3',0,'pr')"
+                "B", "e4", "INSERT INTO dataset_descriptor(arc_id,dataset_id,position,descriptor_id) VALUES($arc,'e4',0,'ds')"
+                "A", "e5", "INSERT INTO dataset_data_file(arc_id,dataset_id,position,data_id) VALUES($arc,'e5',0,'da')"
+                "B", "e6", "INSERT INTO dataset_agent(arc_id,dataset_id,position,agent_id) VALUES($arc,'e6',0,'ag')"
+                "A", "e7", "INSERT INTO dataset_citation(arc_id,dataset_id,position,scholarly_article_id) VALUES($arc,'e7',0,'sa')" ]
             let seed (arc: string) (pick: string * string -> string) =
                 let q (value: string) = "'" + value + "'"
                 db.WithTransaction(fun () ->
@@ -235,6 +245,12 @@ let tests = testList "Core SQL profiles" [
                     run ("INSERT INTO process(arc_id,id,type,name) VALUES(" + q arc + ",'pr','Process','p')")
                     run ("INSERT INTO process_io(arc_id,process_id,direction,sample_id) VALUES(" + q arc + ",'pr','input','in')")
                     run ("INSERT INTO process_io(arc_id,process_id,direction,sample_id) VALUES(" + q arc + ",'pr','output','out')")
+                    entity "da" "Data"
+                    run ("INSERT INTO data(arc_id,id,type,path) VALUES(" + q arc + ",'da','Data','f')")
+                    entity "ag" "Agent"
+                    run ("INSERT INTO agent(arc_id,id,type,name) VALUES(" + q arc + ",'ag','Agent','a')")
+                    entity "sa" "ScholarlyArticle"
+                    run ("INSERT INTO scholarly_article(arc_id,id,type,headline) VALUES(" + q arc + ",'sa','ScholarlyArticle','h')")
                     entity "ds" "Descriptor"
                     run ("INSERT INTO descriptor(arc_id,id,type,sample_id) VALUES(" + q arc + ",'ds','Descriptor','in')")
                     for id, profiles in conforms do
@@ -244,7 +260,9 @@ let tests = testList "Core SQL profiles" [
                         if not (arc = "B" && id = "d1") then
                             run ("INSERT INTO dataset_identifier(arc_id,dataset_id,position,value) VALUES(" + q arc + "," + q id + ",0,'i')")
                         if id = "d3" then run ("INSERT INTO dataset_process(arc_id,dataset_id,position,process_id) VALUES(" + q arc + ",'d3',0,'pr')")
-                        if id = "d4" then run ("INSERT INTO dataset_descriptor(arc_id,dataset_id,position,descriptor_id) VALUES(" + q arc + ",'d4',0,'ds')"))
+                        if id = "d4" then run ("INSERT INTO dataset_descriptor(arc_id,dataset_id,position,descriptor_id) VALUES(" + q arc + ",'d4',0,'ds')")
+                        for owner, dataset, statement in triggers do
+                            if owner = arc && dataset = id then run (statement.Replace("$arc", q arc)))
             seed "A" fst
             seed "B" snd
             let errors =
@@ -253,9 +271,14 @@ let tests = testList "Core SQL profiles" [
             Expect.equal errors [
                 "A", "d2", "conformsTo must declare a base profile"
                 "A", "d4", "descriptors require semantic-designation"
+                "A", "e3", "processes require process-provenance"
+                "A", "e5", "administrative properties require administrative"
+                "A", "e7", "administrative properties require administrative"
                 "B", "d1", "identifiers must be nonempty"
                 "B", "d3", "processes require process-provenance"
-                "B", "d5", "administrative properties require administrative" ] "Each arm fires for exactly one ARC"
+                "B", "d5", "administrative properties require administrative"
+                "B", "e4", "descriptors require semantic-designation"
+                "B", "e6", "administrative properties require administrative" ] "Each arm fires for exactly one ARC"
             let edges =
                 db.Query("SELECT arc_id,process_id,input_id,output_id FROM process_edges ORDER BY arc_id")
                 |> Seq.map (fun row -> text row "arc_id", text row "process_id", text row "input_id", text row "output_id") |> List.ofSeq
@@ -307,7 +330,9 @@ let tests = testList "Core SQL profiles" [
             let views = definitions scoped.Connection "view" |> List.map fst
             Expect.equal (List.sort views) (definitions core.Connection "view" |> List.map fst |> List.sort) "Scoped views"
             for view in views do
-                Expect.equal (columns scoped.Connection view |> List.head |> fun (name, _, _, _, _) -> name) "arc_id" (view + " scope column")
+                let names db = columns db view |> List.map (fun (name, _, _, _, _) -> name)
+                Expect.equal (List.head (names scoped.Connection)) "arc_id" (view + " scope column")
+                Expect.equal (List.tail (names scoped.Connection)) (names core.Connection) (view + " column names and order")
         finally
             core.Close()
             scoped.Close())

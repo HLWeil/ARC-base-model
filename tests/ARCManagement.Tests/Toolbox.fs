@@ -342,11 +342,12 @@ let tests = testList "ARC toolbox" [
         let graph = session.createArc(root())
         let first = graph.Sample.create("first")
         graph.Sample.create("second") |> ignore
+        graph.Sample.create("third") |> ignore
         graph.History.undo()
         let db = sql session
         let rows = scalar db "SELECT count(*) FROM history"
         let revision = scalar db "SELECT revision FROM arc"
-        graph.Sample.upsert(first)
+        graph.Sample.upsert(Sample("first", id = first.Id.Value))
         Expect.isTrue graph.History.CanRedo "Redo branch untouched"
         Expect.equal (scalar db "SELECT count(*) FROM history") rows "No history row added"
         Expect.equal (scalar db "SELECT revision FROM arc") revision "Revision unchanged")
