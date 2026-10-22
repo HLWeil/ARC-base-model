@@ -179,6 +179,18 @@ assert second.Sample.get("same").Name == "second"
 rejects(lambda: first.Process.set_name(first.Sample.get("same"), "wrong"))
 rejects(lambda: first.Process.delete(first.Sample.get("same")))
 assert first.Sample.get("same").Name == "first"
+# One-shot iterables are consumed once, so target kinds are still checked and valid targets are all stored.
+def once(items):
+    yield from items
+probe_session = Session.create_in_memory()
+probe = probe_session.create_arc(root())
+probe_process = probe.Process.create("probe")
+annotation_a = probe.Annotation.create("a")
+annotation_b = probe.Annotation.create("b")
+rejects(lambda: probe.Process.set_parameter_values(probe_process, once([annotation_a, Sample("wrong", id=annotation_b.Id)])))
+assert len(probe.Process.get(probe_process.Id).ParameterValues) == 0
+assert len(probe.Process.set_parameter_values(probe_process, once([annotation_a, annotation_b])).ParameterValues) == 2
+probe_session.close()
 assert session.open_arc(first.ArcId) is first
 assert len(session.list_arcs()) == 2
 assert session.list_arcs()[0].RootEntityId == "root"

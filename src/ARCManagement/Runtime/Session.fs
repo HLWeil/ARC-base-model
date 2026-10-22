@@ -198,6 +198,10 @@ type internal GraphContext(repository: Repository, arcId: string) =
                 else { row with Properties = match value with Some v -> Map.add key v row.Properties | None -> Map.remove key row.Properties })
             { state with Entities = rows })
         this.Hydrated<'T>(id)
+    /// Replaces a link collection. The input is enumerated once, so one-shot iterables work.
+    member this.ChangeLinks<'T>(entity: obj, group: string option, key: string, replacement: seq<obj>, kind: string) : 'T =
+        let items = List.ofSeq replacement
+        this.Change<'T>(entity, group, key, Some(Links(items |> List.map (fun item -> this.Id(item)))), items, kind)
     member this.Extension<'T>(entity: EntityObject, key: string, value: Entity option, addOnly: bool) : 'T =
         let id = this.Id(entity)
         let targets = ResizeArray<obj>()

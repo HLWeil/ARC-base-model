@@ -17,12 +17,12 @@ type ScholarlyArticleOperations internal (session: GraphContext) =
     member _.setIdentifiers(value: ScholarlyArticle, replacement: seq<string>) =
         session.Change<ScholarlyArticle>(value,Some "ScholarlyArticle","identifiers",Some(Texts(List.ofSeq replacement)),[],"ScholarlyArticle.setIdentifiers")
     member _.setAuthors(value: ScholarlyArticle, replacement: seq<Agent>) =
-        session.Change<ScholarlyArticle>(value,Some "ScholarlyArticle","authors",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"ScholarlyArticle.setAuthors")
+        session.ChangeLinks<ScholarlyArticle>(value,Some "ScholarlyArticle","authors",replacement |> Seq.map box,"ScholarlyArticle.setAuthors")
     member _.addAuthor(value: ScholarlyArticle, target: Agent) = session.Collection<ScholarlyArticle>(value,Some "ScholarlyArticle","authors",target,true,"ScholarlyArticle.addAuthor")
     member _.removeAuthor(value: ScholarlyArticle, target: Agent) = session.Collection<ScholarlyArticle>(value,Some "ScholarlyArticle","authors",target,false,"ScholarlyArticle.removeAuthor")
     member _.setCreativeWorkStatus(value: ScholarlyArticle, replacement: DefinedTerm option) =
         session.Change<ScholarlyArticle>(value,Some "ScholarlyArticle","creativeWorkStatus",replacement |> Option.map (fun replacement -> Links [session.Id(replacement)]),(replacement |> Option.map box |> Option.toList),"ScholarlyArticle.setCreativeWorkStatus")
     member _.setAdditionalProperties(value: ScholarlyArticle, replacement: seq<Annotation>) =
-        session.Change<ScholarlyArticle>(value,Some "ScholarlyArticle","additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"ScholarlyArticle.setAdditionalProperties")
+        session.ChangeLinks<ScholarlyArticle>(value,Some "ScholarlyArticle","additionalProperties",replacement |> Seq.map box,"ScholarlyArticle.setAdditionalProperties")
     member _.addAdditionalProperty(value: ScholarlyArticle, target: Annotation) = session.Collection<ScholarlyArticle>(value,Some "ScholarlyArticle","additionalProperties",target,true,"ScholarlyArticle.addAdditionalProperty")
     member _.removeAdditionalProperty(value: ScholarlyArticle, target: Annotation) = session.Collection<ScholarlyArticle>(value,Some "ScholarlyArticle","additionalProperties",target,false,"ScholarlyArticle.removeAdditionalProperty")

@@ -62,6 +62,17 @@ assert.equal(second.Sample.get("same").Name, "second");
 assert.throws(() => first.Process.setName(first.Sample.get("same"), "wrong"));
 assert.throws(() => first.Process.delete(first.Sample.get("same")));
 assert.equal(first.Sample.get("same").Name, "first");
+// One-shot iterables are consumed once, so target kinds are still checked and valid targets are all stored.
+function* once(items) { yield* items; }
+const probeSession = Session.createInMemory();
+const probe = probeSession.createArc(root());
+const probeProcess = probe.Process.create("probe");
+const annotationA = probe.Annotation.create("a");
+const annotationB = probe.Annotation.create("b");
+assert.throws(() => probe.Process.setParameterValues(probeProcess, once([annotationA, new Sample("wrong", undefined, annotationB.Id)])));
+assert.equal(probe.Process.get(probeProcess.Id).ParameterValues.length, 0);
+assert.equal(probe.Process.setParameterValues(probeProcess, once([annotationA, annotationB])).ParameterValues.length, 2);
+probeSession.close();
 assert.equal(session.openArc(first.ArcId), first);
 assert.equal(session.listArcs().length, 3);
 const workspace = ARC.bind(first, `${folder}/export`);

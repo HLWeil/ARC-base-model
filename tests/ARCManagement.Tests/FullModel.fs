@@ -484,10 +484,11 @@ let tests = testList "Full base-model management" [
 
     testCase "group kind and cross-kind links are enforced" (fun _ ->
         let arc = ARC.create(folder(),fixture())
+        let count table = withSql arc.DatabasePath (fun sql -> sql.Query("SELECT count(*) FROM " + table).[0].Get(0).AsInteger())
         let sample = arc.Sample.list() |> Seq.head
         let data = arc.Data.list() |> Seq.head
         let proc = arc.Process.list() |> Seq.head
-        let commands = arc.History.CanUndo
+        let commands = count "history"
         let wrongProcess = ARCBaseModel.Process("p", id = sample.Id.Value)
         Expect.throws (fun () -> arc.Process.setName(wrongProcess, "renamed") |> ignore) "A subject stored as another kind is rejected"
         Expect.throws (fun () -> arc.Process.delete(wrongProcess)) "Deleting through the wrong group is rejected"
@@ -497,7 +498,7 @@ let tests = testList "Full base-model management" [
         Expect.throws (fun () -> arc.Descriptor.setDescribes(arc.Descriptor.list() |> Seq.head, EntityReference.Sample(Sample("s", id = data.Id.Value))) |> ignore) "A Sample reference to a stored Data is rejected"
         Expect.throws (fun () -> arc.Process.upsert(ARCBaseModel.Process("p2", id = "p-new", input = EntityReference.Data(Data("f", id = sample.Id.Value)))) |> ignore) "A nested link of another kind is rejected"
         Expect.throws (fun () -> arc.Entity.setProperty(arc.Model, "link", Entity.Object(EntityObject("Thing", id = sample.Id.Value))) |> ignore) "An extension link of another kind is rejected"
-        Expect.equal arc.History.CanUndo commands "Failed commands add no history"
+        Expect.equal (count "history") commands "Failed commands add no history"
         arc.close())
 
     testCase "recursive upsert rejects conflicts and leaves cyclic graphs unchanged" (fun _ ->

@@ -21,6 +21,6 @@ type ProcessOperations internal (session: GraphContext) =
     member _.setExecutesRecipe(value: ARCBaseModel.Process, replacement: Recipe option) =
         session.Change<ARCBaseModel.Process>(value,Some "Process","executesRecipe",replacement |> Option.map (fun replacement -> Links [session.Id(replacement)]),(replacement |> Option.map box |> Option.toList),"Process.setExecutesRecipe")
     member _.setParameterValues(value: ARCBaseModel.Process, replacement: seq<Annotation>) =
-        session.Change<ARCBaseModel.Process>(value,Some "Process","parameterValues",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Process.setParameterValues")
+        session.ChangeLinks<ARCBaseModel.Process>(value,Some "Process","parameterValues",replacement |> Seq.map box,"Process.setParameterValues")
     member _.addParameterValue(value: ARCBaseModel.Process, target: Annotation) = session.Collection<ARCBaseModel.Process>(value,Some "Process","parameterValues",target,true,"Process.addParameterValue")
     member _.removeParameterValue(value: ARCBaseModel.Process, target: Annotation) = session.Collection<ARCBaseModel.Process>(value,Some "Process","parameterValues",target,false,"Process.removeParameterValue")

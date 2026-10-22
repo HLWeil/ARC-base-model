@@ -21,16 +21,16 @@ type AgentOperations internal (session: GraphContext) =
     member _.setEmails(value: Agent, replacement: seq<string>) =
         session.Change<Agent>(value,Some "Agent","emails",Some(Texts(List.ofSeq replacement)),[],"Agent.setEmails")
     member _.setAffiliations(value: Agent, replacement: seq<Organization>) =
-        session.Change<Agent>(value,Some "Agent","affiliations",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Agent.setAffiliations")
+        session.ChangeLinks<Agent>(value,Some "Agent","affiliations",replacement |> Seq.map box,"Agent.setAffiliations")
     member _.addAffiliation(value: Agent, target: Organization) = session.Collection<Agent>(value,Some "Agent","affiliations",target,true,"Agent.addAffiliation")
     member _.removeAffiliation(value: Agent, target: Organization) = session.Collection<Agent>(value,Some "Agent","affiliations",target,false,"Agent.removeAffiliation")
     member _.setIdentifiers(value: Agent, replacement: seq<string>) =
         session.Change<Agent>(value,Some "Agent","identifiers",Some(Texts(List.ofSeq replacement)),[],"Agent.setIdentifiers")
     member _.setAdditionalProperties(value: Agent, replacement: seq<Annotation>) =
-        session.Change<Agent>(value,Some "Agent","additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Agent.setAdditionalProperties")
+        session.ChangeLinks<Agent>(value,Some "Agent","additionalProperties",replacement |> Seq.map box,"Agent.setAdditionalProperties")
     member _.addAdditionalProperty(value: Agent, target: Annotation) = session.Collection<Agent>(value,Some "Agent","additionalProperties",target,true,"Agent.addAdditionalProperty")
     member _.removeAdditionalProperty(value: Agent, target: Annotation) = session.Collection<Agent>(value,Some "Agent","additionalProperties",target,false,"Agent.removeAdditionalProperty")
     member _.setJobTitles(value: Agent, replacement: seq<DefinedTerm>) =
-        session.Change<Agent>(value,Some "Agent","jobTitles",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Agent.setJobTitles")
+        session.ChangeLinks<Agent>(value,Some "Agent","jobTitles",replacement |> Seq.map box,"Agent.setJobTitles")
     member _.addJobTitle(value: Agent, target: DefinedTerm) = session.Collection<Agent>(value,Some "Agent","jobTitles",target,true,"Agent.addJobTitle")
     member _.removeJobTitle(value: Agent, target: DefinedTerm) = session.Collection<Agent>(value,Some "Agent","jobTitles",target,false,"Agent.removeJobTitle")

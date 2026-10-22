@@ -15,7 +15,7 @@ type RecipeOperations internal (session: GraphContext) =
     member _.setName(value: Recipe, replacement: string option) =
         session.Change<Recipe>(value,Some "Recipe","name",replacement |> Option.map (fun replacement -> Text(Model.required "name" replacement)),[],"Recipe.setName")
     member _.setParameters(value: Recipe, replacement: seq<FormalParameter>) =
-        session.Change<Recipe>(value,Some "Recipe","parameters",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Recipe.setParameters")
+        session.ChangeLinks<Recipe>(value,Some "Recipe","parameters",replacement |> Seq.map box,"Recipe.setParameters")
     member _.addParameter(value: Recipe, target: FormalParameter) = session.Collection<Recipe>(value,Some "Recipe","parameters",target,true,"Recipe.addParameter")
     member _.removeParameter(value: Recipe, target: FormalParameter) = session.Collection<Recipe>(value,Some "Recipe","parameters",target,false,"Recipe.removeParameter")
     member _.setDescription(value: Recipe, replacement: string option) =
@@ -23,11 +23,11 @@ type RecipeOperations internal (session: GraphContext) =
     member _.setIntendedUse(value: Recipe, replacement: RecipeIntendedUse option) =
         session.Change<Recipe>(value,Some "Recipe","intendedUse",replacement |> Option.map (fun replacement -> match replacement with RecipeIntendedUse.Text v -> Text(Model.required "intendedUse" v) | RecipeIntendedUse.Term v -> Links [session.Id(v)]),(match replacement with Some(RecipeIntendedUse.Term v) -> [box v] | _ -> []),"Recipe.setIntendedUse")
     member _.setAdditionalProperties(value: Recipe, replacement: seq<Annotation>) =
-        session.Change<Recipe>(value,Some "Recipe","additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Recipe.setAdditionalProperties")
+        session.ChangeLinks<Recipe>(value,Some "Recipe","additionalProperties",replacement |> Seq.map box,"Recipe.setAdditionalProperties")
     member _.addAdditionalProperty(value: Recipe, target: Annotation) = session.Collection<Recipe>(value,Some "Recipe","additionalProperties",target,true,"Recipe.addAdditionalProperty")
     member _.removeAdditionalProperty(value: Recipe, target: Annotation) = session.Collection<Recipe>(value,Some "Recipe","additionalProperties",target,false,"Recipe.removeAdditionalProperty")
     member _.setComponents(value: Recipe, replacement: seq<Annotation>) =
-        session.Change<Recipe>(value,Some "Recipe","components",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Recipe.setComponents")
+        session.ChangeLinks<Recipe>(value,Some "Recipe","components",replacement |> Seq.map box,"Recipe.setComponents")
     member _.addComponent(value: Recipe, target: Annotation) = session.Collection<Recipe>(value,Some "Recipe","components",target,true,"Recipe.addComponent")
     member _.removeComponent(value: Recipe, target: Annotation) = session.Collection<Recipe>(value,Some "Recipe","components",target,false,"Recipe.removeComponent")
     member _.setVersion(value: Recipe, replacement: string option) =

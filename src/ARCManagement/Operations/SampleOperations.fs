@@ -15,6 +15,6 @@ type SampleOperations internal (session: GraphContext) =
     member _.setName(value: Sample, replacement: string) =
         session.Change<Sample>(value,Some "Sample","name",Some(Text(Model.required "name" replacement)),[],"Sample.setName")
     member _.setAdditionalProperties(value: Sample, replacement: seq<Annotation>) =
-        session.Change<Sample>(value,Some "Sample","additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Sample.setAdditionalProperties")
+        session.ChangeLinks<Sample>(value,Some "Sample","additionalProperties",replacement |> Seq.map box,"Sample.setAdditionalProperties")
     member _.addAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(value,Some "Sample","additionalProperties",target,true,"Sample.addAdditionalProperty")
     member _.removeAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(value,Some "Sample","additionalProperties",target,false,"Sample.removeAdditionalProperty")

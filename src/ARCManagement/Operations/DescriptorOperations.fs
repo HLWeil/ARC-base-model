@@ -15,6 +15,6 @@ type DescriptorOperations internal (session: GraphContext) =
     member _.setDescribes(value: Descriptor, replacement: EntityReference) =
         session.Change<Descriptor>(value,Some "Descriptor","describes",Some(Links [session.Id(Model.endpoint replacement)]),[Model.endpoint replacement],"Descriptor.setDescribes")
     member _.setAnnotations(value: Descriptor, replacement: seq<Annotation>) =
-        session.Change<Descriptor>(value,Some "Descriptor","annotations",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Descriptor.setAnnotations")
+        session.ChangeLinks<Descriptor>(value,Some "Descriptor","annotations",replacement |> Seq.map box,"Descriptor.setAnnotations")
     member _.addAnnotation(value: Descriptor, target: Annotation) = session.Collection<Descriptor>(value,Some "Descriptor","annotations",target,true,"Descriptor.addAnnotation")
     member _.removeAnnotation(value: Descriptor, target: Annotation) = session.Collection<Descriptor>(value,Some "Descriptor","annotations",target,false,"Descriptor.removeAnnotation")

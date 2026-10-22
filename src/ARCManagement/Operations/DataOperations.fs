@@ -21,10 +21,10 @@ type DataOperations internal (session: GraphContext) =
     member _.setEncodingFormat(value: Data, replacement: string option) =
         session.Change<Data>(value,Some "Data","encodingFormat",replacement |> Option.map (fun replacement -> Text(Model.required "encodingFormat" replacement)),[],"Data.setEncodingFormat")
     member _.setHasParts(value: Data, replacement: seq<Data>) =
-        session.Change<Data>(value,Some "Data","hasParts",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Data.setHasParts")
+        session.ChangeLinks<Data>(value,Some "Data","hasParts",replacement |> Seq.map box,"Data.setHasParts")
     member _.addPart(value: Data, target: Data) = session.Collection<Data>(value,Some "Data","hasParts",target,true,"Data.addPart")
     member _.removePart(value: Data, target: Data) = session.Collection<Data>(value,Some "Data","hasParts",target,false,"Data.removePart")
     member _.setAdditionalProperties(value: Data, replacement: seq<Annotation>) =
-        session.Change<Data>(value,Some "Data","additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Data.setAdditionalProperties")
+        session.ChangeLinks<Data>(value,Some "Data","additionalProperties",replacement |> Seq.map box,"Data.setAdditionalProperties")
     member _.addAdditionalProperty(value: Data, target: Annotation) = session.Collection<Data>(value,Some "Data","additionalProperties",target,true,"Data.addAdditionalProperty")
     member _.removeAdditionalProperty(value: Data, target: Annotation) = session.Collection<Data>(value,Some "Data","additionalProperties",target,false,"Data.removeAdditionalProperty")
