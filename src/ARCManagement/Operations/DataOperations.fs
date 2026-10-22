@@ -10,7 +10,7 @@ type DataOperations internal (session: GraphContext) =
     member _.add(value: Data): Data = session.Add<Data>(value, Some "Data")
     member _.upsert(value: Data, ?recursive: bool): Data = session.Upsert<Data>(value, Some "Data", defaultArg recursive false)
     member _.get(id: string) = session.Get<Data>("Data",id)
-    member _.list() = session.List<Data>("Data")
+    member _.list(): seq<Data> = session.List<Data>("Data")
     member _.delete(value: Data) = session.Delete(value)
     member _.setPath(value: Data, replacement: string) =
         session.Change<Data>(value,"path",Some(Text(Model.required "path" replacement)),"Data.setPath")

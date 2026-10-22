@@ -10,7 +10,7 @@ type AnnotationOperations internal (session: GraphContext) =
     member _.add(value: Annotation): Annotation = session.Add<Annotation>(value, Some "Annotation")
     member _.upsert(value: Annotation, ?recursive: bool): Annotation = session.Upsert<Annotation>(value, Some "Annotation", defaultArg recursive false)
     member _.get(id: string) = session.Get<Annotation>("Annotation",id)
-    member _.list() = session.List<Annotation>("Annotation")
+    member _.list(): seq<Annotation> = session.List<Annotation>("Annotation")
     member _.delete(value: Annotation) = session.Delete(value)
     member _.setName(value: Annotation, replacement: string) =
         session.Change<Annotation>(value,"name",Some(Text(Model.required "name" replacement)),"Annotation.setName")

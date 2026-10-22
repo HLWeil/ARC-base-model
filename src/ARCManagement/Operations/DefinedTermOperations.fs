@@ -10,7 +10,7 @@ type DefinedTermOperations internal (session: GraphContext) =
     member _.add(value: DefinedTerm): DefinedTerm = session.Add<DefinedTerm>(value, Some "DefinedTerm")
     member _.upsert(value: DefinedTerm, ?recursive: bool): DefinedTerm = session.Upsert<DefinedTerm>(value, Some "DefinedTerm", defaultArg recursive false)
     member _.get(id: string) = session.Get<DefinedTerm>("DefinedTerm",id)
-    member _.list() = session.List<DefinedTerm>("DefinedTerm")
+    member _.list(): seq<DefinedTerm> = session.List<DefinedTerm>("DefinedTerm")
     member _.delete(value: DefinedTerm) = session.Delete(value)
     member _.setName(value: DefinedTerm, replacement: string) =
         session.Change<DefinedTerm>(value,"name",Some(Text(Model.required "name" replacement)),"DefinedTerm.setName")

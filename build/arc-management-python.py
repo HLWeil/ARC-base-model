@@ -116,6 +116,8 @@ def declarations(source: Path, public: dict[str, str], workspace: bool = False) 
                 none = isinstance(default, ast.Constant) and default.value is None
                 parameters.append(f"{argument.arg}: {annotation}" + (" = None" if none else " = ..." if default else ""))
             result = public_annotation(member.returns, name, member.name, "return")
+            if member.name == "list" and result.startswith("Iterable["):
+                result = "tuple[" + result[len("Iterable["):-1] + ", ...]"
             lines.extend(f"    @{decorator}" for decorator in decorators)
             lines.append(f"    def {member.name}({', '.join(parameters)}) -> {result}: ...")
         classes.append("\n".join(lines))

@@ -111,7 +111,7 @@ try:
     arc.Dataset.set_descriptors(arc.Model, [descriptor])
     arc.Dataset.set_agents(arc.Model, [agent])
     model = arc.Dataset.set_citations(arc.Model, [article])
-    assert type(arc.Data.list()) is list
+    assert isinstance(arc.Data.list(), tuple)
     assert model.HasParts[0] is model.HasParts[1]
     assert model.DataFiles[0].HasParts[0] is model.DataFiles[0].HasParts[1]
     quality = arc.Entity.add(EntityObject("QualityAssessment"))

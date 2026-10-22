@@ -10,7 +10,7 @@ type OrganizationOperations internal (session: GraphContext) =
     member _.add(value: Organization): Organization = session.Add<Organization>(value, Some "Organization")
     member _.upsert(value: Organization, ?recursive: bool): Organization = session.Upsert<Organization>(value, Some "Organization", defaultArg recursive false)
     member _.get(id: string) = session.Get<Organization>("Organization",id)
-    member _.list() = session.List<Organization>("Organization")
+    member _.list(): seq<Organization> = session.List<Organization>("Organization")
     member _.delete(value: Organization) = session.Delete(value)
     member _.setName(value: Organization, replacement: string) =
         session.Change<Organization>(value,"name",Some(Text(Model.required "name" replacement)),"Organization.setName")

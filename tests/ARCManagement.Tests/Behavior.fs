@@ -140,7 +140,7 @@ let tests = testList "Management prototype" [
         resumed.History.undo()
         Expect.equal (Seq.length resumed.Model.Processes) 0 "Membership undo survives reopening"
         resumed.History.undo()
-        Expect.equal (resumed.Process.list()).Count 0 "Creation undo survives reopening"
+        Expect.equal (Seq.length (resumed.Process.list())) 0 "Creation undo survives reopening"
         resumed.History.redo()
         Expect.equal (resumed.Process.get(id)).Name "unsaved" "Redo uses the same stable ID"
 
@@ -284,7 +284,7 @@ let tests = testList "Management prototype" [
         Expect.equal model.DateModified root.DateModified "Modification text preserved"
         Expect.equal (Seq.item 0 model.HasParts).Title (Some "") "Empty title preserved"
         Expect.equal (input (Seq.item 0 model.Processes)).Id (output (Seq.item 0 (Seq.item 0 model.HasParts).Processes)).Id "Shared sample keeps one ID"
-        Expect.equal (reloaded.Sample.list()).Count 1 "Shared sample resolves once"
+        Expect.equal (Seq.length (reloaded.Sample.list())) 1 "Shared sample resolves once"
         Expect.isFalse reloaded.History.CanUndo "Explicit YAML creates fresh history"
         Expect.isFalse reloaded.IsDirty "Reloaded graph matches its source"
         Expect.equal (archives path).Length 1 "Previous session archived"
@@ -336,7 +336,7 @@ let tests = testList "Management prototype" [
         Expect.throws (fun () -> arc.Process.add(bad) |> ignore) "Missing required process name rejected"
         Expect.isNone bad.Id "No process ID assigned on failure"
         Expect.isNone sample.Id "No sample ID assigned on failure"
-        Expect.equal (arc.Process.list()).Count 0 "Registry unchanged"
+        Expect.equal (Seq.length (arc.Process.list())) 0 "Registry unchanged"
 
     testCase "SQL failure rolls back stored state and history" <| fun _ ->
         let _, created = create()
@@ -350,12 +350,12 @@ let tests = testList "Management prototype" [
         let pending = Sample("reject")
         Expect.throws (fun () -> arc.Sample.add(pending) |> ignore) "Registration failure"
         Expect.isNone pending.Id "Supplied input stays unchanged"
-        Expect.equal (arc.Sample.list()).Count 1 "Failed registration rolls back registry"
+        Expect.equal (Seq.length (arc.Sample.list())) 1 "Failed registration rolls back registry"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed writes do not journal commands"
         withSql arc.DatabasePath (fun sql ->
             Expect.equal (sql.Query("SELECT name FROM sample").[0].Get(0).AsText()) "original" "SQL rolled back")
         arc.History.undo()
-        Expect.equal (arc.Sample.list()).Count 0 "Previous history is usable"
+        Expect.equal (Seq.length (arc.Sample.list())) 0 "Previous history is usable"
 
     testCase "returned values stay unchanged after edits undo redo and closure" <| fun _ ->
         let _, arc = create()
@@ -413,7 +413,7 @@ let tests = testList "Management prototype" [
         let proc = ARCBaseModel.Process("p", input = EntityReference.Sample(Sample("nested")))
         let stored = arc.Process.add(proc)
         Expect.isSome (input stored).Id "New nested entity inserted with an ID"
-        Expect.equal (arc.Sample.list()).Count 2 "Nested insertion is stored"
+        Expect.equal (Seq.length (arc.Sample.list())) 2 "Nested insertion is stored"
         Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Failed add left no history"
 
     testCase "non-recursive upsert links stored nested entities and recursive upsert replaces them" <| fun _ ->
@@ -442,7 +442,7 @@ let tests = testList "Management prototype" [
         let equal = ARCBaseModel.Process("p", input = EntityReference.Sample(Sample("one", id = "shared")), output = EntityReference.Sample(Sample("one", id = "shared")))
         let stored = arc.Process.add(equal)
         Expect.equal (input stored).Id (output stored).Id "Equal definitions share one row"
-        Expect.equal (arc.Sample.list()).Count 1 "Stored once"
+        Expect.equal (Seq.length (arc.Sample.list())) 1 "Stored once"
         Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Only the valid command is journaled"
 
     testCase "automatic selection reloads external YAML only for a clean session" <| fun _ ->
@@ -536,7 +536,7 @@ let tests = testList "Management prototype" [
         externalTitle path "external"
         let reloaded = ARC.openFolder(path, "yml")
         Expect.equal reloaded.Model.Title (Some "external") "YAML preference replaces working state"
-        Expect.equal (reloaded.Sample.list()).Count 0 "Fresh registry"
+        Expect.equal (Seq.length (reloaded.Sample.list())) 0 "Fresh registry"
         Expect.isFalse reloaded.History.CanUndo "Fresh history"
         reloaded.close()
         use second = ARC.openFolder(path, "yml")
@@ -605,7 +605,7 @@ let tests = testList "Management prototype" [
                 ["Sample.set"; "Sample.set"] "One upsert command per insertion")
         let id = second.Id.Value
         arc.History.undo()
-        Expect.equal (arc.Sample.list()).Count 1 "Undo removes the inserted registration"
+        Expect.equal (Seq.length (arc.Sample.list())) 1 "Undo removes the inserted registration"
         arc.History.redo()
         Expect.equal (arc.Sample.get(id)).Name "assigned" "Redo restores the same ID"
         arc.History.undo()
@@ -627,7 +627,7 @@ let tests = testList "Management prototype" [
         let commands = count "history" arc.DatabasePath
         arc.Sample.upsert(replacement) |> ignore
         Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Replacement is one command"
-        Expect.equal (arc.Sample.list()).Count 1 "No duplicate registered object"
+        Expect.equal (Seq.length (arc.Sample.list())) 1 "No duplicate registered object"
         let current = arc.Process.get(proc.Id.Value)
         Expect.equal (input current).Id canonical.Id "Input still points to the entity"
         Expect.equal (output current).Id canonical.Id "Output still points to the entity"
@@ -727,12 +727,12 @@ let tests = testList "Management prototype" [
         let pending = Sample("reject")
         Expect.throws (fun () -> arc.Sample.upsert(pending) |> ignore) "Insertion SQL failure"
         Expect.isNone pending.Id "Supplied input stays unchanged"
-        Expect.equal (arc.Sample.list()).Count 1 "Failed insertion leaves registry unchanged"
+        Expect.equal (Seq.length (arc.Sample.list())) 1 "Failed insertion leaves registry unchanged"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed SQL creates no upsert history"
         withSql arc.DatabasePath (fun sql ->
             Expect.equal (sql.Query("SELECT name FROM sample").[0].Get(0).AsText()) "original" "SQL transaction rolled back")
         arc.History.undo()
-        Expect.equal (arc.Sample.list()).Count 0 "Existing history remains usable"
+        Expect.equal (Seq.length (arc.Sample.list())) 0 "Existing history remains usable"
 
     testCase "sample upsert branches history without dirtying a saved standalone root" <| fun _ ->
         let _, created = create()

@@ -139,7 +139,7 @@ try {
   arc.Dataset.setDescriptors(arc.Model,[descriptor]);
   arc.Dataset.setAgents(arc.Model,[agent]);
   const model = arc.Dataset.setCitations(arc.Model,[article]);
-  check(Array.isArray(arc.Data.list()),"Native arrays");
+  check(Array.isArray(arc.Data.list()) && Object.isFrozen(arc.Data.list()),"Native frozen arrays");
   check(model.HasParts[0] === model.HasParts[1],"Shared duplicate target");
   check(model.DataFiles[0].HasParts[0] === model.DataFiles[0].HasParts[1],"Shared nested target");
   let quality = arc.Entity.add(new EntityObject("QualityAssessment"));

@@ -138,9 +138,9 @@ type internal GraphContext(repository: Repository, arcId: string) =
         read (fun () -> (query "SELECT sequence FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence", SqlValue.Integer(int64 (stored.Cursor + 1))]).Count > 0)
     member _.ToYaml() = read (fun () -> Codec.encodeGraph stored.State)
     member _.Id(value: obj) = Model.required "entity" value |> ignore; Model.id value |> Model.entityId
-    member _.List<'T>(kind: string) =
+    member _.List<'T>(kind: string) : seq<'T> =
         read (fun () ->
-            stored.State.Entities |> Seq.filter (fun row -> row.Kind = kind) |> Seq.map (fun row -> unbox<'T> (hydrate row.Id)) |> ResizeArray)
+            stored.State.Entities |> Seq.filter (fun row -> row.Kind = kind) |> Seq.map (fun row -> unbox<'T> (hydrate row.Id)) |> Construction.collection "values")
     member _.Get<'T>(kind: string, id: string) =
         read (fun () ->
             if not (index.ContainsKey id && index[id].Kind = kind) then invalidArg "id" ("Unknown " + kind)
@@ -149,8 +149,8 @@ type internal GraphContext(repository: Repository, arcId: string) =
         read (fun () ->
             if not (index.ContainsKey id) then invalidArg "id" "Unknown entity."
             unbox<EntityObject> (hydrate id))
-    member _.ListEntities() =
-        read (fun () -> stored.State.Entities |> Seq.map (fun row -> unbox<EntityObject> (hydrate row.Id)) |> ResizeArray)
+    member _.ListEntities() : seq<EntityObject> =
+        read (fun () -> stored.State.Entities |> Seq.map (fun row -> unbox<EntityObject> (hydrate row.Id)) |> Construction.collection "values")
     /// Applies a pure state transform as one history entry. An unchanged result writes nothing.
     member _.Apply(kind: string, transform: State -> State) : unit =
         run (fun previous ->

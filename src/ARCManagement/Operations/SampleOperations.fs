@@ -10,7 +10,7 @@ type SampleOperations internal (session: GraphContext) =
     member _.add(value: Sample): Sample = session.Add<Sample>(value, Some "Sample")
     member _.upsert(value: Sample, ?recursive: bool): Sample = session.Upsert<Sample>(value, Some "Sample", defaultArg recursive false)
     member _.get(id: string) = session.Get<Sample>("Sample",id)
-    member _.list() = session.List<Sample>("Sample")
+    member _.list(): seq<Sample> = session.List<Sample>("Sample")
     member _.delete(value: Sample) = session.Delete(value)
     member _.setName(value: Sample, replacement: string) =
         session.Change<Sample>(value,"name",Some(Text(Model.required "name" replacement)),"Sample.setName")

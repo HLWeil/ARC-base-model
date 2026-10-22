@@ -10,7 +10,7 @@ type RecipeOperations internal (session: GraphContext) =
     member _.add(value: Recipe): Recipe = session.Add<Recipe>(value, Some "Recipe")
     member _.upsert(value: Recipe, ?recursive: bool): Recipe = session.Upsert<Recipe>(value, Some "Recipe", defaultArg recursive false)
     member _.get(id: string) = session.Get<Recipe>("Recipe",id)
-    member _.list() = session.List<Recipe>("Recipe")
+    member _.list(): seq<Recipe> = session.List<Recipe>("Recipe")
     member _.delete(value: Recipe) = session.Delete(value)
     member _.setName(value: Recipe, replacement: string option) =
         session.Change<Recipe>(value,"name",replacement |> Option.map (fun replacement -> Text(Model.required "name" replacement)),"Recipe.setName")

@@ -10,7 +10,7 @@ type AgentOperations internal (session: GraphContext) =
     member _.add(value: Agent): Agent = session.Add<Agent>(value, Some "Agent")
     member _.upsert(value: Agent, ?recursive: bool): Agent = session.Upsert<Agent>(value, Some "Agent", defaultArg recursive false)
     member _.get(id: string) = session.Get<Agent>("Agent",id)
-    member _.list() = session.List<Agent>("Agent")
+    member _.list(): seq<Agent> = session.List<Agent>("Agent")
     member _.delete(value: Agent) = session.Delete(value)
     member _.setName(value: Agent, replacement: string) =
         session.Change<Agent>(value,"name",Some(Text(Model.required "name" replacement)),"Agent.setName")

@@ -10,7 +10,7 @@ type DescriptorOperations internal (session: GraphContext) =
     member _.add(value: Descriptor): Descriptor = session.Add<Descriptor>(value, Some "Descriptor")
     member _.upsert(value: Descriptor, ?recursive: bool): Descriptor = session.Upsert<Descriptor>(value, Some "Descriptor", defaultArg recursive false)
     member _.get(id: string) = session.Get<Descriptor>("Descriptor",id)
-    member _.list() = session.List<Descriptor>("Descriptor")
+    member _.list(): seq<Descriptor> = session.List<Descriptor>("Descriptor")
     member _.delete(value: Descriptor) = session.Delete(value)
     member _.setDescribes(value: Descriptor, replacement: EntityReference) =
         session.Change<Descriptor>(value,"describes",Some(Links [session.Id(Model.endpoint replacement)]),"Descriptor.setDescribes")

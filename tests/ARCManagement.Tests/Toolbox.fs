@@ -51,7 +51,7 @@ let tests = testList "ARC toolbox" [
         let linked = second.Process.setInput(proc, Some(EntityReference.Sample sample))
         Expect.equal (input linked).Name "sample" "The link resolves to the stored copy"
         second.Entity.setProperty(second.Model, "foreign", Entity.Object(sample)) |> ignore
-        Expect.equal (second.Sample.list()).Count 1 "One stored copy"
+        Expect.equal (Seq.length (second.Sample.list())) 1 "One stored copy"
         let third = session.createArc(first.Model)
         Expect.notEqual third.ArcId first.ArcId "A managed root creates an independent entry"
         Expect.equal third.Model.Id first.Model.Id "The supplied root ID is kept"
@@ -194,7 +194,7 @@ let tests = testList "ARC toolbox" [
         Expect.throws (fun () -> first.recoverFolder("auto")) "Session-only objects block automatic reload"
         first.recoverFolder("yml")
         Expect.equal first.Model.Title (Some "external") "Replacement graph"
-        Expect.equal (first.Sample.list()).Count 0 "Fresh registry"
+        Expect.equal (Seq.length (first.Sample.list())) 0 "Fresh registry"
         Expect.isFalse first.History.CanUndo "Fresh history"
         Expect.equal second.Model.Title (Some "unaffected") "Other ARC untouched"
         second.History.undo()
@@ -213,10 +213,10 @@ let tests = testList "ARC toolbox" [
         let rejected = Sample("reject")
         Expect.throws (fun () -> first.Sample.add(rejected) |> ignore) "Injected write failure"
         Expect.isNone rejected.Id "Assigned ID rolled back"
-        Expect.equal (first.Sample.list()).Count 0 "Projection rolled back"
+        Expect.equal (Seq.length (first.Sample.list())) 0 "Projection rolled back"
         Expect.isFalse first.History.CanUndo "History unchanged"
         second.Sample.create("accepted") |> ignore
-        Expect.equal (second.Sample.list()).Count 1 "Other ARC remains writable"
+        Expect.equal (Seq.length (second.Sample.list())) 1 "Other ARC remains writable"
         Expect.equal (db.Query("PRAGMA foreign_key_check")).Count 0 "Foreign keys intact")
 
     testCase "separate connections refresh per ARC" (fun _ ->

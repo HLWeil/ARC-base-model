@@ -10,7 +10,7 @@ type ScholarlyArticleOperations internal (session: GraphContext) =
     member _.add(value: ScholarlyArticle): ScholarlyArticle = session.Add<ScholarlyArticle>(value, Some "ScholarlyArticle")
     member _.upsert(value: ScholarlyArticle, ?recursive: bool): ScholarlyArticle = session.Upsert<ScholarlyArticle>(value, Some "ScholarlyArticle", defaultArg recursive false)
     member _.get(id: string) = session.Get<ScholarlyArticle>("ScholarlyArticle",id)
-    member _.list() = session.List<ScholarlyArticle>("ScholarlyArticle")
+    member _.list(): seq<ScholarlyArticle> = session.List<ScholarlyArticle>("ScholarlyArticle")
     member _.delete(value: ScholarlyArticle) = session.Delete(value)
     member _.setHeadline(value: ScholarlyArticle, replacement: string) =
         session.Change<ScholarlyArticle>(value,"headline",Some(Text(Model.required "headline" replacement)),"ScholarlyArticle.setHeadline")

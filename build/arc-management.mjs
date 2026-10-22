@@ -78,7 +78,9 @@ function declarations(publicExports, workspace = false) {
           return `${parameter.name.getText(parsed)}${parameter.questionToken || parameter.initializer ? "?" : ""}: ${type(parameter.type, parsed)}`;
         });
         const static_ = member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword) ? "static " : "";
-        members.push(`  ${static_}${memberName}(${parameters.join(", ")}): ${type(member.type, parsed)};`);
+        const returned = type(member.type, parsed);
+        const list = memberName === "list" ? returned.replace(/^Iterable<(.*)>$/, "readonly $1[]") : returned;
+        members.push(`  ${static_}${memberName}(${parameters.join(", ")}): ${list};`);
       }
     }
     classes.push(`export declare class ${name} {\n${members.join("\n")}\n}`);

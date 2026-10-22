@@ -11,7 +11,7 @@ type DatasetOperations internal (session: GraphContext) =
     member _.add(value: Dataset): Dataset = session.Add<Dataset>(value, Some "Dataset")
     member _.upsert(value: Dataset, ?recursive: bool): Dataset = session.Upsert<Dataset>(value, Some "Dataset", defaultArg recursive false)
     member _.get(id: string) = session.Get<Dataset>("Dataset",id)
-    member _.list() = session.List<Dataset>("Dataset")
+    member _.list(): seq<Dataset> = session.List<Dataset>("Dataset")
     member _.delete(value: Dataset) = session.Delete(value)
     member _.setConformsTo(value: Dataset, replacement: seq<string>) =
         session.Change<Dataset>(value,"conformsTo",Some(Texts(List.ofSeq replacement)),"Dataset.setConformsTo")

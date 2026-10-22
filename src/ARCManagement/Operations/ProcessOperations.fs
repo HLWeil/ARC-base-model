@@ -10,7 +10,7 @@ type ProcessOperations internal (session: GraphContext) =
     member _.add(value: ARCBaseModel.Process): ARCBaseModel.Process = session.Add<ARCBaseModel.Process>(value, Some "Process")
     member _.upsert(value: ARCBaseModel.Process, ?recursive: bool): ARCBaseModel.Process = session.Upsert<ARCBaseModel.Process>(value, Some "Process", defaultArg recursive false)
     member _.get(id: string) = session.Get<ARCBaseModel.Process>("Process",id)
-    member _.list() = session.List<ARCBaseModel.Process>("Process")
+    member _.list(): seq<ARCBaseModel.Process> = session.List<ARCBaseModel.Process>("Process")
     member _.delete(value: ARCBaseModel.Process) = session.Delete(value)
     member _.setName(value: ARCBaseModel.Process, replacement: string) =
         session.Change<ARCBaseModel.Process>(value,"name",Some(Text(Model.required "name" replacement)),"Process.setName")

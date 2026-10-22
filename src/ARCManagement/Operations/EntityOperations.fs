@@ -11,7 +11,7 @@ type EntityOperations internal (session: GraphContext) =
     member _.add(value: EntityObject): EntityObject = session.Add<EntityObject>(value, None)
     member _.upsert(value: EntityObject, ?recursive: bool): EntityObject = session.Upsert<EntityObject>(value, None, defaultArg recursive false)
     member _.get(id: string) = session.GetEntity(id)
-    member _.list() = session.ListEntities()
+    member _.list(): seq<EntityObject> = session.ListEntities()
     member _.delete(value: EntityObject) = session.Delete(value)
     member _.setAdditionalTypes(value: EntityObject, replacement: seq<string>) =
         session.Change<EntityObject>(value, "additionalTypes", Some(Texts(List.ofSeq replacement)), value.Type + ".setAdditionalTypes")
