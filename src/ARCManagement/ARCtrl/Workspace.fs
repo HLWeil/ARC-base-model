@@ -28,7 +28,7 @@ module internal Workspace =
             let folder = stored.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding. Use ARC.bind before save.")
             let rootPath = Path.combineNative folder Layout.ARCFileName
             if Path.readFileTextOptional rootPath <> stored.Baseline then invalidOp "Persistent YAML changed externally. Reopen with an explicit source preference."
-            let graph = Codec.encodeGraph stored.State
+            let graph = ProcessCoreYaml.encodeState stored.State
             let temporary = Path.combineNative folder (".arc-" + ARCManagement.Helper.Identifier.newId() + ".tmp")
             Path.createDirectory folder
             try
@@ -53,7 +53,7 @@ module internal Workspace =
             context.Reload(fun previous ->
                 let current = Path.readFileTextOptional rootPath
                 if current = previous.Baseline then None
-                elif previous.SavedGraph <> Some(Codec.encodeGraph previous.State) || Model.sessionOnly previous.State then
+                elif previous.SavedGraph <> Some(ProcessCoreYaml.encodeState previous.State) || Model.sessionOnly previous.State then
                     invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
                 else Some(replacement current))
         | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'."

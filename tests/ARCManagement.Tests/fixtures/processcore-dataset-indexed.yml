@@ -1,0 +1,124 @@
+type: Dataset
+identifier: pc-demo
+title: ProcessCore fixture
+description: Written by the ProcessCore YAML encoder.
+license: CC-BY-4.0
+recipes:
+  -
+    "@id": "#Recipe_extraction_version_1_0_url_https___example_org_extraction"
+    type: Recipe
+    name: extraction
+    description: Protein extraction
+    version: 1.0
+    url: https://example.org/extraction
+    intendedUse:
+      type: DefinedTerm
+      name: cell lysis
+      TAN: GO:0019835
+    parameters:
+      -
+        type: FormalParameter
+        name: temperature
+        nameTAN: PATO:0000146
+    components:
+      -
+        "@id": "#Annotation_buffer_Tris"
+annotations:
+  -
+    "@id": "#CharacteristicValue_organism_Arabidopsis_thaliana"
+    type: Annotation
+    name: organism
+    additionalType: CharacteristicValue
+    value: Arabidopsis thaliana
+  -
+    "@id": "#ParameterValue_temperature_4_degree_Celsius"
+    type: Annotation
+    name: temperature
+    additionalType: ParameterValue
+    value: 4
+    unit: degree Celsius
+  -
+    "@id": "#Annotation_project_demo"
+    type: Annotation
+    name: project
+    value: demo
+  -
+    "@id": "#Annotation_buffer_Tris"
+    type: Annotation
+    name: buffer
+    value: Tris
+processes:
+  -
+    type: Process
+    name: Extraction
+    inputs:
+      -
+        type: Sample
+        name: Leaf 1
+        additionalType: Source
+        additionalProperty:
+          -
+            "@id": "#CharacteristicValue_organism_Arabidopsis_thaliana"
+      -
+        type: Sample
+        name: Leaf 2
+        additionalType: Source
+        additionalProperty:
+          -
+            "@id": "#CharacteristicValue_organism_Arabidopsis_thaliana"
+      -
+        type: Sample
+        name: Leaf 3
+        additionalType: Source
+        additionalProperty:
+          -
+            "@id": "#CharacteristicValue_organism_Arabidopsis_thaliana"
+    outputs:
+      -
+        type: Sample
+        name: Extract 1
+        additionalType: Sample
+      -
+        type: Sample
+        name: Extract 2
+        additionalType: Sample
+      -
+        type: Sample
+        name: Extract 3
+        additionalType: Sample
+    executesRecipe:
+      "@id": "#Recipe_extraction_version_1_0_url_https___example_org_extraction"
+    parameterValue:
+      -
+        "@id": "#ParameterValue_temperature_4_degree_Celsius"
+  -
+    type: Process
+    name: Measurement
+    inputs:
+      -
+        type: Sample
+        name: Extract 1
+        additionalType: Sample
+    outputs:
+      -
+        type: Data
+        path: raw/measurement.tsv
+        encodingFormat: text/tab-separated-values
+agents:
+  -
+    type: Agent
+    givenName: Ada
+    familyName: Lovelace
+    email: ada@example.org
+    affiliation:
+      type: Organization
+      name: Example Lab
+      url: https://example.org
+    identifier: ORCID:0000-0000-0000-0001
+    jobTitles:
+      -
+        type: DefinedTerm
+        name: data steward
+additionalProperty:
+  -
+    "@id": "#Annotation_project_demo"

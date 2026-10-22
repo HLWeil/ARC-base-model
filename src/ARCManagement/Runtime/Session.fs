@@ -73,7 +73,7 @@ type internal GraphContext(repository: Repository, arcId: string) =
         match exported with
         | Some graph -> graph
         | None ->
-            let graph = Codec.encodeGraph stored.State
+            let graph = ProcessCoreYaml.encodeState stored.State
             exported <- Some graph
             graph
     let ensureOpen () =
@@ -313,7 +313,7 @@ type internal GraphContext(repository: Repository, arcId: string) =
                 execute "DELETE FROM history WHERE arc_id=$arc" [] |> ignore
                 let updated = Store.write db arcId previous.Ordinals previous.State next
                 let sorted = sortByOrdinal next updated
-                let graph = Codec.encodeGraph sorted
+                let graph = ProcessCoreYaml.encodeState sorted
                 execute "UPDATE arc SET root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0 WHERE arc_id=$arc"
                     ["root", Store.text next.Root; "baseline", Store.text current; "saved", Store.text graph] |> ignore
                 Some { previous with State = sorted; Ordinals = updated; Cursor = 0; Baseline = Some current; SavedGraph = Some graph })

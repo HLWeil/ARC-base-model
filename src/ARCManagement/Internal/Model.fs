@@ -178,7 +178,7 @@ module internal Model =
             | _ -> invalidArg "entity" "Expected a typed entity object."
         let value = unbox<EntityObject> entity
         let extensions = value.EntityProperties.Keys |> Seq.map (fun key -> key, captureExtension reference (value.EntityProperties.Get(key))) |> Map.ofSeq
-        { Id = sessionId; Kind = kind entity; SuppliedId = id entity; Properties = Map.ofList properties; Extensions = extensions }
+        { Id = sessionId; Kind = kind entity; Properties = Map.ofList properties; Extensions = extensions }
     let text key (row: EntityRow) = match Map.tryFind key row.Properties with Some(Text v) -> Some v | None -> None | _ -> invalidOp ("Expected text: " + key)
     let texts key (row: EntityRow) = match Map.tryFind key row.Properties with Some(Texts v) -> v | None -> [] | _ -> invalidOp ("Expected text collection: " + key)
     let links key (row: EntityRow) = match Map.tryFind key row.Properties with Some(Links v) -> v | None -> [] | _ -> invalidOp ("Expected entity reference: " + key)
@@ -402,7 +402,7 @@ module internal Adoption =
                     match stored with
                     | Some row when row.Kind <> Model.kind value -> invalidOp ("Entity ID belongs to another entity type: " + id)
                     | _ -> ()
-                    let row = { Model.capture id (visit false) value with SuppliedId = Some id }
+                    let row = Model.capture id (visit false) value
                     match written.TryGetValue id with
                     | true, previous ->
                         if not merge then invalidOp ("Session ID collision: " + id)

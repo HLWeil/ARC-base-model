@@ -16,24 +16,24 @@ const second = session.createArc(root());
 assert.equal("ARC" in Management, false);
 assert.ok(first instanceof ManagedGraph);
 assert.equal("save" in first, false);
-// Immutable values cannot form cycles, so the test decodes the cyclic fixture from anchored YAML.
+// Immutable values cannot form cycles, so the test decodes the cyclic fixture from YAML.
 const detached = DatasetYaml.decode([
-  "&o1",
   "type: Dataset",
+  "id: detached",
   "conformsTo: [process-provenance]",
-  "hasParts:",
-  "    -",
-  "        *o1",
-  "    -",
-  "        *o1",
-  "identifiers: [detached]",
+  "identifier: detached",
+  "hasPart:",
+  "  - \"@id\": detached",
+  "  - \"@id\": detached",
   ""
 ].join("\n"));
 const detachedCopy = DatasetYaml.decode(DatasetYaml.encode(detached));
-assert.equal(detached.Id, undefined);
-assert.equal(detachedCopy.Id, undefined);
+assert.equal(detached.Id, "detached");
+assert.equal(detachedCopy.Id, "detached");
 assert.equal(detachedCopy.HasParts[0], detachedCopy);
 assert.equal(detachedCopy.HasParts[0], detachedCopy.HasParts[1]);
+assert.equal(DatasetYaml.encodeIndexed(detachedCopy), DatasetYaml.encode(detachedCopy));
+assert.throws(() => DatasetYaml.decode("type: Dataset\nidentifier: x\nhasPart:\n  - {type: Dataset, id: same, identifier: a}\n  - {type: Dataset, id: same, identifier: b}\n"));
 const importedGraph = session.importYaml(DatasetYaml.encode(detached));
 assert.ok(importedGraph instanceof ManagedGraph);
 assert.equal(importedGraph.Model.HasParts[0], importedGraph.Model);

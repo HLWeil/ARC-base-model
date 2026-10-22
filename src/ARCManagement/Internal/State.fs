@@ -17,7 +17,7 @@ type internal ExtensionCell =
     | ExtensionObject of string
     | ExtensionCollection of ExtensionCell list
 
-type internal EntityRow = { Id: string; Kind: string; SuppliedId: string option; Properties: Map<string, Cell>; Extensions: Map<string, ExtensionCell> }
+type internal EntityRow = { Id: string; Kind: string; Properties: Map<string, Cell>; Extensions: Map<string, ExtensionCell> }
 type internal State = { Root: string; Entities: EntityRow list }
 
 /// One entity that differs between two states. A missing side means the entity does not exist there.

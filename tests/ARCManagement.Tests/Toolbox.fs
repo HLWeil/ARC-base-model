@@ -294,8 +294,8 @@ let tests = testList "ARC toolbox" [
         use session = ARCManagement.Session.createInMemory()
         let sibling = session.createArc(root())
         let path = folder()
-        let detached = Dataset(["administrative"],["imported"])
-        detached.State <- { detached.State with HasParts = [detached] }
+        let detached = Dataset(["administrative"],["imported"], id = "imported-root")
+        detached.State <- { detached.State with HasParts = [Dataset(["administrative"],["child"]); detached] }
         Path.writeFileText (Path.combineNative path ARCtrl.Helper.Layout.ARCFileName) (ARCManagement.DatasetYaml.encode(detached))
         let db = sql session
         db.ExecuteScript("CREATE TRIGGER fail_workspace BEFORE INSERT ON arc WHEN NEW.folder IS NOT NULL BEGIN SELECT RAISE(ABORT,'injected'); END;")
@@ -304,8 +304,9 @@ let tests = testList "ARC toolbox" [
         same (session.openArc(sibling.ArcId)) sibling
         db.Execute("DROP TRIGGER fail_workspace")
         let imported = ARC.importFolder(session,path)
-        Expect.isSome imported.Model.Id "Workspace import applies management IDs"
-        same (Seq.item 0 imported.Model.HasParts) imported.Model
+        Expect.equal imported.Model.Id (Some "imported-root") "Workspace import keeps supplied IDs"
+        Expect.isSome (Seq.item 0 imported.Model.HasParts).Id "Workspace import applies management IDs"
+        same (Seq.item 1 imported.Model.HasParts) imported.Model
         Expect.equal imported.Folder path "Binding initialized"
         Expect.isFalse imported.IsDirty "Import establishes canonical checkpoint"
         Expect.isFalse imported.History.CanUndo "Import starts with empty history"
@@ -410,14 +411,13 @@ let tests = testList "ARC toolbox" [
         graph.Entity.setProperty(graph.Model, "score", Entity.Number(0.5)) |> ignore
         graph.Entity.addProperty(graph.Model, "label", Entity.Text("x")) |> ignore
         graph.Sample.delete(graph.Sample.create("gone"))
-        let withoutSupplied (state: State) = { state with Entities = state.Entities |> List.map (fun row -> { row with SuppliedId = None }) }
-        let expected = withoutSupplied graph.Context.State
+        let expected = graph.Context.State
         let arcId = graph.ArcId
         session.close()
         use reopened = ARCManagement.Session.openFile(path)
         let again = reopened.openArc(arcId)
-        Expect.isTrue (expected = withoutSupplied again.Context.State) "Rows, order and extensions are identical"
-        Expect.isTrue (expected = withoutSupplied (fst (Store.load (sql reopened) arcId))) "Loading is repeatable")
+        Expect.isTrue (expected = again.Context.State) "Rows, order and extensions are identical"
+        Expect.isTrue (expected = fst (Store.load (sql reopened) arcId)) "Loading is repeatable")
     testCase "createArc rejects distinct objects that share an ID even when their definitions are equal" (fun _ ->
         use session = ARCManagement.Session.createInMemory()
         let proc = ARCBaseModel.Process("p", input = EntityReference.Sample(Sample("z", id = "dup")), output = EntityReference.Sample(Sample("z", id = "dup")))

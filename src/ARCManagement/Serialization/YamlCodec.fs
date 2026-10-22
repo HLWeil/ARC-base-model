@@ -103,7 +103,7 @@ module internal Codec =
     let rowElement row =
         mapping (["id", text row.Id; "type", text row.Kind
                   "extensions", row.Extensions |> Map.toList |> List.map (fun (key,cell) -> key, extensionElement cell) |> extensionMapping
-                  "properties", row.Properties |> Map.toList |> List.map (fun (key,cell) -> key, cellElement cell) |> mapping] @ optional "suppliedId" row.SuppliedId)
+                  "properties", row.Properties |> Map.toList |> List.map (fun (key,cell) -> key, cellElement cell) |> mapping])
     let readRow element =
         let properties = required "properties" element |> fields |> List.map (fun (key,e) ->
             key, match value "storage" e with
@@ -112,7 +112,8 @@ module internal Codec =
                  | "texts" -> Texts(stringItems "values" e)
                  | "links" -> Links(stringItems "values" e)
                  | _ -> invalidOp "Unknown stored property type.") |> Map.ofList
-        { Id = value "id" element; Kind = value "type" element; SuppliedId = opt "suppliedId" element; Properties = properties; Extensions = field "extensions" element |> Option.map (fields >> List.map (fun (key,e) -> key, readExtension e) >> Map.ofList) |> Option.defaultValue Map.empty }
+        // Rows written before the supplied-ID field was removed carry a "suppliedId" key, which is ignored here.
+        { Id = value "id" element; Kind = value "type" element; Properties = properties; Extensions = field "extensions" element |> Option.map (fields >> List.map (fun (key,e) -> key, readExtension e) >> Map.ofList) |> Option.defaultValue Map.empty }
     let encodeState state = mapping ["root", text state.Root; "entities", sequence (List.map rowElement state.Entities)] |> write
     let decodeState source =
         let element = YAMLicious.Reader.read source
@@ -133,99 +134,3 @@ module internal Codec =
                   Ordinal = System.Int64.Parse(value "ordinal" element)
                   Before = field "before" element |> Option.map readRow
                   After = field "after" element |> Option.map readRow })
-    let rootElement state =
-        let rows = state.Entities |> List.map (fun row -> row.Id, row) |> Map.ofList
-        let emitted = System.Collections.Generic.HashSet<string>()
-        let rec entity id =
-            if not (emitted.Add id) then mapping ["$ref", text id]
-            else
-                let row = rows[id]
-                let properties = row.Properties |> Map.toList |> List.choose (fun (key,cell) ->
-                    match cell with
-                    | Text v when (Schema.tryProperty row.Kind key |> Option.map (fun p -> p.Shape)) = Some Schema.Shape.TextOrNumber ->
-                        Some(key, YAMLElement.Value(YAMLContent.create(v, style = ScalarStyle.DoubleQuoted)))
-                    | Text v -> Some(key,text v)
-                    | Number v -> Some(key,number v)
-                    | Texts [] | Links [] -> None
-                    | Texts vs -> Some(key,sequence(List.map text vs))
-                    | Links vs ->
-                        let property = (Schema.tryProperty row.Kind key).Value
-                        Some(key,match property.Shape with Schema.Shape.Links _ -> sequence(List.map entity vs) | _ -> entity (List.exactlyOne vs)))
-                let baseFields = match mapping (["type", text row.Kind; "id", text row.Id] @ properties) with YAMLElement.Object fields -> fields | _ -> invalidOp "Expected mapping."
-                YAMLElement.Object(baseFields @ extensionMappings (row.Extensions |> Map.toList |> List.map (fun (key,cell) -> key, extension cell)))
-        and extension = function
-            | ExtensionObject id -> entity id
-            | ExtensionCollection values -> sequence(List.map extension values)
-            | ExtensionText v -> YAMLElement.Value(YAMLContent.create(v, style = ScalarStyle.DoubleQuoted))
-            | ExtensionNumber v -> number v
-            | ExtensionBool v -> YAMLElement.Value(YAMLContent.create((if v then "true" else "false"), style = ScalarStyle.Plain))
-            | ExtensionNull -> YAMLElement.Value(YAMLContent.create("null", style = ScalarStyle.Plain))
-            | ExtensionBlob v -> YAMLElement.Value(YAMLContent.create(v, tag = "tag:yaml.org,2002:binary", style = ScalarStyle.Plain))
-        entity state.Root
-    let encodeGraph state = rootElement state |> write
-    let decodeGraph source =
-        let rows = System.Collections.Generic.Dictionary<string,EntityRow>()
-        let rec entity element =
-            match element with
-            | YAMLElement.Value _ | YAMLElement.Object [YAMLElement.Value _] -> scalar element
-            | _ when (field "$ref" element |> Option.isSome) && (field "type" element |> Option.isNone) ->
-                if (fields element).Length <> 1 then invalidOp "Reference objects contain only $ref."
-                value "$ref" element
-            | _ ->
-                let kind = value "type" element
-                let suppliedId = id element
-                let specs = Schema.properties kind
-                let properties = fields element |> List.choose (fun (key,e) ->
-                    if key = "id" || key = "type" || (Schema.tryProperty kind key).IsNone then None
-                    else
-                        let shape = (Schema.tryProperty kind key |> Option.defaultWith (fun () -> invalidOp ("Unknown property: " + key))).Shape
-                        let values () = match e with YAMLElement.Sequence vs | YAMLElement.Object [YAMLElement.Sequence vs] -> vs | _ -> invalidOp ("Expected collection: " + key)
-                        let cell =
-                            match shape with
-                            | Schema.Shape.Texts -> Texts(values() |> List.map scalar)
-                            | Schema.Shape.Links _ -> Links(values() |> List.map entity)
-                            | Schema.Shape.Link _ -> Links [entity e]
-                            | Schema.Shape.Text -> Text(scalar e)
-                            | Schema.Shape.TextOrNumber ->
-                                let content = match e with YAMLElement.Value v | YAMLElement.Object [YAMLElement.Value v] -> v | _ -> invalidOp "Expected Annotation value."
-                                let mutable numeric = 0.0
-                                if content.Tag <> Some "!!str" && content.Style <> Some ScalarStyle.DoubleQuoted && content.Style <> Some ScalarStyle.SingleQuoted && System.Double.TryParse(content.Value, NumberStyles.Float, CultureInfo.InvariantCulture, &numeric) then Number numeric
-                                else Text content.Value
-                            | Schema.Shape.TextOrLink _ | Schema.Shape.SampleOrData ->
-                                match e with
-                                | YAMLElement.Value _ | YAMLElement.Object [YAMLElement.Value _] when shape <> Schema.Shape.SampleOrData -> Text(scalar e)
-                                | _ -> Links [entity e]
-                        Some(key,cell)) |> Map.ofList
-                // All collections exist even when absent on the wire.
-                let properties = specs |> List.fold (fun props property ->
-                    let key = property.Name
-                    if Map.containsKey key props then props
-                    else
-                        match property.Shape with
-                        | Schema.Shape.Texts -> Map.add key (Texts []) props
-                        | Schema.Shape.Links _ -> Map.add key (Links []) props
-                        | _ -> props) properties
-                let extensions = fields element |> List.choose (fun (key,e) ->
-                    if key = "id" || key = "type" || (Schema.tryProperty kind key).IsSome then None
-                    else Some(key, extension e)) |> Map.ofList
-                let row = { Id = suppliedId; Kind = kind; SuppliedId = opt "id" element; Properties = properties; Extensions = extensions }
-                match rows.TryGetValue suppliedId with
-                | true, previous when previous <> row -> invalidOp ("Conflicting entity definitions: " + suppliedId)
-                | true, _ -> ()
-                | _ -> rows.Add(suppliedId,row)
-                suppliedId
-        and extension e =
-            match e with
-            | YAMLElement.Sequence values | YAMLElement.Object [YAMLElement.Sequence values] -> ExtensionCollection(List.map extension values)
-            | YAMLElement.Value content | YAMLElement.Object [YAMLElement.Value content] ->
-                let quoted = content.Style = Some ScalarStyle.DoubleQuoted || content.Style = Some ScalarStyle.SingleQuoted
-                let mutable numeric = 0.0
-                if content.Tag = Some "!!binary" || content.Tag = Some "tag:yaml.org,2002:binary" then ExtensionBlob content.Value
-                elif content.Tag = Some "!!str" || quoted then ExtensionText content.Value
-                elif content.Tag = Some "!!null" || content.Value = "null" || content.Value = "~" then ExtensionNull
-                elif content.Tag = Some "!!bool" || content.Value = "true" || content.Value = "false" then ExtensionBool(content.Value = "true")
-                elif System.Double.TryParse(content.Value, NumberStyles.Float, CultureInfo.InvariantCulture, &numeric) then ExtensionNumber numeric
-                else ExtensionText content.Value
-            | _ -> ExtensionObject(entity e)
-        let root = YAMLicious.Reader.read source |> entity
-        { Root = root; Entities = rows.Values |> Seq.toList }

@@ -4,55 +4,51 @@ import { ARC } from "arc-management/arctrl";
 import { Dataset, Annotation, Sample, Data, EntityObject, EntityCollection, EntityNull, EntityBlob } from "arc-base-model";
 
 check(!("ARC" in Management), "Workspace ARC belongs to the arctrl entrypoint");
-// Immutable values cannot form cycles, so the test decodes the cyclic fixture from anchored YAML.
+// Immutable values cannot form cycles, so the test decodes the cyclic fixture from YAML.
 const sourceYaml = [
-  "&o1",
   "type: Dataset",
-  "additionalProperties:",
-  "    -",
-  "        &o4",
-  "        type: Annotation",
-  "        name: zero",
-  "        value: 0",
-  "    -",
-  "        *o4",
+  "id: detached-root",
   "conformsTo: [process-provenance]",
-  "hasParts:",
-  "    -",
-  "        &o2",
-  "        type: Dataset",
-  "        id: same",
-  "        conformsTo: [administrative]",
-  "        identifiers: [shared]",
-  "        title: \"\"",
-  "    -",
-  "        *o2",
-  "    -",
-  "        &o3",
-  "        type: Dataset",
-  "        id: same",
-  "        conformsTo: [semantic-designation]",
-  "        identifiers: [distinct]",
-  "    -",
-  "        *o1",
-  "identifiers: [detached]",
+  "identifier: detached",
+  "additionalProperty:",
+  "  - type: Annotation",
+  "    name: zero",
+  "    value: 0",
+  "  - type: Annotation",
+  "    name: zero",
+  "    value: 0",
+  "hasPart:",
+  "  - type: Dataset",
+  "    id: same",
+  "    conformsTo: [administrative]",
+  "    identifier: shared",
+  "    title: \"\"",
+  "  - type: Dataset",
+  "    id: same",
+  "    conformsTo: [administrative]",
+  "    identifier: shared",
+  "    title: \"\"",
+  "  - \"@id\": detached-root",
   "self:",
-  "    *o1",
+  "  \"@id\": detached-root",
   ""
 ].join("\n");
 const detached = DatasetYaml.decode(sourceYaml);
 const zero = detached.AdditionalProperties[0];
 const detachedYaml = DatasetYaml.encode(detached);
-check(detached.Id === undefined && zero.Id === undefined, "Encoding preserves omitted IDs");
+check(detached.Id === "detached-root" && zero.Id === undefined, "Decoding keeps supplied IDs and leaves omitted IDs absent");
 const decoded = DatasetYaml.decode(detachedYaml);
-check(decoded instanceof Dataset && decoded.Id === undefined, "Detached decoding uses canonical domain classes");
-check(decoded.HasParts[0] === decoded.HasParts[1], "Detached duplicate references preserved");
-check(decoded.HasParts[0] !== decoded.HasParts[2] && decoded.HasParts[2].Id === "same", "Equal IDs do not merge detached objects");
-check(decoded.HasParts[3] === decoded && decoded.EntityProperties.Get("self") === decoded, "Detached object cycles preserved");
+check(decoded instanceof Dataset && decoded.Id === "detached-root", "Detached decoding uses canonical domain classes");
+check(decoded.HasParts[0] === decoded.HasParts[1] && decoded.HasParts[0].Id === "same", "Equal IDs denote one entity");
+check(decoded.HasParts[2] === decoded && decoded.EntityProperties.Get("self") === decoded, "Cycles through @id preserved");
 check(decoded.HasParts[0].Title === "", "Detached empty text preserved");
-check(decoded.AdditionalProperties[0] === decoded.AdditionalProperties[1] && decoded.AdditionalProperties[0].Value === 0, "Detached numeric values and references preserved");
+check(decoded.AdditionalProperties[0] !== decoded.AdditionalProperties[1] && decoded.AdditionalProperties[0].Value === 0, "Entities without IDs decode as distinct objects with numeric values");
+const indexed = DatasetYaml.decode(DatasetYaml.encodeIndexed(detached));
+check(indexed.HasParts[2] === indexed && DatasetYaml.encode(indexed) === detachedYaml, "Indexed output describes the same graph");
 rejects(() => DatasetYaml.decode("not: [valid YAML"));
 rejects(() => DatasetYaml.decode("type: Sample\nname: invalid root\n"));
+const conflictingYaml = "type: Dataset\nidentifier: x\nhasPart:\n  - {type: Dataset, id: same, identifier: a}\n  - {type: Dataset, id: same, identifier: b}\n";
+rejects(() => DatasetYaml.decode(conflictingYaml));
 
 const session = Session.createInMemory();
 const firstRoot = EntityObject.withId(new Dataset(["process-provenance"], ["first"]), "root");
@@ -72,12 +68,12 @@ check(ARC.fromGraph(first).ManagedGraph === first, "Bound graphs can be wrapped 
 workspace.close();
 rejects(() => first.Sample.create("closed"));
 second.Sample.create("still open");
-rejects(() => session.importYaml(detachedYaml));
-const importChild = new Dataset(["administrative"], ["child"]);
+rejects(() => session.importYaml(conflictingYaml));
+const importChild = EntityObject.withId(new Dataset(["administrative"], ["child"]), "child-id");
 const importRoot = Dataset.withHasParts(new Dataset(["process-provenance"], ["import"]), [importChild, importChild]);
 const imported = session.importYaml(DatasetYaml.encode(importRoot));
-check(importRoot.Id === undefined && importChild.Id === undefined, "Import leaves detached source values unchanged");
-check(imported.Model.Id !== undefined && imported.Model.HasParts[0] === imported.Model.HasParts[1], "Management import assigns identity while preserving references");
+check(importRoot.Id === undefined, "Import leaves detached source values unchanged");
+check(imported.Model.Id !== undefined && imported.Model.HasParts[0].Id === "child-id" && imported.Model.HasParts[0] === imported.Model.HasParts[1], "Management import assigns missing IDs while preserving references");
 const exported = DatasetYaml.decode(session.openArc(imported.ArcId).toYaml());
 check(exported.HasParts[0] === exported.HasParts[1], "Generic graph exports root YAML without folder IO");
 imported.close();

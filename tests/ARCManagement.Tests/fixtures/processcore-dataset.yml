@@ -1,0 +1,113 @@
+type: Dataset
+identifier: pc-demo
+title: ProcessCore fixture
+description: Written by the ProcessCore YAML encoder.
+license: CC-BY-4.0
+processes:
+  -
+    type: Process
+    name: Extraction
+    inputs:
+      -
+        type: Sample
+        name: Leaf 1
+        additionalType: Source
+        additionalProperty:
+          -
+            type: Annotation
+            name: organism
+            additionalType: CharacteristicValue
+            value: Arabidopsis thaliana
+      -
+        type: Sample
+        name: Leaf 2
+        additionalType: Source
+        additionalProperty:
+          -
+            type: Annotation
+            name: organism
+            additionalType: CharacteristicValue
+            value: Arabidopsis thaliana
+      -
+        type: Sample
+        name: Leaf 3
+        additionalType: Source
+        additionalProperty:
+          -
+            type: Annotation
+            name: organism
+            additionalType: CharacteristicValue
+            value: Arabidopsis thaliana
+    outputs:
+      -
+        type: Sample
+        name: Extract 1
+        additionalType: Sample
+      -
+        type: Sample
+        name: Extract 2
+        additionalType: Sample
+      -
+        type: Sample
+        name: Extract 3
+        additionalType: Sample
+    executesRecipe:
+      type: Recipe
+      name: extraction
+      description: Protein extraction
+      version: 1.0
+      url: https://example.org/extraction
+      intendedUse:
+        type: DefinedTerm
+        name: cell lysis
+        TAN: GO:0019835
+      parameters:
+        -
+          type: FormalParameter
+          name: temperature
+          nameTAN: PATO:0000146
+      components:
+        -
+          type: Annotation
+          name: buffer
+          value: Tris
+    parameterValue:
+      -
+        type: Annotation
+        name: temperature
+        additionalType: ParameterValue
+        value: 4
+        unit: degree Celsius
+  -
+    type: Process
+    name: Measurement
+    inputs:
+      -
+        type: Sample
+        name: Extract 1
+        additionalType: Sample
+    outputs:
+      -
+        type: Data
+        path: raw/measurement.tsv
+        encodingFormat: text/tab-separated-values
+agents:
+  -
+    type: Agent
+    givenName: Ada
+    familyName: Lovelace
+    email: ada@example.org
+    affiliation:
+      type: Organization
+      name: Example Lab
+      url: https://example.org
+    identifier: ORCID:0000-0000-0000-0001
+    jobTitles:
+      -
+        type: DefinedTerm
+        name: data steward
+additionalProperty:
+  -
+    type: Annotation
+    name: project
+    value: demo

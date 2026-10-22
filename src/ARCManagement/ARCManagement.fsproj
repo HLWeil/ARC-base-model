@@ -19,6 +19,7 @@
     <Compile Include="Internal/Schema.fs" />
     <Compile Include="Internal/Model.fs" />
     <Compile Include="Serialization/YamlCodec.fs" />
+    <Compile Include="Serialization/ProcessCoreYaml.fs" />
     <Compile Include="Serialization/DatasetYaml.fs" />
     <Compile Include="Storage/CoreSchema.fs" />
     <Compile Include="Storage/SQLiteStore.fs" />

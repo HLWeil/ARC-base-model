@@ -223,9 +223,6 @@ module internal Store =
     let private extensionDelete id (property: string) : Op =
         "DELETE FROM entity_extension WHERE arc_id=$arc AND owner_id=$id AND property=$property", ["id", text id; "property", text property]
 
-    /// Rows are equal when everything except the pre-adoption supplied ID matches.
-    let private sameIgnoringSuppliedId (a: EntityRow) (b: EntityRow) = obj.ReferenceEquals(a, b) || ({ a with SuppliedId = None } = { b with SuppliedId = None })
-
     /// Apply the difference between two states to one ARC. Call inside a transaction. The ordinal map
     /// supplies positions for known IDs, new IDs follow the highest known ordinal in list order.
     /// The statements run in an order that respects immediate RESTRICT references and immediate CHECK constraints.
@@ -288,7 +285,7 @@ module internal Store =
         for row in before.Entities do
             match afterRows.TryGetValue row.Id with
             | true, next when next.Kind = row.Kind ->
-                let changed = not (sameIgnoringSuppliedId row next)
+                let changed = not (obj.ReferenceEquals(row, next) || row = next)
                 if changed || (hasReplacement && (row.Kind = "Process" || row.Kind = "Descriptor")) then
                     let old, current = project beforeKind row, project afterKind next
                     for (table, owner, _, oldValues), ((_, _, _, newValues) as list) in List.zip old.PLists current.PLists do
@@ -448,7 +445,7 @@ module internal Store =
                     match extensionRows.TryGetValue id with
                     | true, byProperty -> byProperty |> Seq.map (fun pair -> pair.Key, extension pair.Value) |> Map.ofSeq
                     | _ -> Map.empty
-                entities.Add({ Id = id; Kind = kind; SuppliedId = Some id; Properties = Map.ofList properties; Extensions = extensions })
+                entities.Add({ Id = id; Kind = kind; Properties = Map.ofList properties; Extensions = extensions })
                 ordinals.Add(id, entry.Get(2).AsInteger())
             { Root = root; Entities = List.ofSeq entities }, Map.ofSeq ordinals)
 
@@ -464,7 +461,7 @@ module internal Store =
         for row in before.Entities do
             match afterRows.TryGetValue row.Id with
             | true, next ->
-                if not (sameIgnoringSuppliedId row next) then
+                if not (obj.ReferenceEquals(row, next) || row = next) then
                     result.Add({ EntityId = row.Id; Ordinal = ordinalOf row.Id; Before = Some row; After = Some next })
             | _ -> result.Add({ EntityId = row.Id; Ordinal = ordinalOf row.Id; Before = Some row; After = None })
         for row in after.Entities do
@@ -492,7 +489,7 @@ module internal Store =
         db.WithTransaction(fun () ->
             execute db "INSERT INTO arc(arc_id,root_id,folder,baseline,saved_graph,cursor,revision) VALUES($arc,$root,$folder,$baseline,$saved,0,0)"
                 ["arc",text arcId; "root",text state.Root; "folder",optional folder
-                 "baseline",optional baseline; "saved",optional (baseline |> Option.map (fun _ -> Codec.encodeGraph state))] |> ignore
+                 "baseline",optional baseline; "saved",optional (baseline |> Option.map (fun _ -> ProcessCoreYaml.encodeState state))] |> ignore
             write db arcId Map.empty { Root = state.Root; Entities = [] } state |> ignore)
 
     /// Keep the displaced state and its history before a reload replaces them.

@@ -15,62 +15,57 @@ def rejects(action):
 
 
 assert not hasattr(arc_management, "ARC")
-# Immutable values cannot form cycles, so the test decodes the cyclic fixture from anchored YAML.
+# Immutable values cannot form cycles, so the test decodes the cyclic fixture from YAML.
 source_yaml = "\n".join([
-    "&o1",
     "type: Dataset",
-    "additionalProperties:",
-    "    -",
-    "        &o4",
-    "        type: Annotation",
-    "        name: zero",
-    "        value: 0",
-    "    -",
-    "        *o4",
+    "id: detached-root",
     "conformsTo: [process-provenance]",
-    "hasParts:",
-    "    -",
-    "        &o2",
-    "        type: Dataset",
-    "        id: same",
-    "        conformsTo: [administrative]",
-    "        identifiers: [shared]",
-    "        title: \"\"",
-    "    -",
-    "        *o2",
-    "    -",
-    "        &o3",
-    "        type: Dataset",
-    "        id: same",
-    "        conformsTo: [semantic-designation]",
-    "        identifiers: [distinct]",
-    "    -",
-    "        *o1",
-    "identifiers: [detached]",
+    "identifier: detached",
+    "additionalProperty:",
+    "  - type: Annotation",
+    "    name: zero",
+    "    value: 0",
+    "  - type: Annotation",
+    "    name: zero",
+    "    value: 0",
+    "hasPart:",
+    "  - type: Dataset",
+    "    id: same",
+    "    conformsTo: [administrative]",
+    "    identifier: shared",
+    "    title: \"\"",
+    "  - type: Dataset",
+    "    id: same",
+    "    conformsTo: [administrative]",
+    "    identifier: shared",
+    "    title: \"\"",
+    "  - \"@id\": detached-root",
     "self:",
-    "    *o1",
+    "  \"@id\": detached-root",
     "",
 ])
 detached = DatasetYaml.decode(source_yaml)
 zero = detached.AdditionalProperties[0]
 detached_yaml = DatasetYaml.encode(detached)
-assert detached.Id is None and zero.Id is None
+assert detached.Id == "detached-root" and zero.Id is None
 decoded = DatasetYaml.decode(detached_yaml)
-assert isinstance(decoded, Dataset) and decoded.Id is None
-assert decoded.HasParts[0] is decoded.HasParts[1]
-assert decoded.HasParts[0] is not decoded.HasParts[2] and decoded.HasParts[2].Id == "same"
-assert decoded.HasParts[3] is decoded and decoded.EntityProperties.Get("self") is decoded
+assert isinstance(decoded, Dataset) and decoded.Id == "detached-root"
+assert decoded.HasParts[0] is decoded.HasParts[1] and decoded.HasParts[0].Id == "same"
+assert decoded.HasParts[2] is decoded and decoded.EntityProperties.Get("self") is decoded
 assert decoded.HasParts[0].Title == ""
-assert decoded.AdditionalProperties[0] is decoded.AdditionalProperties[1]
+assert decoded.AdditionalProperties[0] is not decoded.AdditionalProperties[1]
 assert decoded.AdditionalProperties[0].Value == 0 and type(decoded.AdditionalProperties[0].Value) is float
+indexed = DatasetYaml.decode(DatasetYaml.encode_indexed(detached))
+assert indexed.HasParts[2] is indexed and DatasetYaml.encode(indexed) == detached_yaml
 # A Python int supplied natively must encode as a number and decode as a float.
-native_zero = Annotation("zero", 0)
+native_zero = EntityObject.with_id(Annotation("zero", 0), "native-zero")
 native_numeric = Dataset.with_additional_properties(Dataset(["administrative"], ["native-number"]), [native_zero, native_zero])
 native_decoded = DatasetYaml.decode(DatasetYaml.encode(native_numeric))
 assert native_decoded.AdditionalProperties[0] is native_decoded.AdditionalProperties[1]
 assert native_decoded.AdditionalProperties[0].Value == 0 and type(native_decoded.AdditionalProperties[0].Value) is float
 rejects(lambda: DatasetYaml.decode("not: [valid YAML"))
 rejects(lambda: DatasetYaml.decode("type: Sample\nname: invalid root\n"))
+rejects(lambda: DatasetYaml.decode("type: Dataset\nidentifier: x\nhasPart:\n  - {type: Dataset, id: same, identifier: a}\n  - {type: Dataset, id: same, identifier: b}\n"))
 
 folder = str(Path("build/out/arc-management") / ("native-python-" + uuid4().hex))
 arc = ARC.create(folder, Dataset(["process-provenance", "semantic-designation", "administrative"], ["native"]))
@@ -155,7 +150,7 @@ first = session.create_arc(root())
 second = session.create_arc(root())
 assert isinstance(first, ManagedGraph)
 assert not hasattr(first, "save") and not hasattr(first, "bind_folder")
-rejects(lambda: session.import_yaml(detached_yaml))
+rejects(lambda: session.import_yaml("type: Dataset\nidentifier: x\nhasPart:\n  - {type: Dataset, id: same, identifier: a}\n  - {type: Dataset, id: same, identifier: b}\n"))
 sample = Sample("first", id="same")
 stored = first.Sample.add(sample)
 assert stored.Id == "same" and stored is not sample
@@ -213,11 +208,11 @@ resumed.History.redo()
 assert resumed.Sample.get("same").Name == "changed"
 assert session.open_arc(second_id).Sample.get("same").Name == "independent"
 rejects(lambda: Session.create_file(path))
-import_child = Dataset(["administrative"], ["child"])
+import_child = EntityObject.with_id(Dataset(["administrative"], ["child"]), "child-id")
 import_root = Dataset.with_has_parts(Dataset(["process-provenance"], ["import"]), [import_child, import_child])
 imported_graph = session.import_yaml(DatasetYaml.encode(import_root))
-assert import_root.Id is None and import_child.Id is None
-assert imported_graph.Model.Id is not None
+assert import_root.Id is None
+assert imported_graph.Model.Id is not None and imported_graph.Model.HasParts[0].Id == "child-id"
 assert imported_graph.Model.HasParts[0] is imported_graph.Model.HasParts[1]
 exported = DatasetYaml.decode(session.open_arc(imported_graph.ArcId).to_yaml())
 assert exported.HasParts[0] is exported.HasParts[1]
