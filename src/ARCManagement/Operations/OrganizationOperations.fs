@@ -11,8 +11,8 @@ type OrganizationOperations internal (session: GraphContext) =
     member _.upsert(value: Organization, ?recursive: bool): Organization = session.Upsert<Organization>(value, Some "Organization", defaultArg recursive false)
     member _.get(id: string) = session.Get<Organization>("Organization",id)
     member _.list(): seq<Organization> = session.List<Organization>("Organization")
-    member _.delete(value: Organization) = session.Delete(value)
+    member _.delete(value: Organization) = session.Delete(value, Some "Organization")
     member _.setName(value: Organization, replacement: string) =
-        session.Change<Organization>(value,"name",Some(Text(Model.required "name" replacement)),"Organization.setName")
+        session.Change<Organization>(value,Some "Organization","name",Some(Text(Model.required "name" replacement)),[],"Organization.setName")
     member _.setUrl(value: Organization, replacement: string option) =
-        session.Change<Organization>(value,"url",replacement |> Option.map (fun replacement -> Text(Model.required "url" replacement)),"Organization.setUrl")
+        session.Change<Organization>(value,Some "Organization","url",replacement |> Option.map (fun replacement -> Text(Model.required "url" replacement)),[],"Organization.setUrl")

@@ -371,8 +371,9 @@ module internal Model =
 /// are assigned only to the rows.
 module internal Adoption =
     /// Returns the next state and the ID of the submitted root. A strict adoption rejects a root ID that exists.
+    /// Distinct objects with one ID merge only when merge is set and their rows are equal.
     /// Without recursion, nested objects whose supplied ID exists in the state are links and are not written.
-    let adopt (state: State) (accepts: string -> bool) (submitted: obj) (strict: bool) (recursive: bool) : State * string =
+    let adopt (state: State) (accepts: string -> bool) (submitted: obj) (strict: bool) (recursive: bool) (merge: bool) : State * string =
         Model.required "entity" submitted |> ignore
         if not (accepts (Model.kind submitted)) then invalidArg "entity" "Wrong entity type."
         let existing = Dictionary<string, EntityRow>()
@@ -392,6 +393,7 @@ module internal Adoption =
                     | None -> None
                 if isRoot && strict && stored.IsSome then invalidOp ("Entity ID already exists: " + supplied.Value)
                 if not isRoot && not recursive && stored.IsSome then
+                    if stored.Value.Kind <> Model.kind value then invalidOp ("Entity ID " + supplied.Value + " is stored as " + stored.Value.Kind + ".")
                     ids[value] <- supplied.Value
                     supplied.Value
                 else
@@ -402,7 +404,9 @@ module internal Adoption =
                     | _ -> ()
                     let row = { Model.capture id (visit false) value with SuppliedId = Some id }
                     match written.TryGetValue id with
-                    | true, previous -> if previous <> row then invalidOp ("Conflicting definitions for entity ID " + id)
+                    | true, previous ->
+                        if not merge then invalidOp ("Session ID collision: " + id)
+                        if previous <> row then invalidOp ("Conflicting definitions for entity ID " + id)
                     | _ ->
                         written[id] <- row
                         if stored.IsNone then inserted.Add id

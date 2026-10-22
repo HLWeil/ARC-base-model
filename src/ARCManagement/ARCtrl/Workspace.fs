@@ -41,17 +41,21 @@ module internal Workspace =
 
     let recover (context: GraphContext) source =
         let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding.")
-        let current = Path.readFileTextOptional(Path.combineNative folder Layout.ARCFileName)
-        let reload () =
+        let rootPath = Path.combineNative folder Layout.ARCFileName
+        // The folder is read inside the write transaction, so the decision uses the state that will be replaced.
+        let replacement (current: string option) =
             let yaml = current |> Option.defaultWith (fun () -> invalidOp "No arc.yml exists in this folder.")
-            let state = DatasetYaml.decode(yaml) |> ArcFactory.snapshot
-            context.Reload(state,yaml)
+            DatasetYaml.decode(yaml) |> ArcFactory.snapshot, yaml
         match source with
-        | "sql" -> context.AcceptPersistentBaseline(current)
-        | "yml" -> reload()
-        | "auto" when current = context.Baseline -> ()
-        | "auto" when context.IsDirty || context.HasSessionOnlyObjects -> invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
-        | "auto" -> reload()
+        | "sql" -> context.AcceptPersistentBaseline(Path.readFileTextOptional rootPath)
+        | "yml" -> context.Reload(fun _ -> Some(replacement (Path.readFileTextOptional rootPath)))
+        | "auto" ->
+            context.Reload(fun previous ->
+                let current = Path.readFileTextOptional rootPath
+                if current = previous.Baseline then None
+                elif previous.SavedGraph <> Some(Codec.encodeGraph previous.State) || Model.sessionOnly previous.State then
+                    invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
+                else Some(replacement current))
         | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'."
 
     let openFolder folder source =

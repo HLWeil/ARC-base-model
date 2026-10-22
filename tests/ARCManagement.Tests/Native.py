@@ -175,6 +175,10 @@ assert renamed.Name == "changed" and stored.Name == "first"
 first.History.undo()
 assert first.Sample.get("same").Name == "first" and renamed.Name == "changed"
 assert second.Sample.get("same").Name == "second"
+# An operation group rejects subjects of another kind and changes nothing.
+rejects(lambda: first.Process.set_name(first.Sample.get("same"), "wrong"))
+rejects(lambda: first.Process.delete(first.Sample.get("same")))
+assert first.Sample.get("same").Name == "first"
 assert session.open_arc(first.ArcId) is first
 assert len(session.list_arcs()) == 2
 assert session.list_arcs()[0].RootEntityId == "root"

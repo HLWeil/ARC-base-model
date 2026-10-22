@@ -58,6 +58,10 @@ first.History.undo();
 assert.equal(first.Sample.get("same").Name, "first");
 assert.equal(renamed.Name, "changed");
 assert.equal(second.Sample.get("same").Name, "second");
+// An operation group rejects subjects of another kind and changes nothing.
+assert.throws(() => first.Process.setName(first.Sample.get("same"), "wrong"));
+assert.throws(() => first.Process.delete(first.Sample.get("same")));
+assert.equal(first.Sample.get("same").Name, "first");
 assert.equal(session.openArc(first.ArcId), first);
 assert.equal(session.listArcs().length, 3);
 const workspace = ARC.bind(first, `${folder}/export`);

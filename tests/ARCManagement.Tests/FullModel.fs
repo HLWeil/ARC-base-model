@@ -9,6 +9,9 @@ open ARCtrl
 open Fable.Pyxpecto
 
 let private folder () = Helpers.folder "fullmodel"
+let private withSql path action =
+    use sql = PolyglotSQLite.Sqlite.OpenFile(path)
+    action sql
 
 let private same actual expected = Expect.isTrue (Object.ReferenceEquals(actual,expected)) "Canonical shared reference"
 let private fixture () =
@@ -330,5 +333,193 @@ let tests = testList "Full base-model management" [
         arc.History.undo()
         let again = arc.Data.add(second)
         Expect.equal again.Id second.Id "A stored value keeps its supplied ID when added again"
+        arc.close())
+    testCase "every setter and collection member returns the updated stored value" (fun _ ->
+        let arc = ARC.create(folder(),Dataset(["process-provenance";"semantic-designation";"administrative"],["root"]))
+        let len (values: seq<'T>) = Seq.length values
+        let note = arc.Annotation.create("note")
+        let note2 = arc.Annotation.create("note2")
+        let org = arc.Organization.create("org")
+        let term = arc.DefinedTerm.create("term")
+        let sample = arc.Sample.create("sample")
+        let data = arc.Data.create("d.csv")
+        let part = arc.Data.create("part")
+        // Annotation, FormalParameter, Organization, DefinedTerm and DefinedTermSet
+        Expect.equal (arc.Annotation.setName(note,"renamed")).Name "renamed" "Annotation name"
+        Expect.equal (arc.Annotation.setValue(note,Some(AnnotationValue.Number 1.5))).Value (Some(AnnotationValue.Number 1.5)) "Annotation value"
+        Expect.equal (arc.Annotation.setUnit(note,Some "u")).Unit (Some "u") "Annotation unit"
+        Expect.equal (arc.Annotation.setNameTAN(note,Some "n")).NameTAN (Some "n") "Annotation name TAN"
+        Expect.equal (arc.Annotation.setValueTAN(note,Some "v")).ValueTAN (Some "v") "Annotation value TAN"
+        Expect.equal (arc.Annotation.setUnitTAN(note,Some "t")).UnitTAN (Some "t") "Annotation unit TAN"
+        let parameter = arc.FormalParameter.create("parameter")
+        Expect.equal (arc.FormalParameter.setName(parameter,Some "p")).Name (Some "p") "Parameter name"
+        Expect.equal (arc.FormalParameter.setNameTAN(parameter,Some "pt")).NameTAN (Some "pt") "Parameter name TAN"
+        Expect.equal (arc.FormalParameter.setDefaultValue(parameter,Some note)).DefaultValue.Value.Id note.Id "Parameter default"
+        Expect.equal (arc.Annotation.setInstanceOf(note,Some parameter)).InstanceOf.Value.Id parameter.Id "Annotation instance"
+        Expect.equal (arc.Organization.setName(org,"org2")).Name "org2" "Organization name"
+        Expect.equal (arc.Organization.setUrl(org,Some "http://org")).Url (Some "http://org") "Organization URL"
+        Expect.equal (arc.DefinedTerm.setName(term,"term2")).Name "term2" "Term name"
+        Expect.equal (arc.DefinedTerm.setIdentifier(term,Some "T:1")).Identifier (Some "T:1") "Term identifier"
+        Expect.equal (arc.DefinedTerm.setTAN(term,Some "tan")).TAN (Some "tan") "Term TAN"
+        Expect.equal (arc.DefinedTerm.setInDefinedTermSet(term,Some(DefinedTermSetReference.Url "set"))).InDefinedTermSet (Some(DefinedTermSetReference.Url "set")) "Term set"
+        let termset = arc.DefinedTermSet.create("set")
+        Expect.equal (arc.DefinedTermSet.setName(termset,"set2")).Name "set2" "Term set name"
+        Expect.equal (arc.DefinedTermSet.setIdentifier(termset,Some "S")).Identifier (Some "S") "Term set identifier"
+        // Agent
+        let agent = arc.Agent.create("agent")
+        Expect.equal (arc.Agent.setName(agent,"agent2")).Name "agent2" "Agent name"
+        Expect.equal (arc.Agent.setGivenName(agent,Some "g")).GivenName (Some "g") "Given name"
+        Expect.equal (arc.Agent.setFamilyName(agent,Some "f")).FamilyName (Some "f") "Family name"
+        Expect.equal (Seq.toList (arc.Agent.setEmails(agent,["e";"e"])).Emails) ["e";"e"] "Emails"
+        Expect.equal (len (arc.Agent.setAffiliations(agent,[org;org])).Affiliations) 2 "Affiliations"
+        Expect.equal (len (arc.Agent.addAffiliation(agent,org)).Affiliations) 3 "Affiliation added"
+        Expect.equal (len (arc.Agent.removeAffiliation(agent,org)).Affiliations) 2 "Affiliation removed"
+        Expect.equal (Seq.toList (arc.Agent.setIdentifiers(agent,["i"])).Identifiers) ["i"] "Agent identifiers"
+        Expect.equal (len (arc.Agent.setAdditionalProperties(agent,[note])).AdditionalProperties) 1 "Agent properties"
+        Expect.equal (len (arc.Agent.addAdditionalProperty(agent,note2)).AdditionalProperties) 2 "Agent property added"
+        Expect.equal (len (arc.Agent.removeAdditionalProperty(agent,note)).AdditionalProperties) 1 "Agent property removed"
+        Expect.equal (len (arc.Agent.setJobTitles(agent,[term])).JobTitles) 1 "Job titles"
+        Expect.equal (len (arc.Agent.addJobTitle(agent,term)).JobTitles) 2 "Job title added"
+        Expect.equal (len (arc.Agent.removeJobTitle(agent,term)).JobTitles) 1 "Job title removed"
+        // ScholarlyArticle
+        let article = arc.ScholarlyArticle.create("article")
+        Expect.equal (arc.ScholarlyArticle.setHeadline(article,"headline")).Headline "headline" "Headline"
+        Expect.equal (Seq.toList (arc.ScholarlyArticle.setIdentifiers(article,["doi"])).Identifiers) ["doi"] "Article identifiers"
+        Expect.equal (len (arc.ScholarlyArticle.setAuthors(article,[agent])).Authors) 1 "Authors"
+        Expect.equal (len (arc.ScholarlyArticle.addAuthor(article,agent)).Authors) 2 "Author added"
+        Expect.equal (len (arc.ScholarlyArticle.removeAuthor(article,agent)).Authors) 1 "Author removed"
+        Expect.equal (arc.ScholarlyArticle.setCreativeWorkStatus(article,Some term)).CreativeWorkStatus.Value.Id term.Id "Status"
+        Expect.equal (len (arc.ScholarlyArticle.setAdditionalProperties(article,[note])).AdditionalProperties) 1 "Article properties"
+        Expect.equal (len (arc.ScholarlyArticle.addAdditionalProperty(article,note2)).AdditionalProperties) 2 "Article property added"
+        Expect.equal (len (arc.ScholarlyArticle.removeAdditionalProperty(article,note)).AdditionalProperties) 1 "Article property removed"
+        // Descriptor
+        let descriptor = arc.Descriptor.create(EntityReference.Sample sample)
+        match (arc.Descriptor.setDescribes(descriptor,EntityReference.Data data)).Describes with
+        | EntityReference.Data v -> Expect.equal v.Id data.Id "Describes"
+        | _ -> failwith "Expected Data"
+        Expect.equal (len (arc.Descriptor.setAnnotations(descriptor,[note])).Annotations) 1 "Annotations"
+        Expect.equal (len (arc.Descriptor.addAnnotation(descriptor,note2)).Annotations) 2 "Annotation added"
+        Expect.equal (len (arc.Descriptor.removeAnnotation(descriptor,note)).Annotations) 1 "Annotation removed"
+        // Recipe
+        let recipe = arc.Recipe.create("recipe")
+        Expect.equal (arc.Recipe.setName(recipe,Some "r")).Name (Some "r") "Recipe name"
+        Expect.equal (len (arc.Recipe.setParameters(recipe,[parameter])).Parameters) 1 "Parameters"
+        Expect.equal (len (arc.Recipe.addParameter(recipe,parameter)).Parameters) 2 "Parameter added"
+        Expect.equal (len (arc.Recipe.removeParameter(recipe,parameter)).Parameters) 1 "Parameter removed"
+        Expect.equal (arc.Recipe.setDescription(recipe,Some "d")).Description (Some "d") "Recipe description"
+        Expect.equal (arc.Recipe.setIntendedUse(recipe,Some(RecipeIntendedUse.Text "use"))).IntendedUse (Some(RecipeIntendedUse.Text "use")) "Intended use"
+        Expect.equal (len (arc.Recipe.setAdditionalProperties(recipe,[note])).AdditionalProperties) 1 "Recipe properties"
+        Expect.equal (len (arc.Recipe.addAdditionalProperty(recipe,note2)).AdditionalProperties) 2 "Recipe property added"
+        Expect.equal (len (arc.Recipe.removeAdditionalProperty(recipe,note)).AdditionalProperties) 1 "Recipe property removed"
+        Expect.equal (len (arc.Recipe.setComponents(recipe,[note])).Components) 1 "Components"
+        Expect.equal (len (arc.Recipe.addComponent(recipe,note2)).Components) 2 "Component added"
+        Expect.equal (len (arc.Recipe.removeComponent(recipe,note)).Components) 1 "Component removed"
+        Expect.equal (arc.Recipe.setVersion(recipe,Some "1")).Version (Some "1") "Version"
+        Expect.equal (arc.Recipe.setUrl(recipe,Some "u")).Url (Some "u") "Recipe URL"
+        // Sample and Data
+        Expect.equal (arc.Sample.setName(sample,"sample2")).Name "sample2" "Sample name"
+        Expect.equal (len (arc.Sample.setAdditionalProperties(sample,[note])).AdditionalProperties) 1 "Sample properties"
+        Expect.equal (len (arc.Sample.addAdditionalProperty(sample,note2)).AdditionalProperties) 2 "Sample property added"
+        Expect.equal (len (arc.Sample.removeAdditionalProperty(sample,note)).AdditionalProperties) 1 "Sample property removed"
+        Expect.equal (arc.Data.setPath(data,"e.csv")).Path "e.csv" "Path"
+        Expect.equal (arc.Data.setSelector(data,Some "row=1")).Selector (Some "row=1") "Selector"
+        Expect.equal (arc.Data.setSelectorFormat(data,Some "f")).SelectorFormat (Some "f") "Selector format"
+        Expect.equal (arc.Data.setEncodingFormat(data,Some "text/csv")).EncodingFormat (Some "text/csv") "Encoding format"
+        Expect.equal (len (arc.Data.setHasParts(data,[part])).HasParts) 1 "Data parts"
+        Expect.equal (len (arc.Data.addPart(data,part)).HasParts) 2 "Data part added"
+        Expect.equal (len (arc.Data.removePart(data,part)).HasParts) 1 "Data part removed"
+        Expect.equal (len (arc.Data.setAdditionalProperties(data,[note])).AdditionalProperties) 1 "Data properties"
+        Expect.equal (len (arc.Data.addAdditionalProperty(data,note2)).AdditionalProperties) 2 "Data property added"
+        Expect.equal (len (arc.Data.removeAdditionalProperty(data,note)).AdditionalProperties) 1 "Data property removed"
+        // Process
+        let proc = arc.Process.create("process")
+        Expect.equal (arc.Process.setName(proc,"process2")).Name "process2" "Process name"
+        Expect.isSome (arc.Process.setInput(proc,Some(EntityReference.Sample sample))).Input "Input"
+        Expect.isSome (arc.Process.setOutput(proc,Some(EntityReference.Data data))).Output "Output"
+        Expect.equal (arc.Process.setExecutesRecipe(proc,Some recipe)).ExecutesRecipe.Value.Id recipe.Id "Recipe"
+        Expect.equal (len (arc.Process.setParameterValues(proc,[note])).ParameterValues) 1 "Parameter values"
+        Expect.equal (len (arc.Process.addParameterValue(proc,note2)).ParameterValues) 2 "Parameter value added"
+        Expect.equal (len (arc.Process.removeParameterValue(proc,note)).ParameterValues) 1 "Parameter value removed"
+        // Dataset
+        let root = arc.Model
+        Expect.equal (Seq.toList (arc.Dataset.setConformsTo(root,["process-provenance";"administrative"])).ConformsTo) ["process-provenance";"administrative"] "Profiles"
+        Expect.equal (Seq.toList (arc.Dataset.setIdentifiers(root,["a";"b"])).Identifiers) ["a";"b"] "Identifiers"
+        Expect.equal (arc.Dataset.setTitle(root,Some "t")).Title (Some "t") "Title"
+        Expect.equal (arc.Dataset.setDescription(root,Some "d")).Description (Some "d") "Description"
+        Expect.equal (arc.Dataset.setLicense(root,Some "l")).License (Some "l") "License"
+        Expect.equal (arc.Dataset.setDatePublished(root,Some "p")).DatePublished (Some "p") "Published"
+        Expect.equal (arc.Dataset.setDateCreated(root,Some "c")).DateCreated (Some "c") "Created"
+        Expect.equal (arc.Dataset.setDateModified(root,Some "m")).DateModified (Some "m") "Modified"
+        let child, child2 = arc.Dataset.create("child"), arc.Dataset.create("child2")
+        Expect.equal (len (arc.Dataset.setHasParts(root,[child])).HasParts) 1 "Parts"
+        Expect.equal (len (arc.Dataset.addPart(root,child2)).HasParts) 2 "Part added"
+        Expect.equal (len (arc.Dataset.removePart(root,child)).HasParts) 1 "Part removed"
+        Expect.equal (len (arc.Dataset.setDataFiles(root,[data])).DataFiles) 1 "Data files"
+        Expect.equal (len (arc.Dataset.addDataFile(root,part)).DataFiles) 2 "Data file added"
+        Expect.equal (len (arc.Dataset.removeDataFile(root,data)).DataFiles) 1 "Data file removed"
+        Expect.equal (len (arc.Dataset.setAgents(root,[agent])).Agents) 1 "Agents"
+        Expect.equal (len (arc.Dataset.addAgent(root,agent)).Agents) 2 "Agent added"
+        Expect.equal (len (arc.Dataset.removeAgent(root,agent)).Agents) 1 "Agent removed"
+        Expect.equal (len (arc.Dataset.setCitations(root,[article])).Citations) 1 "Citations"
+        Expect.equal (len (arc.Dataset.addCitation(root,article)).Citations) 2 "Citation added"
+        Expect.equal (len (arc.Dataset.removeCitation(root,article)).Citations) 1 "Citation removed"
+        Expect.equal (len (arc.Dataset.setProcesses(root,[proc])).Processes) 1 "Processes"
+        Expect.equal (len (arc.Dataset.addProcess(root,proc)).Processes) 2 "Process added"
+        Expect.equal (len (arc.Dataset.removeProcess(root,proc)).Processes) 1 "Process removed"
+        Expect.equal (len (arc.Dataset.setDescriptors(root,[descriptor])).Descriptors) 1 "Descriptors"
+        Expect.equal (len (arc.Dataset.addDescriptor(root,descriptor)).Descriptors) 2 "Descriptor added"
+        Expect.equal (len (arc.Dataset.removeDescriptor(root,descriptor)).Descriptors) 1 "Descriptor removed"
+        Expect.equal (len (arc.Dataset.setAdditionalProperties(root,[note])).AdditionalProperties) 1 "Dataset properties"
+        Expect.equal (len (arc.Dataset.addAdditionalProperty(root,note2)).AdditionalProperties) 2 "Dataset property added"
+        Expect.equal (len (arc.Dataset.removeAdditionalProperty(root,note)).AdditionalProperties) 1 "Dataset property removed"
+        // Entity
+        let thing = arc.Entity.create("Thing")
+        Expect.equal (Seq.toList (arc.Entity.setAdditionalTypes(thing,["x"])).AdditionalTypes) ["x"] "Additional types"
+        Expect.equal ((arc.Entity.setProperty(thing,"k",Entity.Number 1.0)).EntityProperties.Get("k")) (Entity.Number 1.0) "Set property"
+        Expect.isTrue ((arc.Entity.addProperty(thing,"j",Entity.Text "x")).EntityProperties.Contains("j")) "Add property"
+        Expect.isFalse ((arc.Entity.removeProperty(thing,"k")).EntityProperties.Contains("k")) "Remove property"
+        arc.Entity.delete(thing)
+        Expect.throws (fun () -> arc.Entity.get(thing.Id.Value) |> ignore) "Entity deleted"
+        arc.close())
+
+    testCase "group kind and cross-kind links are enforced" (fun _ ->
+        let arc = ARC.create(folder(),fixture())
+        let sample = arc.Sample.list() |> Seq.head
+        let data = arc.Data.list() |> Seq.head
+        let proc = arc.Process.list() |> Seq.head
+        let commands = arc.History.CanUndo
+        let wrongProcess = ARCBaseModel.Process("p", id = sample.Id.Value)
+        Expect.throws (fun () -> arc.Process.setName(wrongProcess, "renamed") |> ignore) "A subject stored as another kind is rejected"
+        Expect.throws (fun () -> arc.Process.delete(wrongProcess)) "Deleting through the wrong group is rejected"
+        Expect.throws (fun () -> arc.Entity.setAdditionalTypes(EntityObject("Thing", id = sample.Id.Value), ["x"]) |> ignore) "The Entity group checks the stored kind"
+        Expect.equal (arc.Sample.get(sample.Id.Value)).Name "Sample" "The sample is unchanged"
+        Expect.throws (fun () -> arc.Process.setInput(proc, Some(EntityReference.Data(Data("f", id = sample.Id.Value)))) |> ignore) "A Data reference to a stored Sample is rejected"
+        Expect.throws (fun () -> arc.Descriptor.setDescribes(arc.Descriptor.list() |> Seq.head, EntityReference.Sample(Sample("s", id = data.Id.Value))) |> ignore) "A Sample reference to a stored Data is rejected"
+        Expect.throws (fun () -> arc.Process.upsert(ARCBaseModel.Process("p2", id = "p-new", input = EntityReference.Data(Data("f", id = sample.Id.Value)))) |> ignore) "A nested link of another kind is rejected"
+        Expect.throws (fun () -> arc.Entity.setProperty(arc.Model, "link", Entity.Object(EntityObject("Thing", id = sample.Id.Value))) |> ignore) "An extension link of another kind is rejected"
+        Expect.equal arc.History.CanUndo commands "Failed commands add no history"
+        arc.close())
+
+    testCase "recursive upsert rejects conflicts and leaves cyclic graphs unchanged" (fun _ ->
+        let path = folder()
+        let arc = ARC.create(path,fixture())
+        let undoable = arc.History.CanUndo
+        let first, second = Sample("one", id = "shared"), Sample("two", id = "shared")
+        let proc = ARCBaseModel.Process("p", id = "p1", input = EntityReference.Sample first, output = EntityReference.Sample second)
+        let samples = Seq.length (arc.Sample.list())
+        Expect.throws (fun () -> arc.Process.upsert(proc, true) |> ignore) "Conflicting definitions rejected"
+        Expect.throws (fun () -> arc.Process.get("p1") |> ignore) "Nothing was written"
+        Expect.equal (Seq.length (arc.Sample.list())) samples "No partial insertion"
+        Expect.equal arc.History.CanUndo undoable "No history entry"
+        let child = arc.Dataset.create("child")
+        arc.Dataset.addPart(arc.Model, child) |> ignore
+        arc.Dataset.addPart(child, arc.Model) |> ignore
+        let rows = arc.DatabasePath
+        let count table = withSql rows (fun sql -> sql.Query("SELECT count(*) FROM " + table).[0].Get(0).AsInteger())
+        let revision = withSql rows (fun sql -> sql.Query("SELECT revision FROM arc").[0].Get(0).AsInteger())
+        let history = count "history"
+        arc.Dataset.upsert(arc.Model, true) |> ignore
+        Expect.equal (count "history") history "The cyclic upsert writes no history"
+        Expect.equal (withSql rows (fun sql -> sql.Query("SELECT revision FROM arc").[0].Get(0).AsInteger())) revision "The revision is unchanged"
         arc.close())
 ]

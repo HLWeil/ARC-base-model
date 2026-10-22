@@ -11,12 +11,12 @@ type DefinedTermOperations internal (session: GraphContext) =
     member _.upsert(value: DefinedTerm, ?recursive: bool): DefinedTerm = session.Upsert<DefinedTerm>(value, Some "DefinedTerm", defaultArg recursive false)
     member _.get(id: string) = session.Get<DefinedTerm>("DefinedTerm",id)
     member _.list(): seq<DefinedTerm> = session.List<DefinedTerm>("DefinedTerm")
-    member _.delete(value: DefinedTerm) = session.Delete(value)
+    member _.delete(value: DefinedTerm) = session.Delete(value, Some "DefinedTerm")
     member _.setName(value: DefinedTerm, replacement: string) =
-        session.Change<DefinedTerm>(value,"name",Some(Text(Model.required "name" replacement)),"DefinedTerm.setName")
+        session.Change<DefinedTerm>(value,Some "DefinedTerm","name",Some(Text(Model.required "name" replacement)),[],"DefinedTerm.setName")
     member _.setIdentifier(value: DefinedTerm, replacement: string option) =
-        session.Change<DefinedTerm>(value,"identifier",replacement |> Option.map (fun replacement -> Text(Model.required "identifier" replacement)),"DefinedTerm.setIdentifier")
+        session.Change<DefinedTerm>(value,Some "DefinedTerm","identifier",replacement |> Option.map (fun replacement -> Text(Model.required "identifier" replacement)),[],"DefinedTerm.setIdentifier")
     member _.setTAN(value: DefinedTerm, replacement: string option) =
-        session.Change<DefinedTerm>(value,"tan",replacement |> Option.map (fun replacement -> Text(Model.required "tan" replacement)),"DefinedTerm.setTAN")
+        session.Change<DefinedTerm>(value,Some "DefinedTerm","tan",replacement |> Option.map (fun replacement -> Text(Model.required "tan" replacement)),[],"DefinedTerm.setTAN")
     member _.setInDefinedTermSet(value: DefinedTerm, replacement: DefinedTermSetReference option) =
-        session.Change<DefinedTerm>(value,"inDefinedTermSet",replacement |> Option.map (fun replacement -> match replacement with DefinedTermSetReference.Url v -> Text(Model.required "inDefinedTermSet" v) | DefinedTermSetReference.TermSet v -> Links [session.Id(v)]),"DefinedTerm.setInDefinedTermSet")
+        session.Change<DefinedTerm>(value,Some "DefinedTerm","inDefinedTermSet",replacement |> Option.map (fun replacement -> match replacement with DefinedTermSetReference.Url v -> Text(Model.required "inDefinedTermSet" v) | DefinedTermSetReference.TermSet v -> Links [session.Id(v)]),(match replacement with Some(DefinedTermSetReference.TermSet v) -> [box v] | _ -> []),"DefinedTerm.setInDefinedTermSet")

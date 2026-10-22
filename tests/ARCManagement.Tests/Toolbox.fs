@@ -418,4 +418,9 @@ let tests = testList "ARC toolbox" [
         let again = reopened.openArc(arcId)
         Expect.isTrue (expected = withoutSupplied again.Context.State) "Rows, order and extensions are identical"
         Expect.isTrue (expected = withoutSupplied (fst (Store.load (sql reopened) arcId))) "Loading is repeatable")
+    testCase "createArc rejects distinct objects that share an ID even when their definitions are equal" (fun _ ->
+        use session = ARCManagement.Session.createInMemory()
+        let proc = ARCBaseModel.Process("p", input = EntityReference.Sample(Sample("z", id = "dup")), output = EntityReference.Sample(Sample("z", id = "dup")))
+        Expect.throws (fun () -> session.createArc(Dataset(["process-provenance"],["root"],processes = [proc])) |> ignore) "Distinct objects with one ID"
+        Expect.equal (session.listArcs()).Count 0 "No entry was created")
 ]

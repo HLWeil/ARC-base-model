@@ -40,8 +40,11 @@ type internal GraphContext(repository: Repository, arcId: string) =
     // Hydrated values of the current revision. Any publication of a new revision clears it.
     let cache = Dictionary<string, obj>()
     let mutable closed = false
+    // The exported graph text of the current revision. IsDirty and toYaml share it.
+    let mutable exported : string option = None
     let publish (next: Stored) =
         stored <- next
+        exported <- None
         index.Clear()
         for row in next.State.Entities do index[row.Id] <- row
         cache.Clear()
@@ -66,6 +69,13 @@ type internal GraphContext(repository: Repository, arcId: string) =
             // Restoring touches only objects allocated above, which no caller has seen yet.
             for row in fresh do Model.restore (fun target -> cache[target]) row cache[row.Id]
             cache[id]
+    let exportedGraph () =
+        match exported with
+        | Some graph -> graph
+        | None ->
+            let graph = Codec.encodeGraph stored.State
+            exported <- Some graph
+            graph
     let ensureOpen () =
         repository.EnsureOpen()
         if closed then invalidOp "The ARC context is closed."
@@ -89,7 +99,9 @@ type internal GraphContext(repository: Repository, arcId: string) =
             ensureOpen()
             let scope = db.BeginTransaction()
             try
-                let rows = query "UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc RETURNING revision" []
+                // The increment takes the write lock before anything is read.
+                execute "UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc" [] |> ignore
+                let rows = query "SELECT revision FROM arc WHERE arc_id=$arc" []
                 if rows.Count <> 1 then invalidOp "Unknown ARC entry."
                 let previous = rows[0].Get(0).AsInteger() - 1L
                 // Reloaded data stays published even when the command fails, because another connection committed it.
@@ -100,13 +112,27 @@ type internal GraphContext(repository: Repository, arcId: string) =
                     scope.Commit()
                     publish { next with Revision = previous + 1L }
             finally scope.Close())
-    let requireRow (state: State) (id: string) (kind: string) =
-        if not (state.Entities |> List.exists (fun row -> row.Id = id && row.Kind = kind)) then
-            invalidOp (kind + " is not registered in this ARC.")
+    // The subject must be stored with the kind of the supplied value, and that kind must be the group's kind.
+    let requireSubject (id: string) (group: string option) (value: obj) =
+        let kind = Model.kind value
+        match group with
+        | Some expected when expected <> kind -> invalidOp ("Expected a " + expected + " subject.")
+        | _ -> ()
+        match index.TryGetValue id with
+        | true, row when row.Kind = kind -> ()
+        | true, _ -> invalidOp ("Expected a " + kind + " subject.")
+        | _ -> invalidOp (kind + " is not registered in this ARC.")
+    // A target that is stored must be stored with the kind of the supplied value. Unknown IDs fail validation.
+    let requireTargets (targets: obj list) =
+        for target in targets do
+            let id = Model.id target |> Model.entityId
+            match index.TryGetValue id with
+            | true, row when row.Kind <> Model.kind target -> invalidOp ("Entity ID " + id + " is stored as " + row.Kind + ".")
+            | _ -> ()
     let sortByOrdinal (state: State) (ordinals: Map<string, int64>) =
         { state with Entities = state.Entities |> List.sortBy (fun row -> Map.find row.Id ordinals) }
     // The preset map carries recorded list positions for entities that an undo or redo restores.
-    let applyState (previous: Stored) (next: State) (preset: Map<string, int64>) kind (action: string) operationId =
+    let applyState (previous: Stored) (next: State) (changes: Change list) (preset: Map<string, int64>) kind (action: string) operationId =
         Model.validate next
         let updated = Store.write db arcId preset previous.State next
         let nextCursor = if action = "undo" then previous.Cursor - 1 else previous.Cursor + 1
@@ -115,7 +141,7 @@ type internal GraphContext(repository: Repository, arcId: string) =
             let ordinalOf id = match Map.tryFind id updated with Some ordinal -> ordinal | None -> Map.find id preset
             execute "INSERT INTO history(arc_id,sequence,operation_id,kind,changes) VALUES($arc,$sequence,$id,$kind,$changes)"
                 ["sequence", SqlValue.Integer(int64 nextCursor); "id", Store.text operationId; "kind", Store.text kind
-                 "changes", Store.text (Codec.encodeChanges (Store.changes previous.State next ordinalOf))] |> ignore
+                 "changes", Store.text (Codec.encodeChanges (changes |> List.map (fun change -> { change with Ordinal = ordinalOf change.EntityId })))] |> ignore
         execute "UPDATE arc SET root_id=$root,cursor=$cursor WHERE arc_id=$arc"
             ["root", Store.text next.Root; "cursor", SqlValue.Integer(int64 nextCursor)] |> ignore
         { previous with State = sortByOrdinal next updated; Ordinals = updated; Cursor = nextCursor }
@@ -131,12 +157,12 @@ type internal GraphContext(repository: Repository, arcId: string) =
     member _.Folder = read (fun () -> stored.Folder)
     member _.Baseline = read (fun () -> stored.Baseline)
     member _.Revision = read (fun () -> stored.Revision)
-    member _.IsDirty = read (fun () -> stored.SavedGraph <> Some(Codec.encodeGraph stored.State))
+    member _.IsDirty = read (fun () -> stored.SavedGraph <> Some(exportedGraph ()))
     member _.HasSessionOnlyObjects = read (fun () -> Model.sessionOnly stored.State)
     member _.CanUndo = read (fun () -> stored.Cursor > 0)
     member _.CanRedo =
         read (fun () -> (query "SELECT sequence FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence", SqlValue.Integer(int64 (stored.Cursor + 1))]).Count > 0)
-    member _.ToYaml() = read (fun () -> Codec.encodeGraph stored.State)
+    member _.ToYaml() = read exportedGraph
     member _.Id(value: obj) = Model.required "entity" value |> ignore; Model.id value |> Model.entityId
     member _.List<'T>(kind: string) : seq<'T> =
         read (fun () ->
@@ -155,16 +181,18 @@ type internal GraphContext(repository: Repository, arcId: string) =
     member _.Apply(kind: string, transform: State -> State) : unit =
         run (fun previous ->
             let next = transform previous.State
-            if List.isEmpty (Store.changes previous.State next (fun _ -> 0L)) then None
-            else Some(applyState previous next previous.Ordinals kind "apply" (Identifier.newId())))
+            let changes = Store.changes previous.State next (fun _ -> 0L)
+            if List.isEmpty changes then None
+            else Some(applyState previous next changes previous.Ordinals kind "apply" (Identifier.newId())))
     member private _.Hydrated<'T>(id: string) : 'T =
         repository.Access(fun () ->
             ensureOpen()
             unbox<'T> (hydrate id))
-    member this.Change<'T>(entity: obj, key: string, value: Cell option, kind: string) : 'T =
-        let id, expected = this.Id(entity), Model.kind entity
+    member this.Change<'T>(entity: obj, group: string option, key: string, value: Cell option, targets: obj list, kind: string) : 'T =
+        let id = this.Id(entity)
         this.Apply(kind, fun state ->
-            requireRow state id expected
+            requireSubject id group entity
+            requireTargets targets
             let rows = state.Entities |> List.map (fun row ->
                 if row.Id <> id then row
                 else { row with Properties = match value with Some v -> Map.add key v row.Properties | None -> Map.remove key row.Properties })
@@ -172,9 +200,11 @@ type internal GraphContext(repository: Repository, arcId: string) =
         this.Hydrated<'T>(id)
     member this.Extension<'T>(entity: EntityObject, key: string, value: Entity option, addOnly: bool) : 'T =
         let id = this.Id(entity)
-        let captured = value |> Option.map (Model.captureExtension (fun target -> this.Id(target)))
+        let targets = ResizeArray<obj>()
+        let captured = value |> Option.map (Model.captureExtension (fun target -> targets.Add target; this.Id(target)))
         this.Apply(entity.Type + "." + (if value.IsNone then "removeProperty" elif addOnly then "addProperty" else "setProperty"), fun state ->
-            requireRow state id entity.Type
+            requireSubject id None entity
+            requireTargets (List.ofSeq targets)
             let rows = state.Entities |> List.map (fun row ->
                 if row.Id <> id then row
                 else
@@ -182,10 +212,11 @@ type internal GraphContext(repository: Repository, arcId: string) =
                     {row with Extensions = match captured with Some v -> Map.add key v row.Extensions | None -> Map.remove key row.Extensions})
             {state with Entities = rows})
         this.Hydrated<'T>(id)
-    member this.Collection<'T>(entity: obj, key: string, target: obj, append: bool, kind: string) : 'T =
-        let id, targetId, expected = this.Id(entity), this.Id(target), Model.kind entity
+    member this.Collection<'T>(entity: obj, group: string option, key: string, target: obj, append: bool, kind: string) : 'T =
+        let id, targetId = this.Id(entity), this.Id(target)
         this.Apply(kind, fun state ->
-            requireRow state id expected
+            requireSubject id group entity
+            requireTargets [target]
             let rows = state.Entities |> List.map (fun row ->
                 if row.Id <> id then row else
                     let values = Model.links key row
@@ -194,10 +225,10 @@ type internal GraphContext(repository: Repository, arcId: string) =
                     {row with Properties = Map.add key (Links(if append then values @ [targetId] else remove values)) row.Properties})
             {state with Entities = rows})
         this.Hydrated<'T>(id)
-    member this.Delete(entity: obj) : unit =
-        let id, expected = this.Id(entity), Model.kind entity
-        this.Apply(expected + ".delete", fun state ->
-            requireRow state id expected
+    member this.Delete(entity: obj, group: string option) : unit =
+        let id = this.Id(entity)
+        this.Apply(Model.kind entity + ".delete", fun state ->
+            requireSubject id group entity
             if id = state.Root then invalidOp "The root Dataset cannot be deleted."
             // Cascade Dataset containment only when it is exclusively owned by deleted nodes.
             let rec cascade removed =
@@ -230,8 +261,8 @@ type internal GraphContext(repository: Repository, arcId: string) =
         Model.required "entity" value |> ignore
         let accepts = match kind with Some expected -> (fun actual -> actual = expected) | None -> (fun actual -> not (Schema.isCore actual))
         let rootId = ref ""
-        this.Apply(Model.kind value + (if strict then ".register" else ".set"), fun state ->
-            let next, id = Adoption.adopt state accepts value strict recursive
+        this.Apply(Model.kind value + (if strict then ".add" else ".upsert"), fun state ->
+            let next, id = Adoption.adopt state accepts value strict recursive recursive
             rootId.Value <- id
             next)
         this.Hydrated<'T>(rootId.Value)
@@ -245,7 +276,7 @@ type internal GraphContext(repository: Repository, arcId: string) =
             let row = rows[0]
             let records = row.GetByName("changes").AsText() |> Codec.decodeChanges
             let next, preset = Store.applyChanges previous.State previous.Ordinals records redo
-            Some(applyState previous next preset (row.GetByName("kind").AsText()) (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText())))
+            Some(applyState previous next [] preset (row.GetByName("kind").AsText()) (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText())))
     /// Binds the entry to a folder. The check runs against the freshly read binding inside the write transaction.
     member _.SetBinding(path: string, check: unit -> unit) : unit =
         run (fun previous ->
@@ -266,17 +297,22 @@ type internal GraphContext(repository: Repository, arcId: string) =
             else
                 execute "UPDATE arc SET baseline=$baseline,saved_graph=NULL WHERE arc_id=$arc" ["baseline", Store.optional current] |> ignore
                 Some { previous with Baseline = current; SavedGraph = None })
-    member _.Reload(next: State, current: string) : unit =
+    /// Replaces the stored state with a state read from the folder. The decision callback runs inside the write
+    /// transaction on the freshly read state and returns the replacement state with the YAML text it came from, or None to keep everything.
+    member _.Reload(decide: Stored -> (State * string) option) : unit =
         run (fun previous ->
-            Model.validate next
-            Store.archive db arcId previous.State |> ignore
-            execute "DELETE FROM history WHERE arc_id=$arc" [] |> ignore
-            let updated = Store.write db arcId previous.Ordinals previous.State next
-            let sorted = sortByOrdinal next updated
-            let graph = Codec.encodeGraph sorted
-            execute "UPDATE arc SET root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0 WHERE arc_id=$arc"
-                ["root", Store.text next.Root; "baseline", Store.text current; "saved", Store.text graph] |> ignore
-            Some { previous with State = sorted; Ordinals = updated; Cursor = 0; Baseline = Some current; SavedGraph = Some graph })
+            match decide previous with
+            | None -> None
+            | Some(next, current) ->
+                Model.validate next
+                Store.archive db arcId previous.State |> ignore
+                execute "DELETE FROM history WHERE arc_id=$arc" [] |> ignore
+                let updated = Store.write db arcId previous.Ordinals previous.State next
+                let sorted = sortByOrdinal next updated
+                let graph = Codec.encodeGraph sorted
+                execute "UPDATE arc SET root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0 WHERE arc_id=$arc"
+                    ["root", Store.text next.Root; "baseline", Store.text current; "saved", Store.text graph] |> ignore
+                Some { previous with State = sorted; Ordinals = updated; Cursor = 0; Baseline = Some current; SavedGraph = Some graph })
     member _.Close() =
         if not closed then
             closed <- true

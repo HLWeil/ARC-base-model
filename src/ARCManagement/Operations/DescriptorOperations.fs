@@ -11,10 +11,10 @@ type DescriptorOperations internal (session: GraphContext) =
     member _.upsert(value: Descriptor, ?recursive: bool): Descriptor = session.Upsert<Descriptor>(value, Some "Descriptor", defaultArg recursive false)
     member _.get(id: string) = session.Get<Descriptor>("Descriptor",id)
     member _.list(): seq<Descriptor> = session.List<Descriptor>("Descriptor")
-    member _.delete(value: Descriptor) = session.Delete(value)
+    member _.delete(value: Descriptor) = session.Delete(value, Some "Descriptor")
     member _.setDescribes(value: Descriptor, replacement: EntityReference) =
-        session.Change<Descriptor>(value,"describes",Some(Links [session.Id(Model.endpoint replacement)]),"Descriptor.setDescribes")
+        session.Change<Descriptor>(value,Some "Descriptor","describes",Some(Links [session.Id(Model.endpoint replacement)]),[Model.endpoint replacement],"Descriptor.setDescribes")
     member _.setAnnotations(value: Descriptor, replacement: seq<Annotation>) =
-        session.Change<Descriptor>(value,"annotations",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"Descriptor.setAnnotations")
-    member _.addAnnotation(value: Descriptor, target: Annotation) = session.Collection<Descriptor>(value,"annotations",target,true,"Descriptor.addAnnotation")
-    member _.removeAnnotation(value: Descriptor, target: Annotation) = session.Collection<Descriptor>(value,"annotations",target,false,"Descriptor.removeAnnotation")
+        session.Change<Descriptor>(value,Some "Descriptor","annotations",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Descriptor.setAnnotations")
+    member _.addAnnotation(value: Descriptor, target: Annotation) = session.Collection<Descriptor>(value,Some "Descriptor","annotations",target,true,"Descriptor.addAnnotation")
+    member _.removeAnnotation(value: Descriptor, target: Annotation) = session.Collection<Descriptor>(value,Some "Descriptor","annotations",target,false,"Descriptor.removeAnnotation")

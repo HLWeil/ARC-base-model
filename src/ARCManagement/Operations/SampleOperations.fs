@@ -11,10 +11,10 @@ type SampleOperations internal (session: GraphContext) =
     member _.upsert(value: Sample, ?recursive: bool): Sample = session.Upsert<Sample>(value, Some "Sample", defaultArg recursive false)
     member _.get(id: string) = session.Get<Sample>("Sample",id)
     member _.list(): seq<Sample> = session.List<Sample>("Sample")
-    member _.delete(value: Sample) = session.Delete(value)
+    member _.delete(value: Sample) = session.Delete(value, Some "Sample")
     member _.setName(value: Sample, replacement: string) =
-        session.Change<Sample>(value,"name",Some(Text(Model.required "name" replacement)),"Sample.setName")
+        session.Change<Sample>(value,Some "Sample","name",Some(Text(Model.required "name" replacement)),[],"Sample.setName")
     member _.setAdditionalProperties(value: Sample, replacement: seq<Annotation>) =
-        session.Change<Sample>(value,"additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"Sample.setAdditionalProperties")
-    member _.addAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(value,"additionalProperties",target,true,"Sample.addAdditionalProperty")
-    member _.removeAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(value,"additionalProperties",target,false,"Sample.removeAdditionalProperty")
+        session.Change<Sample>(value,Some "Sample","additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),(replacement |> Seq.map box |> List.ofSeq),"Sample.setAdditionalProperties")
+    member _.addAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(value,Some "Sample","additionalProperties",target,true,"Sample.addAdditionalProperty")
+    member _.removeAdditionalProperty(value: Sample, target: Annotation) = session.Collection<Sample>(value,Some "Sample","additionalProperties",target,false,"Sample.removeAdditionalProperty")

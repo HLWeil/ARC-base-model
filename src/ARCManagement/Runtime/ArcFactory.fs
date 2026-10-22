@@ -12,7 +12,7 @@ module internal ArcFactory =
     /// Prepare management IDs in a snapshot, without modifying the input graph.
     let snapshot (root: Dataset) =
         Model.required "rootDataset" root |> ignore
-        let state, rootId = Adoption.adopt { Root = ""; Entities = [] } (fun kind -> kind = "Dataset") (box root) true true
+        let state, rootId = Adoption.adopt { Root = ""; Entities = [] } (fun kind -> kind = "Dataset") (box root) true true false
         let state = { state with Root = rootId }
         Model.validate state
         state

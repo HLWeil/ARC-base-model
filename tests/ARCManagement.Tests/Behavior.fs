@@ -431,16 +431,18 @@ let tests = testList "Management prototype" [
         Expect.equal again.Name "p2" "The root is always replaced"
         Expect.isNone again.Input "Replacement drops the old input"
 
-    testCase "distinct objects with one ID must carry equal definitions" <| fun _ ->
+    testCase "only recursive upsert merges distinct objects with one ID and equal definitions" <| fun _ ->
         let _, created = create()
         use arc = created
         let commands = count "history" arc.DatabasePath
         let first = Sample("one", id = "shared")
         let second = Sample("two", id = "shared")
         let proc = ARCBaseModel.Process("p", input = EntityReference.Sample first, output = EntityReference.Sample second)
-        Expect.throws (fun () -> arc.Process.add(proc) |> ignore) "Conflicting definitions rejected"
+        Expect.throws (fun () -> arc.Process.upsert(proc, true) |> ignore) "Conflicting definitions rejected"
         let equal = ARCBaseModel.Process("p", input = EntityReference.Sample(Sample("one", id = "shared")), output = EntityReference.Sample(Sample("one", id = "shared")))
-        let stored = arc.Process.add(equal)
+        Expect.throws (fun () -> arc.Process.add(equal) |> ignore) "add rejects distinct objects with one ID"
+        Expect.throws (fun () -> arc.Process.upsert(equal) |> ignore) "Non-recursive upsert rejects distinct new objects with one ID"
+        let stored = arc.Process.upsert(equal, true)
         Expect.equal (input stored).Id (output stored).Id "Equal definitions share one row"
         Expect.equal (Seq.length (arc.Sample.list())) 1 "Stored once"
         Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Only the valid command is journaled"
@@ -602,7 +604,7 @@ let tests = testList "Management prototype" [
         withSql arc.DatabasePath (fun sql ->
             let rows = sql.Query("SELECT kind FROM history ORDER BY sequence")
             Expect.equal (rows |> Seq.map (fun row -> row.Get(0).AsText()) |> Seq.toList)
-                ["Sample.set"; "Sample.set"] "One upsert command per insertion")
+                ["Sample.upsert"; "Sample.upsert"] "One upsert command per insertion")
         let id = second.Id.Value
         arc.History.undo()
         Expect.equal (Seq.length (arc.Sample.list())) 1 "Undo removes the inserted registration"
@@ -747,4 +749,31 @@ let tests = testList "Management prototype" [
         Expect.equal (arc.Sample.get(id)).Name "new branch" "The ID is reused on the new branch"
         Expect.isFalse arc.IsDirty "Standalone upsert does not change the saved root graph"
         Expect.isTrue arc.HasSessionOnlyObjects "Standalone state is tracked separately"
+    testCase "undo and redo after a refresh act on the current history" <| fun _ ->
+        let path, first = create()
+        use first = first
+        use second = ARC.openFolder(path, "auto")
+        first.Dataset.setTitle(first.Model, Some("a")) |> ignore
+        second.Dataset.setDescription(second.Model, Some("b")) |> ignore
+        Expect.isTrue first.History.CanUndo "The refreshed history has entries"
+        first.History.undo()
+        Expect.isNone first.Model.Description "Undo reverts the other connection's latest command"
+        Expect.equal first.Model.Title (Some "a") "Earlier commands remain"
+        second.History.redo()
+        Expect.equal second.Model.Description (Some "b") "Redo reapplies it on the other connection"
+        Expect.equal first.Model.Description (Some "b") "The first connection sees the redo"
+
+    testCase "a write that fails validation after a refresh rolls back and keeps the refreshed state" <| fun _ ->
+        let path, first = create()
+        use first = first
+        use second = ARC.openFolder(path, "auto")
+        let held = first.Model
+        second.Dataset.setTitle(second.Model, Some("other")) |> ignore
+        let revision () = withSql first.DatabasePath (fun sql -> sql.Query("SELECT revision FROM arc").[0].Get(0).AsInteger())
+        let before, commands = revision(), count "history" first.DatabasePath
+        Expect.throws (fun () -> first.Dataset.setIdentifiers(held, []) |> ignore) "Validation fails"
+        Expect.equal (revision()) before "The revision bump rolled back"
+        Expect.equal (count "history" first.DatabasePath) commands "No history was written"
+        Expect.equal first.Model.Title (Some "other") "The refreshed state is visible"
+        Expect.equal (first.Dataset.setDescription(held, Some "next")).Title (Some "other") "A later write applies to the refreshed state"
 ]
