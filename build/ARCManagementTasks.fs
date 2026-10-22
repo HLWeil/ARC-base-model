@@ -59,6 +59,21 @@ let testARCManagementNative = BuildTask.create "TestARCManagementNative" [buildJ
     command "node" ["build/arc-management.mjs"; "pack-test"]
     python ["build/arc-management-python.py"; "pack-test"]
 }
+let testARCManagementInterop = BuildTask.create "TestARCManagementInterop" [testARCManagementDotNet;buildJS;buildPyTests] {
+    let folder = Path.Combine(outputRoot,"interop")
+    if Directory.Exists(folder) then Directory.Delete(folder,true)
+    Directory.CreateDirectory(folder) |> ignore
+    let runners =
+        [ "dotnet", (fun arguments -> command "dotnet" (["run";"--project";"tests/ARCManagement.Tests/ARCManagement.Tests.fsproj";"-c";configuration;"--no-build";"--"] @ arguments))
+          "javascript", (fun arguments -> command "node" (["build/out/arc-management/js/tests.js"] @ arguments))
+          "python", (fun arguments -> pythonWithPackages (["build/out/arc-management/tests-py/main.py"] @ arguments)) ]
+    for writerName,writeFixture in runners do
+        let fixture = Path.Combine(folder,writerName + ".sqlite")
+        writeFixture ["--write-fixture";fixture]
+        for readerName,readFixture in runners do
+            Trace.tracefn "Reading %s ARC fixture with %s" writerName readerName
+            readFixture ["--read-fixture";fixture]
+}
 let testARCManagement =
     BuildTask.createEmpty "TestARCManagement"
-        [testARCManagementDotNet;testARCManagementJS;testARCManagementPy;testARCManagementNative]
+        [testARCManagementDotNet;testARCManagementJS;testARCManagementPy;testARCManagementNative;testARCManagementInterop]

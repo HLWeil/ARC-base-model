@@ -11,6 +11,7 @@
     <Compile Include="FullModel.fs" />
     <Compile Include="Toolbox.fs" />
     <Compile Include="Yaml.fs" />
+    <Compile Include="Interop.fs" />
     <Compile Include="Walkthrough.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>

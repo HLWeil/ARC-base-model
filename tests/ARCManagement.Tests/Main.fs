@@ -14,11 +14,13 @@ let tests = testList "ARCManagement" [
 [<EntryPoint>]
 let main arguments =
 #if FABLE_COMPILER
-    Pyxpecto.runTests [||] tests
+    if Interop.tryRun arguments then 0 else Pyxpecto.runTests [||] tests
 #else
-    match arguments with
-    | [|"--demo"; folder|] -> Walkthrough.run folder; 0
-    | [|"--core-sql"|] -> Pyxpecto.runTests [||] CoreSql.tests
-    | [||] -> Pyxpecto.runTests [||] tests
-    | _ -> eprintfn "Usage: [--demo <new-folder> | --core-sql]"; 1
+    if Interop.tryRun arguments then 0
+    else
+        match arguments with
+        | [|"--demo"; folder|] -> Walkthrough.run folder; 0
+        | [|"--core-sql"|] -> Pyxpecto.runTests [||] CoreSql.tests
+        | [||] -> Pyxpecto.runTests [||] tests
+        | _ -> eprintfn "Usage: [--demo <new-folder> | --core-sql | --write-fixture <path> | --read-fixture <path>]"; 1
 #endif
