@@ -63,7 +63,7 @@ ARC-Data-Model/
 
 ## Accepted redesign
 
-[The immutable redesign](plans/mutation_safety_immutable.md) supersedes, phase by phase, the live-projection management rules below, together with the management storage layout and managed YAML format. The Layer 1 phase and the storage phase (schema version 5 with a diff writer and delta history) have landed, so the Layer 1 rules in this file describe the immutable model. The runtime and API phases are pending, and until each lands the existing management rules describe the code. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
+[The immutable redesign](plans/mutation_safety_immutable.md) supersedes the live-projection management rules and the previous managed YAML format. The Layer 1, storage (schema version 5 with a diff writer and delta history), runtime and API phases have landed, so the rules in this file describe the immutable model and the cached-state runtime. The YAML phase (ProcessCore-shaped codec) and the close-out remain, and until the YAML phase lands the DatasetYaml and root-only `id`/`$ref` rules below describe the code. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
 
 ## Layer 1: Portable Domain Model
 
@@ -126,18 +126,39 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
 
 - `ARCManagement.Session` owns one connection and creates, opens, imports, and
   enumerates independently managed entries. `createArc` and `openArc` return
-  `ManagedGraph`; repeated opening returns the same active graph. Keep `ArcInfo`,
+  `ManagedGraph`. Repeated opening returns the same active `ManagedGraph`. Keep `ArcInfo`,
   `ArcId`, and `listArcs` names. Session closure invalidates all its graphs.
 - `ARCManagement.ManagedGraph` owns model access, operation groups, identity,
   validation, transactions, history, graph lifetime, and root-only `toYaml()`.
-  Preserve supplied references, ordering, duplicates, and stable canonical
-  objects through edits/history. ID assignment belongs here, never Layer 1.
+  Management keeps no live model objects. A graph caches the stored rows of its
+  entry and SQL is authoritative. Reads check the revision with one query,
+  reload inside a read transaction when another connection committed, and
+  hydrate fresh immutable values on demand with a per-revision cache. Identity
+  across revisions is not promised. Returned values never change, including
+  after later edits, undo/redo, and graph or session closure. Preserve supplied
+  references, ordering, and duplicates. ID assignment belongs here, never Layer
+  1. It applies only to persisted copies and never modifies supplied objects.
+- Operation groups cover 13 entity types with `create`, `add`, `upsert(value,
+  ?recursive)`, `get`, `list`, and `delete`, one `set<Property>` per property
+  (an option clears), and `add<Item>`/`remove<Item>` per entity collection.
+  Setters and add/remove return the updated immutable value, `create`/`add`/
+  `upsert` return the stored copy, `delete`/`undo`/`redo` return unit, and `list`
+  returns an immutable collection. Subjects are identified by `Id`, must exist
+  with the group's kind, and setters apply to current stored state. `add` is
+  strict, `upsert` inserts an unknown root or replaces the root's own fields,
+  and nested stored entities are links unless `recursive = true` (a positional
+  optional argument in JavaScript and a keyword in Python). Writes run in one
+  outermost transaction that bumps the arc revision first. An unchanged result
+  rolls back, so revision, history, and redo stay unchanged. There are no
+  caller revision tokens, stale-handle errors, ownership registry, or
+  direct-mutation detection. Native numbers for Number values become floats at
+  the management boundary, and Booleans are rejected.
 - `ARCManagement.DatasetYaml.encode/decode` are detached codecs. Preserve absent
   IDs and distinct objects with equal supplied IDs, sharing, cycles, extensions,
   and scalar types through serialization-local anchors/aliases. Do not modify
   supplied objects or perform SQL/filesystem/ownership operations.
   `Session.importYaml` subsequently applies normal adoption rules, assigning
-  missing IDs and rejecting distinct-object ID collisions in a fresh unbound
+  missing IDs to persisted copies and rejecting distinct-object ID collisions in a fresh unbound
   entry. Managed exports retain root-only `id`/`$ref` output and do not advance
   checkpoints or history. Snapshot codecs remain private.
 - Top-level `ARCtrl.ARC` lives in the nested `ARCtrl/` folder. Keep workspace

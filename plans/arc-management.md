@@ -4,9 +4,10 @@ Status: generic ARCManagement and workspace-specific ARCtrl are separated and
 verified, including detached YAML workflows and renamed native packages.
 `BuildSolution` and repository-wide `RunTests` passed. Project-file codec
 integration remains planned. The accepted
-[immutable redesign](mutation_safety_immutable.md) will replace the mutable
-model, live projections, storage layout and managed YAML format described below.
-This document describes the current implementation until its phases land.
+[immutable redesign](mutation_safety_immutable.md) has landed its Layer 1,
+storage, runtime and API phases. The management runtime keeps no live model
+objects and the operation groups are trimmed. The managed YAML format described
+below is still the previous one until the YAML phase lands.
 
 This plan tracks the current implementation and remaining work. See the
 [management guide](../docs/project/arc-management.md) and
@@ -50,8 +51,8 @@ let session = Session.createInMemory()
 let graph = session.createArc(Dataset(["process-provenance"], ["example"]))
 let sample = graph.Sample.create("sample")
 let process = graph.Process.create("process")
-graph.Process.setInputSample(process, sample) |> ignore
-graph.Dataset.addProcess(graph.Model, process) |> ignore
+let withInput = graph.Process.setInput(process, Some(EntityReference.Sample sample))
+graph.Dataset.addProcess(graph.Model, withInput) |> ignore
 graph.History.undo()
 graph.History.redo()
 let yaml = graph.toYaml()
@@ -63,48 +64,62 @@ session.close()
 ```
 
 - `createFile` exclusively creates a new database; existing destinations are
-  rejected. `openFile` requires a valid schema-version-4 repository and checks
+  rejected. `openFile` requires a valid schema-version-5 repository and checks
   columns, keys, and relationship constraints. It neither initializes nor
   migrates an existing database.
-- `createArc` adopts a supplied graph. Its generated repository `ArcId` is
+- `createArc` persists a copy of the supplied graph and never modifies the
+  supplied objects. Its generated repository `ArcId` is
   independent of the root Dataset ID. Domain IDs are scoped to one ARC, so
   different ARCs can contain equal IDs without sharing objects.
 - Opening a repository and listing `ArcInfo` metadata do not hydrate graphs or
   read folders. `openArc` loads only the selected entry and returns its existing
-  ManagedGraph and objects until that graph closes.
-- Closing a graph releases its context; reopening creates a fresh projection.
-  Closing the session invalidates all its handles and releases its connection.
-  In-memory storage lasts for that connection. Neither close exports implicitly.
-- Shared mutable entities across live ARCs are rejected, including across
-  separate repositories. Connection access is synchronous and serialized.
+  ManagedGraph until that graph closes.
+- A graph keeps no model objects. Its context caches the stored rows of one entry
+  (state, ordinals, cursor, revision, folder, baseline, saved graph) and SQL is
+  authoritative. Closing a graph releases its context. Closing the session
+  invalidates all its graphs and releases its connection. Values already returned
+  stay unchanged after either close. In-memory storage lasts for that connection.
+  Neither close exports implicitly.
+- Equal domain IDs in different ARCs identify independent entities. Values read
+  from another ARC are accepted and resolve by ID in the destination. Connection
+  access is synchronous and serialized.
 
 ### Entity operations and identity
 
 All thirteen model entity types have operation groups, alongside generic
-`Entity` and `History`. Entity groups expose `create`, `add`, `get`, `list`,
-`upsert`, and `delete`, plus property setters, optional-value clear methods,
-collection replacement, and typed relationship helpers.
+`Entity` and `History`, about 199 members in all. Entity groups expose `create`,
+`add`, `upsert(value, ?recursive)`, `get`, `list`, and `delete`, one
+`set<Property>` per property (an option clears), and `add<Item>`/`remove<Item>`
+per entity collection. The `Entity` group has CRUD, `setAdditionalTypes`, and
+`setProperty`/`addProperty`/`removeProperty`. `AppliedOperation` is removed.
+`create`, `add`, and `upsert` return the stored copy with assigned IDs. Setters
+and add/remove return the updated immutable value. `delete`, `undo`, and `redo`
+return unit. `list` returns an immutable collection in ordinal order (a
+read-only collection on .NET, a frozen array on JavaScript, a tuple on Python).
+`recursive` is a positional optional argument in JavaScript and a keyword in
+Python.
 
-- `add(value)` returns the supplied object and recursively adopts its referenced
-  graph. It validates the state, assigns omitted IDs, preserves supplied IDs,
-  and rejects collisions with distinct instances. Adding the same active
-  instance again is a no-op. Registration does not attach an object to the root.
-- `upsert(value): unit` uses a detached input for full replacement by ID. An
-  existing same-type ID updates the retained canonical instance and replaces its
-  collection containers. Empty collections clear values. Unknown IDs adopt the graph.
-  Cross-type collisions are rejected. References to managed objects must use
-  their registered instances.
-- ID assignment belongs to this management layer, never Layer 1. Identity is
-  not inferred from names, paths, or equal values. Undo of a new registration
-  restores originally omitted IDs; redo restores the assigned IDs.
+- Subjects are identified by their `Id` and must exist with the group's kind.
+  Setters apply to the current stored state, so the setter always wins.
+  Relationship targets must already be stored.
+- `add` inserts strictly (an existing ID fails) and inserts new nested entities.
+- `upsert` inserts an unknown root or replaces the root's own fields. Nested
+  entities with stored IDs are links and stay unchanged unless `recursive` is
+  true, which writes every reachable submitted entity as the last truth.
+  Distinct submitted objects with one ID must have equal definitions. Upserting
+  a Dataset never changes the ARC root.
+- Management never modifies supplied objects. It assigns missing IDs to the
+  persisted copies. ID assignment belongs to this management layer, never Layer 1.
+  Identity is not inferred from names, paths, or equal values. Undo of a new
+  registration restores originally omitted IDs and redo restores the assigned IDs.
 - Collection edits preserve order, duplicates, and shared references. Removal
-  deletes one occurrence. Removing a relationship does not unregister its
-  target. Move helpers require at most one membership; replacement setters
+  deletes one occurrence and does not unregister the target. Replacement setters
   handle shared or repeated members.
-- Process endpoints are optional and singular. Typed helpers such as
-  `setInputSample`, `setOutputData`, and `clearInput` avoid native union wrappers.
-  Other alternatives distinguish text/numbers and entity/URL values, including
-  absence, empty text, zero, and fractional numbers.
+- Process endpoints are optional and singular. `setInput` and `setOutput` take an
+  `EntityReference` and accept absence. Other alternatives distinguish
+  text/numbers and entity/URL values, including absence, empty text, zero, and
+  fractional numbers. Native numbers supplied for Number values become native
+  floats at the management boundary, and Booleans are rejected.
 - Root deletion is rejected. Dataset deletion cascades only to descendants and
   processes without surviving owners. Required Descriptor targets and surviving
   extension references prevent target deletion; undo restores affected links.
@@ -119,29 +134,27 @@ validation, SQL, and history pipeline as core edits.
 
 ### Commands, history, and consistency
 
-Managed edits validate a planned snapshot, then write the difference between the
-stored and the new state, the history record, the cursor, and the ARC revision
-transactionally. The live projection follows. Failures roll back SQL and restore
-the previous projection. Fine-grained mutations return attached
-`AppliedOperation` values.
+A write runs in one outermost transaction whose first statement is
+`UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc RETURNING revision`.
+If the cached revision is older, the transaction reloads the state first. The command is a pure state transform. An unchanged result rolls back
+without changing revision, history, or redo. A changed result is validated,
+written as a diff with one history row, committed, and then published to the
+cache. Provider errors such as `SQLITE_BUSY` surface unchanged. There are no
+stale-handle errors and no caller revision tokens.
+
+Reads check the revision with one query and reload inside a read transaction when
+another connection has committed. They hydrate fresh immutable values on demand
+with a per-revision cache. Identity across revisions is not promised. Returned
+values never change after they are returned, including after later edits,
+undo/redo, and graph or session closure. The ownership registry and direct
+mutation detection are gone.
 
 Undo/redo is linear and persisted as recorded before/after rows applied through
-the same writer. A new edit after
-undo invalidates the redo branch. Hydration and history restoration keep
-canonical instances and shared or recursive relationships, and replace
-collection containers. Saving preserves history and standalone registered
-objects.
+the same writer. A new edit after undo invalidates the redo branch. Saving
+preserves history and standalone stored objects.
 
-Direct property or collection edits on managed objects are unsupported. The
-implementation compares the projection with its retained snapshot before
-commands and saves, rejecting detected changes. Callers can close and reopen
-the ARC to restore committed state. This detection is implemented. The
-[immutable redesign](mutation_safety_immutable.md) replaces it by making model
-values immutable.
-
-Revisions are ARC-local. Edits to another ARC do not invalidate a handle; stale
-writes to the same ARC through another connection require close and reopen.
-SQLite still permits only one writer; this is not collaborative editing.
+Revisions are ARC-local. Edits to another ARC do not affect a graph. SQLite still
+permits only one writer. This is not collaborative editing.
 
 ### SQLite storage
 
@@ -177,7 +190,8 @@ Writes apply the difference between two in-memory states in a fixed order: inser
 new rows, remove changed association, endpoint and extension rows, update
 scalars, clear outgoing references of removed rows, delete descriptors, then other
 core rows, then registry rows, insert same-ID kind replacements, and add rows. A
-title edit writes three rows (dataset update, history insert, `arc` update).
+title edit changes four rows (dataset update, history insert, and separate `arc`
+revision and cursor updates).
 Association list edits keep the common prefix, so appending one element writes one
 row.
 Undo and redo apply the recorded before/after rows through the same writer and
@@ -188,8 +202,7 @@ identical SQL text. Version 4 databases are rejected with a re-import hint, and
 there is no migration. A conformance test compares the scoped tables with
 `001_core.sql` (columns, keys, foreign keys with actions and deferrability, index
 keys, CHECKs with literal case, and the view set). A two-ARC behavioral test covers
-every `core_validation_errors` arm and `process_edges`. The runtime still keeps canonical live instances and rejects a stale
-handle. Automatic refresh comes with the runtime phase. A public cross-ARC query
+every `core_validation_errors` arm and `process_edges`. A public cross-ARC query
 API is not implemented.
 
 ### Folder export and recovery
@@ -205,7 +218,7 @@ Folder operations are independent of repository opening:
 - `ARC.importFolder(session, folder)` reads prototype `arc.yml` into a new bound
   entry and records its baseline. `bindFolder` establishes a destination without
   reading or writing; a new binding requires absent `arc.yml`.
-- `save` requires a binding, checks direct mutation and external file changes,
+- `save` requires a binding, checks external file changes,
   and exports only the graph rooted at `arc.Model`. Standalone objects and all
   history remain in SQLite. `IsDirty` and `HasSessionOnlyObjects` track different
   aspects of working state.
@@ -265,9 +278,9 @@ The implementation lives in [src/ARCManagement](../src/ARCManagement/):
 | Area | Responsibility |
 |---|---|
 | Generic repository and public Session | Connection ownership, repository lifecycle, metadata, and graph factories. |
-| `Runtime/Session.fs`, `ArcFactory.fs` | ARC context, snapshots, identity, adoption, hydration, and history. |
+| `Runtime/Session.fs`, `ArcFactory.fs` | ARC context with cached stored rows, revision protocol, identity assignment, hydration, and history. |
 | `ARCtrl/` | Workspace ARC, binding, export, baselines, recovery, fixed layout paths, and workspace-specific identifier/path helpers. |
-| `Operations/`, `ManagedGraph.fs`, `AppliedOperation.fs` | Generic attached facade and operation groups. |
+| `Operations/`, `ManagedGraph.fs` | Generic attached facade and operation groups. |
 | `Internal/`, `Serialization/`, `Storage/` | Model capture/validation, YAML codecs, and the SQLite core-profile schema and diff writer. |
 | `Helper/` | Generic portable filesystem adapters, UUID generation, collections, parsing, and async utilities. |
 
@@ -294,7 +307,7 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 | Detached YAML and public text workflows | Implemented and verified | Verified absent/duplicate IDs, sharing/cycles, scalar types, extensions, legacy input, invalid aliases, managed adoption, and checkpoint-free export. |
 | Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
 | Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
-| Immutable model and simplified management | Phase 1 and the storage part of phases 2-3 implemented. Runtime refresh and remaining phases planned | Phase 1 (immutable Layer 1, with the transitional management adaptation) and the core-shaped schema version 5 with delta history and no journal are done. The [immutable redesign](mutation_safety_immutable.md) still plans a cached-state runtime without live projections and the revision refresh protocol, trimmed typed operation groups, and ProcessCore-shaped YAML. |
+| Immutable model and simplified management | Runtime and API phases implemented. YAML phase and close-out remain | Immutable Layer 1, the core-shaped schema version 5 with delta history, the cached-state runtime with the revision protocol, and the trimmed operation groups are done. The [immutable redesign](mutation_safety_immutable.md) still plans ProcessCore-shaped YAML and the close-out acceptance. |
 | Project-file workspace integration | Planned | Resolve `.arc/project.yml`, profiles, rules, and exact codec IDs; prepare root/child bindings and auxiliary outputs before IO. |
 | Project-backed save and recovery | Planned | Export/reload selected resources with conflict checks, per-ARC archives, retained history/session-only objects, and failed-write checkpoint coverage. |
 | Project-backed native API and documentation | Planned | Run shared and handwritten consumers for the new lifecycle and document its supported guarantees. |
@@ -331,6 +344,8 @@ servers remain outside this plan. New production dependencies require approval.
 
 Storage verification (2026-10-22, after the review fixes): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 155/155 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. `TestBaseModel` ran 27/27 shared tests on each runtime with native and packed checks. PolyglotSQLite passed 41 .NET, 36 JavaScript and 36 Python cases, its native and packed checks, and all nine cross-runtime database writer/reader combinations. Core SQL passed 63 cases each on Node and Python. ProcessCore passed 659 JavaScript and 660 .NET cases, with two ignored cases on each runtime. The legacy ProcessCore `runTestsPy` target remains excluded by the aggregate.
 
+Runtime and API verification (2026-10-22): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 156/156 shared tests on each of .NET, JavaScript and Python, plus the native and packed checks. `TestBaseModel` ran 27/27 per runtime.
+
 A cross-runtime database writer/reader test for the version 5 store is planned for the close-out acceptance step.
 
 Historical baseline: before the `add` rename and project/API separation, the
@@ -359,14 +374,13 @@ demo walkthrough is .NET-only. Compilation or skipped execution is not a pass.
 
 For implementation changes, retain coverage for:
 
-- All entity properties and alternatives, ID assignment/collisions/undo, detached
+- All entity properties and alternatives, ID assignment/collisions/undo,
   upserts, shared references, cycles, collection order, and duplicates.
-- SQL/projection equivalence after edits, undo/redo, reopen, and injected
-  failures; direct mutation detection and canonical package class identity.
-- Memory/file parity, lazy hydration, ownership rejection, per-ARC constraints,
+- Stored state after edits, undo/redo, reopen, refresh from other connections,
+  and injected failures. Unchanged returned values and package class identity.
+- Memory/file parity, on-demand hydration, per-ARC constraints,
   history/revision isolation, and ARC/session closure.
-- Workspace wrappers reuse the exact graph, operation groups, and entities;
-  graph closure invalidates wrappers while borrowed sessions/siblings survive.
+- Workspace wrappers reuse the exact graph and operation groups. Graph closure invalidates wrappers while borrowed sessions/siblings survive.
 - Detached YAML absent IDs, equal supplied IDs on distinct objects, aliases,
   cycles, extensions, numeric/text distinctions, legacy documents, and failures.
 - YAML imports assign IDs and reject collisions; text export remains root-only

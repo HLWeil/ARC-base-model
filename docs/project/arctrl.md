@@ -49,11 +49,12 @@ nor writes files. Instance `bindFolder(folder)` applies the same policy.
 reconciling filesystem changes.
 
 `arc.ManagedGraph` is the supplied graph. `Model`, all entity operation groups,
-`Entity`, and `History` forward to that exact graph and its existing objects.
+`Entity`, and `History` forward to that exact graph. Returned values are the
+immutable snapshots of the graph and never change afterwards.
 `ArcId`, `DatabasePath`, and `HasSessionOnlyObjects` also forward to it. Workspace
 properties `FolderBinding`, `Folder`, and `IsDirty` describe the binding and save
-baseline. `IsDirty` tracks export changes; `HasSessionOnlyObjects` reports
-registered objects outside the root graph.
+baseline. `IsDirty` is true when the stored state exports differently from the
+saved graph. `HasSessionOnlyObjects` reports stored objects outside the root graph.
 
 Closing a workspace closes its graph and invalidates every wrapper sharing it.
 A borrowed session and sibling graphs remain usable. Closing the session
@@ -84,8 +85,8 @@ without a workspace, use `session.importYaml(text)`.
 
 ## Save and recover
 
-`save()` requires a binding. It checks unsupported direct mutations and external
-file changes, then exports only the graph rooted at `Model`. Registered objects
+`save()` requires a binding. It checks external file changes, then exports only
+the graph rooted at `Model`. Stored objects
 outside that graph and all undo/redo history remain in SQLite. Export uses the
 prototype `id`/`$ref` format, defining shared/circular entities once and preserving
 extensions and scalar alternatives. `ManagedGraph.toYaml()` produces the same
@@ -124,7 +125,7 @@ from arc_management.arctrl import ARC
 ```
 
 Import domain classes from `arc-base-model` / `arc_base_model`. Both management
-entrypoints share one implementation and canonical model/SQLite classes. Python
+entrypoints share one implementation and model/SQLite classes. Python
 methods use emitted snake_case names such as `open_folder`, `import_folder`,
 `from_graph`, `bind_folder`, and `recover_folder`.
 

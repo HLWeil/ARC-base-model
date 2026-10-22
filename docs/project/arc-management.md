@@ -25,8 +25,8 @@ let session = Session.createInMemory()
 let graph = session.createArc(Dataset(["process-provenance"], ["example"]))
 let sample = graph.Sample.create("sample")
 let proc = graph.Process.create("process")
-graph.Process.setInputSample(proc, sample) |> ignore
-graph.Dataset.addProcess(graph.Model, proc) |> ignore
+let withInput = graph.Process.setInput(proc, Some(EntityReference.Sample sample))
+graph.Dataset.addProcess(graph.Model, withInput) |> ignore
 graph.History.undo()
 graph.History.redo()
 let yaml = graph.toYaml()
@@ -38,23 +38,25 @@ session.close()
 ```
 
 `Session` owns one PolyglotSQLite connection. `createFile` exclusively creates a
-new database. `openFile` requires an existing schema-version-4 repository and
+new database. `openFile` requires an existing schema-version-5 repository and
 validates its columns, keys, and constraints; it never initializes or migrates
 it. In-memory storage lasts until its session closes. Access is synchronous and
 serialized.
 
-`createArc` returns a `ManagedGraph` and adopts the supplied graph: it preserves
-supplied IDs, assigns missing IDs, and rejects distinct objects with the same
-ID. Generated repository `ArcId` is independent of the root Dataset ID. Equal
-domain IDs in different entries identify independent objects. Sharing a mutable
-entity between live entries is rejected, including across separate repositories.
+`createArc` returns a `ManagedGraph` over a persisted copy of the supplied graph.
+It preserves supplied IDs, assigns missing IDs to the copy, and rejects distinct
+objects with the same ID. The supplied objects are never modified. Generated
+repository `ArcId` is independent of the root Dataset ID. Equal domain IDs in
+different entries identify independent objects.
 
 Opening a database and listing `ArcInfo` metadata do not hydrate graphs or read
 folders. Metadata contains `ArcId`, `RootEntityId`, and optional `Folder`.
-`openArc` loads the selected entry and returns the same active `ManagedGraph`,
-objects, and operation groups on repeated opens. Closing a graph releases its
-context; reopening creates a fresh projection. Closing the session invalidates
-all its graphs and releases its connection. No close implicitly exports files.
+`openArc` loads the selected entry and returns the same active `ManagedGraph`
+and operation groups on repeated opens. The graph caches the stored rows of its
+entry (state, ordinals, cursor, revision, folder, baseline, and saved graph).
+SQL is authoritative. Closing a graph releases its context. Closing the session
+invalidates all its graphs and releases its connection. Values already returned
+stay valid after either. No close implicitly exports files.
 
 `ManagedGraph` exposes `Model`, `ArcId`, `DatabasePath`,
 `HasSessionOnlyObjects`, `History`, the operation groups, `toYaml()`, and
@@ -66,57 +68,95 @@ all its graphs and releases its connection. No close implicitly exports files.
 The entity groups are `Dataset`, `Process`, `Sample`, `Data`, `Recipe`,
 `Annotation`, `FormalParameter`, `DefinedTerm`, `DefinedTermSet`, `Descriptor`,
 `Agent`, `Organization`, and `ScholarlyArticle`, alongside generic `Entity` and
-`History`. Entity groups provide `create`, `add`, `get`, `list`, `upsert`, and
-`delete`, property setters, optional-value clear methods, collection replacement,
-and typed relationship helpers. Dataset creation defaults to process provenance;
-use `add(dataset)` for other profiles. Descriptor creation requires Sample/Data.
+`History`. Each entity group provides `create`, `add`, `upsert`, `get`, `list`
+and `delete`. It has one `set<Property>` method per property, where an option
+argument clears an optional value, and `add<Item>` and `remove<Item>` methods per
+entity collection, such as `addProcess` and `removePart`. The `Entity` group has
+the same CRUD members plus `setAdditionalTypes`, `setProperty`, `addProperty`, and
+`removeProperty`. The groups hold about 199 members in all. Dataset creation
+defaults to process provenance. Use `add(dataset)` for other profiles. Descriptor
+creation requires Sample/Data.
 
-`add(value)` recursively adopts a supplied graph and returns its supplied
-instance. It validates state, assigns omitted IDs, and rejects collisions with
-distinct instances. Adding the same active instance again is a no-op.
-Registration does not attach an object to the root. Standalone registered
-objects survive SQL recovery and contribute to `HasSessionOnlyObjects`.
+```fsharp
+let sample = graph.Sample.create("sample")
+let proc = graph.Process.create("process")
+let linked = graph.Process.setInput(proc, Some(EntityReference.Sample sample))
+let root = graph.Dataset.addProcess(graph.Model, linked)
+let cleared = graph.Process.setInput(linked, None)
+```
 
-`upsert(value): unit` performs full replacement by ID using detached input.
-Unknown IDs adopt the supplied graph. Existing same-type IDs update the retained
-canonical instance and replace its collection containers. Empty collections clear
-values.
-References to managed entities must use registered instances. Cross-type
-collisions are rejected. ID assignment belongs to management, never Layer 1;
-identity is not inferred from names, paths, or equal values.
+```javascript
+const sample = graph.Sample.create("sample");
+const proc = graph.Process.create("process");
+const linked = graph.Process.setInput(proc, sample);
+const root = graph.Dataset.addProcess(graph.Model, linked);
+graph.Dataset.upsert(root, true); // recursive is a positional optional argument
+```
 
-Transitional note: until the management runtime phase of the immutable redesign,
-managed graphs update adopted instances in place. They write IDs into supplied
-graphs and reassign internal state on edits and undo.
+```python
+sample = graph.Sample.create("sample")
+proc = graph.Process.create("process")
+linked = graph.Process.set_input(proc, sample)
+root = graph.Dataset.add_process(graph.Model, linked)
+graph.Dataset.upsert(root, recursive=True)  # recursive is a keyword
+```
 
-Collection edits preserve order, duplicates, and shared references. Removal
-deletes one occurrence without unregistering its target. `movePart` and
-`moveProcess` require at most one membership; replacement setters support shared
-or repeated members. Process endpoints remain optional and singular. Typed
-helpers such as `setInputSample`, `setOutputData`, `setValueText`,
-`setValueNumber`, `setIntendedUseTerm`, and `setInDefinedTermSetUrl` avoid native
-union wrappers. Text, absence, empty text, zero, and fractional numbers remain
-distinguishable.
+Management keeps no live model objects. Every returned entity is an immutable
+Layer 1 value that never changes afterwards. That holds across later edits,
+undo and redo, and graph or session closure. `create`, `add`, and `upsert` return
+the stored copy with its assigned IDs. Setters and `add<Item>`/`remove<Item>`
+return the updated value. `delete`, `undo`, and `redo` return unit. `list`
+returns an immutable collection in ordinal order (a read-only collection on .NET, a
+frozen array on JavaScript, and a tuple on Python). Identity across revisions is
+not promised, so compare entities by their IDs.
 
-Edits validate a planned snapshot, then transactionally write the row-level
-difference between the stored and the new state, one `history` record, the
-cursor, and the graph revision. The live projection follows. Failures restore SQL
-and the previous projection. Mutations return attached `AppliedOperation`
-values. Undo/redo is linear and persisted, and applies the recorded before and
-after rows through the same writer. Editing after undo discards redo.
-Hydration and history restoration keep canonical instances and replace
-collection containers. Undoing a registration restores originally absent IDs, and redo restores
-assigned IDs. Saving preserves history and standalone objects.
+Subjects are identified by their `Id` and must exist with the group's kind.
+Setters apply to the current stored state, so the setter always wins over a
+subject value that has fallen behind. Relationship targets must already be stored.
+`add` inserts strictly: an existing ID fails, and new nested entities are inserted
+with it. `upsert` inserts an unknown root or replaces the root's own fields.
+Nested entities with stored IDs are links and stay unchanged unless `recursive`
+is true. Then every reachable submitted entity is written as the last truth.
+Distinct submitted objects with one ID must have equal definitions. Upserting a
+Dataset never changes the ARC root. Cross-type ID collisions are rejected.
+
+Management never modifies supplied objects. It assigns missing IDs to the
+persisted copies. ID assignment belongs to management, never Layer 1.
+Identity is not inferred from names, paths, or equal values. Values read from
+another ARC are accepted and resolve by ID in the destination. Native numbers
+supplied for Number values become native floats at the management boundary, and
+Booleans are rejected there.
+
+Collection edits preserve order, duplicates, and shared references. `removePart`
+and its siblings delete one occurrence without unregistering the target.
+Replacement setters support shared or repeated members. Process endpoints remain
+optional and singular. `setInput` and `setOutput` take an `EntityReference` (a
+Sample or Data value) and accept absence. Text, absence, empty text, zero, and
+fractional numbers remain distinguishable.
+
+Each command is a pure transform of the stored state, run in one outermost
+transaction. Its first statement is
+`UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc RETURNING revision`.
+If the cached revision is older, the transaction reloads the state first. A
+command whose result equals the current state rolls back, so revision, history,
+and redo stay unchanged. A changed result is validated, written as a row-level
+diff with one `history` record, committed, and then published to the cache.
+Provider errors such as `SQLITE_BUSY` surface unchanged. There are no stale-handle
+errors and callers pass no revision tokens.
+
+Reads check the revision with one query. When another connection has committed,
+the read reloads the stored rows inside a read transaction. Reads hydrate fresh
+immutable values on demand and cache them per revision. Revisions are entry-local,
+so edits to another entry never affect a graph. SQLite permits one writer.
+
+Undo and redo are linear and persisted, and they apply the recorded before and
+after rows through the same writer. Editing after undo discards redo. Undoing an
+adoption restores originally absent IDs, and redo restores assigned IDs. Saving
+preserves history and standalone objects.
 
 Root deletion is rejected. Dataset deletion cascades only to descendants and
 processes without surviving owners. Required Descriptor targets and surviving
 extension references prevent deletion. Undo restores affected links.
-
-Direct property or collection edits on managed objects are unsupported. Commands
-and exports compare the projection with its retained snapshot and reject detected
-changes. Close and reopen to restore committed state. Revisions are entry-local:
-another entry's edits do not invalidate a graph; stale writes to the same entry
-through another connection require close and reopen. SQLite permits one writer.
 
 ## YAML workflows
 
@@ -162,7 +202,7 @@ names are reserved and comparisons are case-sensitive. Set replaces or inserts;
 add rejects duplicate properties. Removing a missing property is reversible with
 no property effect. Property enumeration has no guaranteed order.
 
-Object references preserve canonical identity and support cycles, including
+Object references resolve by ID and support cycles, including
 through collections. Self-containing collection containers are rejected; express
 cycles through typed objects. Reachability follows extension references.
 
@@ -192,8 +232,8 @@ keep list positions through undo and redo.
 A write inserts new rows, removes changed association, endpoint, and extension
 rows, updates scalars, clears outgoing references of removed rows, deletes
 descriptors, then other core rows, then registry rows, inserts same-ID kind
-replacements, and adds rows. A title edit writes three rows: the dataset update,
-the history insert, and the `arc` update. Association list edits keep the common
+replacements, and adds rows. A title edit changes four rows: the dataset update,
+the history insert, and the separate `arc` revision and cursor updates. Association list edits keep the common
 prefix, so appending one element writes one row. The store has no journal, typed
 payload tables, mirror tables, or full state snapshots in history. The registry
 and core tables do not store `SuppliedId`. History change records and archived
@@ -201,8 +241,7 @@ state do, so undoing an adoption after reopening restores absent IDs.
 
 Opening compares every expected object in `sqlite_master` with its exact SQL
 text. Opening rejects a version 4 database with a hint to re-import the ARC from
-`arc.yml`, and there is no migration. The runtime still keeps canonical live
-instances and rejects a stale handle. There is no extra entity surrogate-key
+`arc.yml`, and there is no migration. There is no extra entity surrogate-key
 system or public cross-entry search API. PolyglotSQLite owns all providers.
 
 ## Layout, packages, and verification

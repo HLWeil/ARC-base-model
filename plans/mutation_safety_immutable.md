@@ -1,6 +1,6 @@
 # Immutable ARCBaseModel with SQL-backed management
 
-Status: accepted. Phases 0 and 1 and the storage phase are implemented. The Python keyword check for `recursive` moves to the API phase. The revision refresh protocol moves from the storage phase to the runtime and API work, because the transitional runtime plans adoption outside the transaction. The runtime and the remaining phases are planned. Revised 2026-10-21 to minimize complexity in the
+Status: accepted. Phases 0-4 are implemented (Layer 1, management core, storage and API, including the revision refresh protocol and the Python keyword `recursive`). The YAML phase and the close-out remain. Revised 2026-10-21 to minimize complexity in the
 model, backend and API. Supersedes [the event plan](mutation_safety_event.md) and the
 first implementation attempt on branch `arcmanagement–immutable`.
 
@@ -305,6 +305,8 @@ Investigate any phase that grows them substantially.
 Storage phase result: the management directories (`Runtime/`, `Internal/`, `Storage/`
 and `Serialization/`) grew from 1,479 to 1,989 lines. Most of the growth is the 93 DDL
 statements in `CoreSchema.fs` and the diff writer.
+Runtime and API result: the same four management folders shrank from 1,989 to 1,938
+lines after the runtime rewrite.
 Phase 1 result: `src/ARCBaseModel` grew from 474 to 815 lines and the management
 directories from 1,477 to 1,479 lines. Most of the Layer 1 growth is the state
 records and about 73 short `with*` copy members that replace mutable properties. Record actual results in
