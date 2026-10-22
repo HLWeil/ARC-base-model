@@ -63,7 +63,7 @@ ARC-Data-Model/
 
 ## Accepted redesign
 
-[The immutable redesign](plans/mutation_safety_immutable.md) supersedes the live-projection management rules and the previous managed YAML format. The Layer 1, storage (schema version 5 with a diff writer and delta history), runtime, API and YAML (ProcessCore-shaped codec) phases have landed, so the rules in this file describe the immutable model, the cached-state runtime and the ProcessCore-shaped YAML. The close-out remains. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
+[The immutable redesign](plans/mutation_safety_immutable.md) is implemented. The rules in this file describe the immutable Layer 1 model, the cached-state management runtime, the schema version 5 store with its diff writer and delta history, and the ProcessCore-shaped YAML codec. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
 
 ## Layer 1: Portable Domain Model
 
@@ -192,9 +192,11 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   existing model Python numeric compatibility handling. Do not retain legacy
   project/package aliases or introduce production dependencies.
 - Run `TestARCManagement` for shared .NET/JS/Python behavior, handwritten native
-  consumers, declarations, and packed artifacts. Independent targets are
-  `TestARCManagementDotNet`, `TestARCManagementJS`, `TestARCManagementPy`, and
-  `TestARCManagementNative`. `TestCoreSQL` reuses the .NET target. Also run
+  consumers, declarations, packed artifacts, and the cross-runtime database
+  test, where each runtime writes a version 5 file and every runtime reads it.
+  Independent targets are `TestARCManagementDotNet`, `TestARCManagementJS`,
+  `TestARCManagementPy`, `TestARCManagementNative`, and `TestARCManagementInterop`.
+  `TestCoreSQL` reuses the .NET target. Also run
   `TestBaseModel` and `RunTests` for changes to these boundaries; a skipped or
   failed target is not a passing check.
 

@@ -3,11 +3,10 @@
 Status: generic ARCManagement and workspace-specific ARCtrl are separated and
 verified, including detached YAML workflows and renamed native packages.
 `BuildSolution` and repository-wide `RunTests` passed. Project-file codec
-integration remains planned. The accepted
-[immutable redesign](mutation_safety_immutable.md) has landed its Layer 1,
-storage, runtime and API phases. The management runtime keeps no live model
-objects and the operation groups are trimmed. The YAML phase has landed as well:
-one ProcessCore-shaped codec replaces the `$ref` and anchor formats.
+integration remains planned. The
+[immutable redesign](mutation_safety_immutable.md) is implemented. The management
+runtime keeps no live model objects, the operation groups are trimmed, and one
+ProcessCore-shaped codec replaces the `$ref` and anchor formats.
 
 This plan tracks the current implementation and remaining work. See the
 [management guide](../docs/project/arc-management.md) and
@@ -18,14 +17,14 @@ workspace format.
 ## Objective and boundaries
 
 Provide a portable ARC management layer over `ARCBaseModel` with fine-grained
-operations, stable object identity, reversible history, and retained SQLite
+operations, stable entity IDs, reversible history, and retained SQLite
 working state on .NET, JavaScript/TypeScript, and Python.
 
 The responsibilities are:
 
 | Component | Responsibility |
 |---|---|
-| `ARCBaseModel` | Mutable domain objects without storage, identity assignment, graph management, or filesystem policy. |
+| `ARCBaseModel` | Immutable domain objects without storage, identity assignment, graph management, or filesystem policy. |
 | `ARCManagement.Session` | One owned PolyglotSQLite connection, repository creation/opening, ARC enumeration, and connection lifetime. |
 | `ARCManagement.ManagedGraph` | One managed graph, entity registry, operations, validation, transactions, history, and graph lifetime. |
 | `ARCManagement.DatasetYaml` | Detached Dataset YAML encoding and decoding without identity assignment, ownership, or IO. |
@@ -331,7 +330,7 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 | Detached YAML and public text workflows | Implemented and verified | ProcessCore-shaped codec with inline and indexed modes: IDs, shared and cyclic entities, grouped processes, one-or-many keys, type aliases, extensions, ProcessCore and example documents, conflicts, managed adoption, and checkpoint-free export. |
 | Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
 | Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
-| Immutable model and simplified management | Runtime, API and YAML phases implemented. Close-out remains | Immutable Layer 1, the core-shaped schema version 5 with delta history, the cached-state runtime with the revision protocol, the trimmed operation groups and the ProcessCore-shaped YAML codec are done. The [immutable redesign](mutation_safety_immutable.md) still plans the close-out acceptance. |
+| Immutable model and simplified management | Implemented | Immutable Layer 1, the core-shaped schema version 5 with delta history, the cached-state runtime with the revision protocol, the trimmed operation groups, the ProcessCore-shaped YAML codec and the cross-runtime database test are done. See the [immutable redesign](mutation_safety_immutable.md). |
 | Project-file workspace integration | Planned | Resolve `.arc/project.yml`, profiles, rules, and exact codec IDs; prepare root/child bindings and auxiliary outputs before IO. |
 | Project-backed save and recovery | Planned | Export/reload selected resources with conflict checks, per-ARC archives, retained history/session-only objects, and failed-write checkpoint coverage. |
 | Project-backed native API and documentation | Planned | Run shared and handwritten consumers for the new lifecycle and document its supported guarantees. |
@@ -372,7 +371,7 @@ Runtime and API verification (2026-10-22): `RunTests` passed with FAKE `Status: 
 
 YAML verification (2026-10-22): `TestARCManagement` passed with FAKE `Status: Ok`. It ran 178/178 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The YAML tests read the example documents and the ProcessCore-generated fixtures from the repository root on all three runtimes. `TestBaseModel` ran 27/27 per runtime with native and packed checks, and `TestCoreSQL` passed 178/178 on the .NET target. `RunTests` then passed with FAKE `Status: Ok`, including PolyglotSQLite, Core SQL on Node and Python, and ProcessCore (659 JavaScript and 660 .NET cases, two ignored on each).
 
-A cross-runtime database writer/reader test for the version 5 store is planned for the close-out acceptance step.
+Close-out verification (2026-10-22): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 178/178 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The new `TestARCManagementInterop` wrote one version 5 fixture per runtime and read each with all three runtimes (nine combinations), checking both entries, their history flags and a redo and undo on a copy. `TestBaseModel` ran 27/27 per runtime, `TestCoreSQL` passed 63 cases each on Node and Python, and ProcessCore passed 659 JavaScript and 660 .NET cases with two ignored on each. `BuildDocs` passed.
 
 Historical baseline: before the `add` rename and project/API separation, the
 former management aggregate passed:

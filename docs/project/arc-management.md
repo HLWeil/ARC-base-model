@@ -73,7 +73,8 @@ and `delete`. It has one `set<Property>` method per property, where an option
 argument clears an optional value, and `add<Item>` and `remove<Item>` methods per
 entity collection, such as `addProcess` and `removePart`. The `Entity` group has
 the same CRUD members plus `setAdditionalTypes`, `setProperty`, `addProperty`, and
-`removeProperty`. The groups hold about 199 members in all. Dataset creation
+`removeProperty`. The groups hold 201 public members in all, including the four
+of `History`. Dataset creation
 defaults to process provenance. Use `add(dataset)` for other profiles. Descriptor
 creation requires Sample/Data.
 
@@ -461,8 +462,28 @@ own representation boundaries. Keep the pinned toolchain.
 ```
 
 `TestARCManagement` aggregates `TestARCManagementDotNet`, `TestARCManagementJS`,
-`TestARCManagementPy`, and `TestARCManagementNative`, including handwritten
-JS/TS/Python consumers, declaration checks, and packed artifacts. The
+`TestARCManagementPy`, `TestARCManagementNative`, and `TestARCManagementInterop`,
+including handwritten JS/TS/Python consumers, declaration checks, and packed
+artifacts.
+
+`TestARCManagementInterop` checks the schema version 5 file across runtimes. The
+shared test program takes `--write-fixture <path>` and `--read-fixture <path>`, and
+the target runs the .NET, Node and Python builds as writers and readers in all nine
+combinations. A writer creates a file session with two entries. Both entries hold a
+graph of all 13 entity types with every alternative: text and number annotation values
+(including `0` and a fraction), URL and DefinedTerm set references, text and term
+recipe uses, and Sample and Data endpoints. The graph also has duplicates in
+collections, shared references, a cycle through a FormalParameter default and a cycle
+through an extension, extension values of every kind (text, number, Boolean, null,
+blob, nested collection and object), and the same domain IDs in both entries. The
+first entry has one undone edit, so only redo is available. The second keeps one edit
+and undoes another, so both directions are available. A reader opens the fixture and
+checks the `ArcInfo` metadata and `CanUndo` and `CanRedo`. It compares each stored
+model with a graph that it builds with the same code, by encoding both with
+`DatasetYaml.encode` and comparing the text. It then checks number types and sharing
+explicitly. The reader then copies the file, redoes and undoes the edit on the
+copy, and compares the model after each step. The fixture stays unchanged for the next
+reader. The
 [shared tests](../../tests/ARCManagement.Tests/Main.fs) are portable; only the
 [demo walkthrough](../../tests/ARCManagement.Tests/Walkthrough.fs) is .NET-only.
 See the [plan](../../plans/arc-management.md) for actual results. Compilation and

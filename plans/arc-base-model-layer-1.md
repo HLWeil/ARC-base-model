@@ -1,6 +1,6 @@
 # ARCBaseModel: Layer 1 Implementation
 
-Status: the immutable conversion from the accepted [immutable redesign](mutation_safety_immutable.md) is implemented. The classes are getter-only and copy through static `with*` methods. Their collections are frozen. Sections below that predate the conversion describe the earlier mutable design only as history, and the implementation state table records the conversion.
+Status: implemented. The [immutable redesign](mutation_safety_immutable.md) is implemented as well, and this plan describes the resulting Layer 1. The classes are getter-only and copy through static `with*` methods. Their collections are frozen. Sections below that predate the conversion describe the earlier mutable design only as history, and the implementation state table records the conversion.
 
 ## Property bag dictionary repair
 

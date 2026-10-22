@@ -1,6 +1,6 @@
 # Immutable ARCBaseModel with SQL-backed management
 
-Status: accepted. Phases 0-5 are implemented (Layer 1, management core, storage and API, including the revision refresh protocol and the Python keyword `recursive`, and the YAML codec). The close-out remains. The YAML phase recorded its mapping decisions in the [management guide](../docs/project/arc-management.md#yaml-representation). Revised 2026-10-21 to minimize complexity in the
+Status: Implemented (2026-10-22). All phases are done: Layer 1, management core, storage and API (including the revision refresh protocol and the Python keyword `recursive`), the YAML codec and the close-out. The YAML phase recorded its mapping decisions in the [management guide](../docs/project/arc-management.md#yaml-representation). Revised 2026-10-21 to minimize complexity in the
 model, backend and API. Supersedes [the event plan](mutation_safety_event.md) and the
 first implementation attempt on branch `arcmanagement–immutable`.
 
@@ -311,3 +311,24 @@ Phase 1 result: `src/ARCBaseModel` grew from 474 to 815 lines and the management
 directories from 1,477 to 1,479 lines. Most of the Layer 1 growth is the state
 records and about 73 short `with*` copy members that replace mutable properties. Record actual results in
 [the Layer 1 plan](arc-base-model-layer-1.md) and [the management plan](arc-management.md).
+
+## Results
+
+Final line counts, measured at commit `fda1698` (before the close-out change) with
+`git ls-files <dir> | xargs wc -l`:
+
+- `src/ARCBaseModel` has 845 lines, of which 815 are F# source and 30 are the project file.
+- The four management folders have 2,429 lines: `Runtime/` 353, `Internal/` 599, `Storage/` 662 and `Serialization/` 815.
+- The operation groups in `src/ARCManagement/Operations/*.fs` have 201 public members, down from 278. History accounts for 4 and the `Entity` group for 10.
+
+The management folders ended 952 lines above the 1,477-line baseline. The ProcessCore-shaped codec and the core-profile DDL with its diff writer account for most of the growth. The `Operations/` folder, which the baseline did not count, has 392 lines.
+
+Verification (2026-10-22): `.\build.cmd RunTests` finished with FAKE `Status: Ok` in 5 minutes 7 seconds, including the new `TestARCManagementInterop`.
+
+- `TestARCManagement` ran 178/178 shared tests on each of .NET, JavaScript and Python. The handwritten native consumers passed, and so did the checks against the locally packed npm and Python artifacts.
+- `TestARCManagementInterop` ran the nine writer/reader combinations of .NET, Node and Python on one fixture per writer. Each reader checked both entries and then redid and undid an edit on a copy.
+- `TestBaseModel` ran 27/27 shared tests on each runtime, with the native and packed checks.
+- `TestPolyglotSQLite` ran 41 .NET, 36 JavaScript and 36 Python cases, its native and packed checks and its nine interop combinations.
+- `TestCoreSQL` ran 63 cases on each of Node and Python.
+- ProcessCore ran 659 JavaScript and 660 .NET cases, with two ignored on each runtime.
+- `.\build.cmd BuildDocs` finished with `Status: Ok` and logged no documentation errors.
