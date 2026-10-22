@@ -171,35 +171,186 @@ extension references prevent deletion. Undo restores affected links.
 ## YAML workflows
 
 ```fsharp
-let detached = Dataset(["process-provenance"], ["detached"])
+let detached = Dataset(["process-provenance"], ["detached"], id = "detached-root")
 let text = DatasetYaml.encode(detached)
+let indexed = DatasetYaml.encodeIndexed(detached)
 let decoded = DatasetYaml.decode(text)
 let imported = session.importYaml(text)
 let managedText = imported.toYaml()
 ```
 
-`DatasetYaml.encode` and `decode` perform no database/filesystem work and assign
-no domain IDs. Encoding does not modify supplied objects. Each distinct entity
-receives a deterministic serialization-local YAML anchor; repeated references
-and cycles use aliases. `id` is emitted only when supplied. Decode preserves
-absent IDs, distinct objects with equal supplied IDs, order, duplicates, shared
-references, cycles, extensions, and scalar alternatives.
+One external codec reads and writes the YAML shape of the ProcessCore codecs
+(`src/ProcessCore/YML`). `DatasetYaml.encode`, `encodeIndexed` and `decode` perform
+no database or filesystem work and assign no domain IDs. Encoding does not modify
+supplied objects. `graph.toYaml()` and the workspace `arc.yml` use the inline mode of
+the same codec. Documents of the earlier prototype formats (`$ref` objects and
+anchors with aliases) are no longer readable, and there is no migration.
 
-Documents with anchors or aliases use local-reference decoding. Entity anchors
-are registered before reading their properties. Duplicate anchors, unresolved or
-forward aliases, and mixed legacy reference syntax are rejected. Legacy prototype
-`id`/`$ref` documents remain readable. A literal `$ref` extension property on a
-typed entity is supported.
+`session.importYaml(yaml)` decodes a detached Dataset, then adopts it through the
+ordinary management rules. Missing IDs are assigned, and distinct objects that share
+one ID are rejected. The decoder produces one object per ID, so a document that
+repeats an entity inline with equal fields imports. A document that repeats an ID
+with differing fields fails in `decode`. The import creates a fresh unbound entry
+with empty history.
 
-`session.importYaml(yaml)` decodes detached objects, then adopts them through
-ordinary management rules: missing IDs are assigned and distinct objects that
-share one ID are rejected. It creates a fresh unbound entry with empty history.
+`graph.toYaml()` exports only the graph reachable from `Model` and writes the
+managed ID of every entity. Standalone registered objects remain SQL-only. Exporting
+text changes no files, save checkpoints or history. Snapshot codecs remain private.
+The YAML schemas in `schemas/yml/` stay unchanged.
 
-`graph.toYaml()` exports only the graph reachable from `Model` using the
-prototype `id`/`$ref` format also used by workspace saves. Shared/circular
-entities are defined once; standalone registered objects remain SQL-only.
-Exporting text changes no files, save checkpoints, or history. Snapshot codecs
-remain private. These prototype formats do not revise normative YAML schemas.
+### YAML representation
+
+Every entity is a mapping with `type` (the base kind name) and `id` (only when the
+entity has one). Collections are sequences and keep their order and duplicates.
+Absent optional values and empty collections write nothing.
+
+| Entity | Base property | Wire key | Form | Decode aliases |
+| --- | --- | --- | --- | --- |
+| all | `id` | `id` | text | `@id` |
+| all | type name | `type` | kind name | `@type`, `schema:Dataset`, `bioschemas:LabProcess`, `bioschemas:Sample`, `schema:PropertyValue`, `bioschemas:LabProtocol`, `bioschemas:FormalParameter`, `File` and `MediaObject` (the last two mean Data) |
+| all | `additionalTypes` | `additionalType` or `additionalTypes` | one or many text | |
+| Dataset | `conformsTo` | `conformsTo` | sequence of text | scalar |
+| Dataset | `identifiers` | `identifier` and `identifiers` | `identifier` holds the first item, `identifiers` the full sequence when there is more than one | |
+| Dataset | `title`, `description`, `license`, `datePublished`, `dateCreated`, `dateModified` | same names | text | |
+| Dataset | `hasParts` | `hasPart` | sequence of Datasets | Data entries go to `dataFiles` |
+| Dataset | `dataFiles` | `dataFiles` | sequence of Data | |
+| Dataset | `agents` | `agents` | sequence of Agents | |
+| Dataset | `citations` | `citations` | sequence of ScholarlyArticles | |
+| Dataset | `processes` | `processes` | sequence of Process entries, grouped | |
+| Dataset | `descriptors` | `descriptors` | sequence of Descriptors | |
+| Dataset | `additionalProperties` | `additionalProperty` | sequence of Annotations | |
+| Process | `name` | `name` | text | |
+| Process | `input`, `output` | `inputs`, `outputs` | sequences of Samples or Data, aligned by position | |
+| Process | `executesRecipe` | `executesRecipe` | Recipe | `executesProtocol` |
+| Process | `parameterValues` | `parameterValue` | sequence of Annotations | |
+| Recipe | `name`, `description`, `version`, `url` | same names | text | |
+| Recipe | `parameters` | `parameters` | sequence of FormalParameters | |
+| Recipe | `intendedUse` | `intendedUse` | quoted text, or a DefinedTerm | |
+| Recipe | `additionalProperties`, `components` | `additionalProperty`, `components` | sequences of Annotations | |
+| Sample | `name` | `name` | text | |
+| Sample | `additionalProperties` | `additionalProperty` | sequence of Annotations | |
+| Data | `path`, `selector`, `selectorFormat`, `encodingFormat` | same names | text | |
+| Data | `hasParts` | `hasPart` | sequence of Data | |
+| Data | `additionalProperties` | `additionalProperty` | sequence of Annotations | |
+| Annotation | `name`, `unit`, `nameTAN`, `valueTAN`, `unitTAN` | same names | text | |
+| Annotation | `value` | `value` | text always quoted, numbers plain | |
+| Annotation | `instanceOf` | `instanceOf` | FormalParameter | |
+| FormalParameter | `name`, `nameTAN` | same names | text | |
+| FormalParameter | `defaultValue` | `defaultValue` | Annotation | |
+| DefinedTerm | `name`, `identifier` | same names | text | |
+| DefinedTerm | `tan` | `TAN` | text | |
+| DefinedTerm | `inDefinedTermSet` | `inDefinedTermSet` | URL text, or a DefinedTermSet | |
+| DefinedTermSet | `name`, `identifier` | same names | text | |
+| Descriptor | `describes` | `describes` | Sample or Data | |
+| Descriptor | `annotations` | `annotations` | sequence of Annotations | |
+| Organization | `name`, `url` | same names | text | |
+| Agent | `name`, `givenName`, `familyName` | same names | text | `name` derived from `givenName` and `familyName` when missing |
+| Agent | `emails` | `email` or `emails` | one or many text | |
+| Agent | `affiliations` | `affiliation` or `affiliations` | one or many Organizations | |
+| Agent | `identifiers` | `identifier` or `identifiers` | one or many text | |
+| Agent | `additionalProperties` | `additionalProperty` | sequence of Annotations | |
+| Agent | `jobTitles` | `jobTitles` | sequence of DefinedTerms | `jobTitle`, as one DefinedTerm or a sequence |
+| ScholarlyArticle | `headline`, `creativeWorkStatus` | same names | text, DefinedTerm | |
+| ScholarlyArticle | `identifiers` | `identifier` or `identifiers` | one or many text | |
+| ScholarlyArticle | `authors` | `authors` | sequence of Agents | |
+| ScholarlyArticle | `additionalProperties` | `additionalProperty` | sequence of Annotations | |
+
+The wire names live in the typed property table (`Internal/Schema.fs`), which the
+encoder and the decoder share. A one-or-many property writes the singular key with a
+scalar or one object when the collection has exactly one item, and the plural key
+with a sequence otherwise. The decoder accepts either key with either form and turns
+a scalar into a one-item collection. A document that holds both keys of one property
+fails. The same holds for aliases such as `jobTitle` next to `jobTitles`. `Dataset`
+identifiers are the exception: `identifier` and `identifiers` appear together, and
+`identifier` must repeat the first item of `identifiers`.
+
+The `dataContexts` of ProcessCore documents have no base counterpart. They decode as
+extension properties.
+
+#### Identity and references
+
+Equal `id` values within one document denote one entity. The decoder returns one
+object for them, and two definitions with differing fields fail with "Conflicting
+definitions for entity ID <id>". Both inline and indexed documents follow this rule.
+
+The inline mode (`encode`, `toYaml`, `arc.yml`) writes every occurrence of an entity
+with all its fields, as ProcessCore does. The only reference is `{"@id": id}` for an
+entity that is still being written, which encodes a cycle. Entities without IDs are
+also written inline at each occurrence. Their sharing is not preserved, so the
+decoder returns distinct equal objects. A cycle among entities without IDs fails on
+encode, because it has no way to name the entity. Two distinct objects that write the
+same ID must have equal definitions, or the encoder fails with the same conflict
+message.
+
+The indexed mode (`encodeIndexed`) writes each Annotation, Recipe and Agent that has
+an ID once, in the root sections `annotations`, `recipes` and `agentIndex`. An entry
+carries `id` and `@id` with the same value. Every other occurrence, including the
+Dataset `agents` list, is `{"@id": id}`. Entities without IDs stay inline.
+
+The decoder reads both modes and documents that mix inline definitions with
+references. A reference is a mapping with only `@id` or only `id`. In positions that
+hold one entity or a list of entities, including Sample or Data endpoints, a plain
+string is a reference as well. In positions that hold text or an entity (`intendedUse`
+and `inDefinedTermSet`), a plain string is the text alternative. A reference to an ID
+that no definition in the document supplies fails. Definitions that nothing references
+are dropped. The decoder also accepts the sections `labProtocols` (an alias of
+`recipes`) and `samples`, which supply definitions only.
+
+#### Process entries
+
+Consecutive processes in one `processes` list share one entry when each has at least
+one endpoint, they have the same endpoint presence (input present, output present),
+all of them have an ID or none has, and the encoded text of their remaining state is
+equal (`name`, `additionalType`, `executesRecipe`, `parameterValue` and extensions).
+The entry writes `inputs` and `outputs` as arrays aligned by position. Its `id` is a
+sequence of the member IDs, or a scalar for one process.
+
+The decoder expands an entry to `max(1, inputs, outputs)` processes and pairs the Nth
+input with the Nth output. An endpoint is absent where its array is shorter. An `id`
+sequence needs exactly one item per expanded process, and a scalar `id` on an entry
+that expands to several processes fails. Every expanded process gets its own copy of
+the entry's entities that have no ID, while entities with an ID are shared.
+
+#### Extensions
+
+Extension properties are keys next to the wire keys of their entity. Text is quoted,
+numbers, `true`, `false` and `null` are plain, a blob is a `!!binary` scalar holding
+the base64 text, and collections are sequences. A typed object is written inline with
+`type` and `id`, or as `{"@id": id}` under the rules above. The decoder restores the
+alternative from the style and tag: quoted text is text, a plain finite number is a
+number, `true` and `false` are Booleans, `null` and `~` are null, `!!binary` is a
+blob, and any other plain scalar is text. A mapping with a type becomes a core entity
+of that kind or a generic typed object. A mapping without a type becomes a generic
+object of type `Object`. Unknown keys of an entity decode as extension properties.
+
+An extension key that equals a wire key or alias of its entity fails on encode, and so
+does a section name on the root. A message names the key and the kind.
+
+#### Decoding leniency
+
+The decoder accepts what ProcessCore documents contain.
+
+- A Dataset without `conformsTo` gets the profiles that its own fields imply:
+  `process-provenance` for `processes`, `semantic-designation` for `descriptors` and
+  `administrative` for any administrative field. A Dataset with none of these gets
+  `administrative`.
+- An entry without a `type` takes the kind of its position. In a position that holds
+  Samples or Data, or Datasets or Data, an entry with a `path` is Data.
+- A plain scalar that looks like a finite YAML number is a number only in
+  `Annotation.value` and in extension values. Every other text property stays text.
+- A Dataset needs at least one identifier, as in the model.
+
+#### ProcessCore interoperability
+
+ProcessCore's lenient parser (`Dataset.fromYamlString false`) reads both output modes.
+It keeps `identifier` (the first item), the scalar Dataset fields, processes with their
+endpoints, recipes, parameter values, data files, citations, agents (inline mode),
+`additionalProperty` and nested `hasPart` Datasets. It treats `id`, `conformsTo`,
+`identifiers` and extension keys as overflow properties of the Dataset, and it drops
+the IDs of Processes, Samples and Annotations. It does not resolve `@id` references to
+Agents, so the indexed mode loses the Dataset agents and the authors of citations.
+It reads `defaultValue` of a FormalParameter as a DefinedTerm, which keeps only the
+name of an inline Annotation and drops a reference.
 
 ## Extensions and storage
 
@@ -247,8 +398,10 @@ replacements, and adds rows. A title edit changes four rows: the dataset update,
 the history insert, and the separate `arc` revision and cursor updates. Association list edits keep the common
 prefix, so appending one element writes one row. The store has no journal, typed
 payload tables, mirror tables, or full state snapshots in history. The registry
-and core tables do not store `SuppliedId`. History change records and archived
-state do.
+and core tables, the history change records and the archived state do not store a
+supplied ID, because managed entities always carry their managed ID. Archived
+rows written by earlier builds may contain a `suppliedId` key, which the row codec
+ignores.
 
 Opening compares every expected object in `sqlite_master` with its exact SQL
 text. Opening rejects a version 4 database with a hint to re-import the ARC from

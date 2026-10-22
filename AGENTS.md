@@ -63,7 +63,7 @@ ARC-Data-Model/
 
 ## Accepted redesign
 
-[The immutable redesign](plans/mutation_safety_immutable.md) supersedes the live-projection management rules and the previous managed YAML format. The Layer 1, storage (schema version 5 with a diff writer and delta history), runtime and API phases have landed, so the rules in this file describe the immutable model and the cached-state runtime. The YAML phase (ProcessCore-shaped codec) and the close-out remain, and until the YAML phase lands the DatasetYaml and root-only `id`/`$ref` rules below describe the code. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
+[The immutable redesign](plans/mutation_safety_immutable.md) supersedes the live-projection management rules and the previous managed YAML format. The Layer 1, storage (schema version 5 with a diff writer and delta history), runtime, API and YAML (ProcessCore-shaped codec) phases have landed, so the rules in this file describe the immutable model, the cached-state runtime and the ProcessCore-shaped YAML. The close-out remains. Each phase updates this file. Do not reintroduce what the redesign excludes: a public model builder, runtime sealing, caller revision tokens or baselines, mirror tables, or the `journal` table.
 
 ## Layer 1: Portable Domain Model
 
@@ -155,14 +155,19 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   caller revision tokens, stale-handle errors, ownership registry, or
   direct-mutation detection. Native numbers for Number values become floats at
   the management boundary, and Booleans are rejected.
-- `ARCManagement.DatasetYaml.encode/decode` are detached codecs. Preserve absent
-  IDs and distinct objects with equal supplied IDs, sharing, cycles, extensions,
-  and scalar types through serialization-local anchors/aliases. Do not modify
-  supplied objects or perform SQL/filesystem/ownership operations.
-  `Session.importYaml` subsequently applies normal adoption rules, assigning
-  missing IDs to persisted copies and rejecting distinct-object ID collisions in a fresh unbound
-  entry. Managed exports retain root-only `id`/`$ref` output and do not advance
-  checkpoints or history. Snapshot codecs remain private.
+- `ARCManagement.DatasetYaml.encode/encodeIndexed/decode` are detached codecs
+  for the ProcessCore-shaped YAML in `Serialization/ProcessCoreYaml.fs`. The wire
+  names live in the typed property table, and the
+  [management guide](docs/project/arc-management.md) holds the mapping table. Preserve
+  absent IDs, extensions, scalar types, order, and duplicates. Equal `id` values in
+  one document denote one entity, and differing definitions fail. Entities without
+  IDs repeat inline and decode as distinct objects, and a cycle among them fails on
+  encode. Do not modify supplied objects or perform SQL/filesystem/ownership
+  operations. `Session.importYaml` subsequently applies normal adoption rules,
+  assigning missing IDs to persisted copies and rejecting distinct-object ID
+  collisions in a fresh unbound entry. Managed exports and `arc.yml` use the
+  inline mode, write every managed ID, and do not advance checkpoints or history.
+  The `$ref` and anchor formats are gone. Snapshot codecs remain private.
 - Top-level `ARCtrl.ARC` lives in the nested `ARCtrl/` folder. Keep workspace
   policy, fixed layout paths, and workspace-specific identifier/path helpers
   there. Generic operations, runtime, storage, serialization, UUID generation,

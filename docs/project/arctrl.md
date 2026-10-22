@@ -77,7 +77,7 @@ let imported = ARC.importFolder(session, "./existing-export")
 opener requires exactly one entry with the matching retained binding and accepts
 `"auto"`, `"sql"`, and `"yml"` source preferences.
 
-`ARC.importFolder(session: Session, folder)` reads prototype `arc.yml` into a new
+`ARC.importFolder(session: Session, folder)` reads `arc.yml` into a new
 graph in the supplied session, records its binding and filesystem baseline, and
 returns a workspace facade. Graph creation, binding, and baseline initialization
 share one transaction. The supplied session remains borrowed. For YAML text
@@ -88,9 +88,12 @@ without a workspace, use `session.importYaml(text)`.
 `save()` requires a binding. It checks external file changes, then exports only
 the graph rooted at `Model`. Stored objects
 outside that graph and all undo/redo history remain in SQLite. Export uses the
-prototype `id`/`$ref` format, defining shared/circular entities once and preserving
-extensions and scalar alternatives. `ManagedGraph.toYaml()` produces the same
-root-only text without changing files, history, or save checkpoints.
+inline mode of the ProcessCore-shaped codec (see the
+[YAML representation](arc-management.md#yaml-representation)). Every occurrence of
+an entity is written with its fields and its managed ID, and a cycle uses an
+`{"@id": id}` reference. `ManagedGraph.toYaml()` produces the same root-only text
+without changing files, history, or save checkpoints. An `arc.yml` written by the
+earlier `$ref` format is not readable and must be written again.
 
 The baseline compares observed `arc.yml` text, including absence. Save stages a
 replacement file and advances the SQL checkpoint only after publication. Failed

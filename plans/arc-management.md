@@ -6,8 +6,8 @@ verified, including detached YAML workflows and renamed native packages.
 integration remains planned. The accepted
 [immutable redesign](mutation_safety_immutable.md) has landed its Layer 1,
 storage, runtime and API phases. The management runtime keeps no live model
-objects and the operation groups are trimmed. The managed YAML format described
-below is still the previous one until the YAML phase lands.
+objects and the operation groups are trimmed. The YAML phase has landed as well:
+one ProcessCore-shaped codec replaces the `$ref` and anchor formats.
 
 This plan tracks the current implementation and remaining work. See the
 [management guide](../docs/project/arc-management.md) and
@@ -192,8 +192,9 @@ with encoded change records. Each record holds the entity ID and ordinal, plus t
 before and after rows of one changed entity, so history grows with the size of the
 changed entities and is independent of the rest of the graph. The journal, typed payload tables,
 `entity_value`, `entity_reference`, the `dataset_part` and `dataset_process`
-mirrors, and full state snapshots in history are gone. The registry and core
-tables do not store `SuppliedId`. History change records and archived state do.
+mirrors, and full state snapshots in history are gone. No table, history record or
+archived state stores a supplied ID, because managed entities carry their managed ID.
+The row codec ignores a `suppliedId` key in rows written by earlier builds.
 
 Writes apply the difference between two in-memory states in a fixed order: insert
 new rows, remove changed association, endpoint and extension rows, update
@@ -252,33 +253,43 @@ status. Filesystem publication and SQLite commit cannot be atomic together:
 publication followed by checkpoint failure requires explicit source selection
 before retrying. Database-only reopening performs no filesystem reconciliation.
 
-Managed root export defines shared/circular entities once and uses `$ref`
-references. It preserves extensions and numeric/text distinctions, emits safe
-keys and numeric scalars plainly, quotes ambiguous keys and text, and uses the
-standard binary tag URI. Older scalar tag forms remain readable. This codec
-contract does not change normative YAML schemas.
+Managed root export uses the inline mode of the ProcessCore-shaped codec. It writes
+the managed ID of every entity, repeats an entity with all its fields at each
+occurrence, and writes a cycle as an `{"@id": id}` reference. It preserves
+extensions and numeric/text distinctions, quotes text and ambiguous keys, and uses
+the standard binary tag URI. This codec contract does not change normative YAML
+schemas.
 
 ### Detached YAML and managed import
 
-`DatasetYaml.encode(dataset)` and `DatasetYaml.decode(yaml)` are attached public
-APIs independent of SQL, filesystem, or ownership. Capture uses object reference
-identity and serialization-local keys. Encode emits deterministic anchors and
-aliases for sharing/cycles and emits IDs only when supplied, without modifying
-the input graph. Decode hydrates references before restoring supplied/absent IDs;
-it preserves distinct objects with equal IDs, extensions, scalar alternatives,
-collection order, and duplicates.
+`DatasetYaml.encode(dataset)`, `DatasetYaml.encodeIndexed(dataset)` and
+`DatasetYaml.decode(yaml)` are attached public APIs independent of SQL, filesystem,
+or ownership. They share `Serialization/ProcessCoreYaml.fs`, which works on state
+rows and takes its wire names from the typed property table. The
+[management guide](../docs/project/arc-management.md#yaml-representation) holds the
+mapping table and the rules. Capture uses object reference identity with
+codec-local keys, and a codec-local map records which objects carry an ID. Encode
+never modifies the input graph. Decode allocates fresh objects, links cycles through
+internal state assignment, and keeps supplied IDs without assigning any.
 
-Documents containing anchors or aliases use local-reference decoding. Register
-entity anchors before properties; reject duplicate anchors, unresolved/forward
-aliases, and mixed legacy references. The legacy `id`/`$ref` format remains
-readable; a literal `$ref` extension on a typed entity remains supported.
+The codec treats equal `id` values in one document as one entity and fails on
+differing definitions. Inline mode repeats every occurrence in full and writes
+`{"@id": id}` only for a cycle. Indexed mode moves Annotations, Recipes and Agents that
+have IDs into the root sections `annotations`, `recipes` and `agentIndex`. Entities
+without IDs are written inline at each occurrence, so their sharing is not
+preserved, and a cycle among them fails on encode. Consecutive processes with equal
+non-endpoint state share one entry with aligned `inputs` and `outputs` arrays. The
+decoder accepts the ProcessCore aliases and the lenient forms listed in the guide.
+The `$ref` and anchor readers are removed and there is no migration.
 
-`Session.importYaml(yaml)` decodes detached objects, then applies ordinary
+`Session.importYaml(yaml)` decodes a detached Dataset, then applies ordinary
 management adoption: assign missing IDs, reject distinct-object ID collisions,
-and create a fresh unbound entry with empty history. Workspace imports use a
+and create a fresh unbound entry with empty history. The decoder returns one object
+per ID, so a document that repeats an entity inline imports and a document that
+repeats an ID with differing fields fails in decode. Workspace imports use a
 shared path-independent factory to initialize the graph, binding, and baseline
-transactionally. `ManagedGraph.toYaml()` retains the root-only legacy output
-without changing checkpoints or history. Snapshot codecs remain private.
+transactionally. `ManagedGraph.toYaml()` and the workspace save write the inline
+mode without changing checkpoints or history. Snapshot codecs remain private.
 
 ### Portability and layout
 
@@ -313,10 +324,10 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 |---|---|---|
 | Repository, full-model operations, extensions, reversible history, and prototype folder IO | Implemented | Preserve the contracts above and their shared/native regression coverage. |
 | Separate generic management and workspace APIs | Implemented and verified | Renamed project, tests, targets, and packages; verified exact graph delegation, ownership, both native entrypoints, and class identity. |
-| Detached YAML and public text workflows | Implemented and verified | Verified absent/duplicate IDs, sharing/cycles, scalar types, extensions, legacy input, invalid aliases, managed adoption, and checkpoint-free export. |
+| Detached YAML and public text workflows | Implemented and verified | ProcessCore-shaped codec with inline and indexed modes: IDs, shared and cyclic entities, grouped processes, one-or-many keys, type aliases, extensions, ProcessCore and example documents, conflicts, managed adoption, and checkpoint-free export. |
 | Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
 | Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
-| Immutable model and simplified management | Runtime and API phases implemented. YAML phase and close-out remain | Immutable Layer 1, the core-shaped schema version 5 with delta history, the cached-state runtime with the revision protocol, and the trimmed operation groups are done. The [immutable redesign](mutation_safety_immutable.md) still plans ProcessCore-shaped YAML and the close-out acceptance. |
+| Immutable model and simplified management | Runtime, API and YAML phases implemented. Close-out remains | Immutable Layer 1, the core-shaped schema version 5 with delta history, the cached-state runtime with the revision protocol, the trimmed operation groups and the ProcessCore-shaped YAML codec are done. The [immutable redesign](mutation_safety_immutable.md) still plans the close-out acceptance. |
 | Project-file workspace integration | Planned | Resolve `.arc/project.yml`, profiles, rules, and exact codec IDs; prepare root/child bindings and auxiliary outputs before IO. |
 | Project-backed save and recovery | Planned | Export/reload selected resources with conflict checks, per-ARC archives, retained history/session-only objects, and failed-write checkpoint coverage. |
 | Project-backed native API and documentation | Planned | Run shared and handwritten consumers for the new lifecycle and document its supported guarantees. |
@@ -355,6 +366,8 @@ Storage verification (2026-10-22, after the review fixes): `RunTests` passed wit
 
 Runtime and API verification (2026-10-22): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 156/156 shared tests on each of .NET, JavaScript and Python, plus the native and packed checks. `TestBaseModel` ran 27/27 per runtime.
 
+YAML verification (2026-10-22): `TestARCManagement` passed with FAKE `Status: Ok`. It ran 169/169 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The YAML tests read the example documents and the ProcessCore-generated fixtures from the repository root on all three runtimes. `TestBaseModel` ran 27/27 per runtime with native and packed checks, and `TestCoreSQL` passed 169/169 on the .NET target. `RunTests` then passed with FAKE `Status: Ok`, including PolyglotSQLite, Core SQL on Node and Python, and ProcessCore (659 JavaScript and 660 .NET cases, two ignored on each).
+
 A cross-runtime database writer/reader test for the version 5 store is planned for the close-out acceptance step.
 
 Historical baseline: before the `add` rename and project/API separation, the
@@ -390,8 +403,9 @@ For implementation changes, retain coverage for:
 - Memory/file parity, on-demand hydration, per-ARC constraints,
   history/revision isolation, and ARC/session closure.
 - Workspace wrappers reuse the exact graph and operation groups. Graph closure invalidates wrappers while borrowed sessions/siblings survive.
-- Detached YAML absent IDs, equal supplied IDs on distinct objects, aliases,
-  cycles, extensions, numeric/text distinctions, legacy documents, and failures.
+- Detached YAML absent IDs, equal IDs meaning one entity, `@id` cycles, process
+  grouping, one-or-many keys, aliases, extensions, numeric/text distinctions,
+  the example and ProcessCore documents, and failures.
 - YAML imports assign IDs and reject collisions; text export remains root-only
   and does not advance checkpoints or history.
 - Root-only export, standalone-object retention, source preferences, unavailable

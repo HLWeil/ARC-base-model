@@ -1,6 +1,6 @@
 # Immutable ARCBaseModel with SQL-backed management
 
-Status: accepted. Phases 0-4 are implemented (Layer 1, management core, storage and API, including the revision refresh protocol and the Python keyword `recursive`). The YAML phase and the close-out remain. Revised 2026-10-21 to minimize complexity in the
+Status: accepted. Phases 0-5 are implemented (Layer 1, management core, storage and API, including the revision refresh protocol and the Python keyword `recursive`, and the YAML codec). The close-out remains. The YAML phase recorded its mapping decisions in the [management guide](../docs/project/arc-management.md#yaml-representation). Revised 2026-10-21 to minimize complexity in the
 model, backend and API. Supersedes [the event plan](mutation_safety_event.md) and the
 first implementation attempt on branch `arcmanagement–immutable`.
 
