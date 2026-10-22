@@ -19,7 +19,6 @@ let private create () =
     let path = folder()
     path, ARC.create(path, Dataset(["process-provenance"], ["example"]))
 
-let private same actual expected = Expect.isTrue (Object.ReferenceEquals(actual, expected)) "Shared object identity"
 let private input (proc: ARCBaseModel.Process) =
     match proc.Input with
     | Some(EntityReference.Sample sample) -> sample
@@ -54,15 +53,31 @@ let private externalTitle path title =
     Path.writeFileText yaml (Path.readFileText(yaml).Replace("title: original", "title: " + title))
 
 let tests = testList "Management prototype" [
-    testCase "create adopts supplied graph and retains references" <| fun _ ->
+    testCase "create adopts a supplied graph without modifying it" <| fun _ ->
         let sample = Sample("leaf")
         let proc = ARCBaseModel.Process("measurement", input = EntityReference.Sample sample)
         let root = Dataset(["process-provenance"], ["example"], processes = [proc])
         use arc = ARC.create(folder(), root)
-        same arc.Model root
-        same (arc.Process.get(proc.Id.Value)) proc
-        same (arc.Sample.get(sample.Id.Value)) sample
+        Expect.isNone root.Id "Supplied root keeps its absent ID"
+        Expect.isNone proc.Id "Supplied process keeps its absent ID"
+        Expect.isNone sample.Id "Supplied sample keeps its absent ID"
+        Expect.isSome arc.Model.Id "The stored root carries an ID"
+        let stored = Seq.item 0 arc.Model.Processes
+        Expect.equal (arc.Process.get(stored.Id.Value)).Name "measurement" "Stored process resolves by ID"
+        Expect.equal (input stored).Name "leaf" "Stored input resolves"
+        Expect.isSome (input stored).Id "Stored input carries an ID"
         Expect.isFalse arc.History.CanUndo "Initialization is not a user operation"
+
+    testCase "results carry IDs while supplied inputs keep absent IDs" <| fun _ ->
+        let _, created = create()
+        use arc = created
+        let supplied = Sample("leaf")
+        let stored = arc.Sample.add(supplied)
+        Expect.isNone supplied.Id "Supplied input is unchanged"
+        Expect.isSome stored.Id "Result carries the assigned ID"
+        Expect.equal (arc.Sample.get(stored.Id.Value)).Name "leaf" "Stored copy resolves by ID"
+        let again = arc.Sample.add(Sample("leaf"))
+        Expect.notEqual again.Id stored.Id "Every insertion gets its own ID"
 
     testCase "endpoint editing is reversible and SQL mirrors the graph" <| fun _ ->
         let _, created = create()
@@ -71,20 +86,22 @@ let tests = testList "Management prototype" [
         let sampleB = arc.Sample.create("B")
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
-        arc.Process.setInput(proc, Some(EntityReference.Sample sampleA)) |> ignore
-        arc.Process.setInput(proc, Some(EntityReference.Sample sampleB)) |> ignore
-        same (input proc) sampleB
+        let withA = arc.Process.setInput(proc, Some(EntityReference.Sample sampleA))
+        let withB = arc.Process.setInput(withA, Some(EntityReference.Sample sampleB))
+        Expect.equal (input withB).Id sampleB.Id "Returned value carries the new input"
+        Expect.equal (input withA).Id sampleA.Id "Earlier result is unchanged"
+        let current () = arc.Process.get(proc.Id.Value)
         arc.History.undo()
-        same (input proc) sampleA
+        Expect.equal (input (current())).Id sampleA.Id "Undo restores the previous input"
         arc.History.redo()
-        same (input proc) sampleB
+        Expect.equal (input (current())).Id sampleB.Id "Redo reapplies the input"
         use sql = PolyglotSQLite.Sqlite.OpenFile(arc.DatabasePath)
         let result = sql.Query("SELECT sample_id FROM process_io WHERE direction='input'")
         Expect.equal (result[0].Get(0).AsText()) sampleB.Id.Value "SQL follows endpoint changes"
-        arc.Process.setInput(proc, None) |> ignore
-        Expect.isNone proc.Input "Cleared endpoint"
+        let cleared = arc.Process.setInput(current(), None)
+        Expect.isNone cleared.Input "Cleared endpoint"
         arc.History.undo()
-        same (input proc) sampleB
+        Expect.equal (input (current())).Id sampleB.Id "Undo restores the cleared endpoint"
 
     testCase "saved root graph excludes standalone objects and SQL resumes them" <| fun _ ->
         let path, arc = create()
@@ -98,16 +115,17 @@ let tests = testList "Management prototype" [
         Expect.isFalse (yaml.Contains("standalone")) "Only the root graph is exported"
         Expect.isFalse arc.IsDirty "Exported graph is saved"
         Expect.isTrue arc.HasSessionOnlyObjects "Standalone registry is tracked separately"
-        arc.Sample.setName(standalone, "unsaved standalone") |> ignore
+        let renamed = arc.Sample.setName(standalone, "unsaved standalone")
+        Expect.equal renamed.Name "unsaved standalone" "Setter returns the updated value"
+        Expect.equal standalone.Name "standalone" "Held value is unchanged"
         let id = standalone.Id.Value
         arc.close()
         use reopened = ARC.openFolder(path, "auto")
-        let restored = reopened.Sample.get(id)
-        Expect.equal restored.Name "unsaved standalone" "SQL working state resumes"
+        Expect.equal (reopened.Sample.get(id)).Name "unsaved standalone" "SQL working state resumes"
         reopened.History.undo()
-        Expect.equal restored.Name "standalone" "History survives reopening"
+        Expect.equal (reopened.Sample.get(id)).Name "standalone" "History survives reopening"
         reopened.History.redo()
-        Expect.equal restored.Name "unsaved standalone" "Redo survives reopening"
+        Expect.equal (reopened.Sample.get(id)).Name "unsaved standalone" "Redo survives reopening"
 
     testCase "create and close retain unsaved working state without writing YAML" <| fun _ ->
         let path, arc = create()
@@ -117,7 +135,7 @@ let tests = testList "Management prototype" [
         arc.close()
         Expect.isFalse (Path.pathExists(Path.combineNative path ARCtrl.Helper.Layout.ARCFileName)) "Close is not save"
         use resumed = ARC.openFolder(path, "auto")
-        same (resumed.Process.get(id)) (Seq.item 0 resumed.Model.Processes)
+        Expect.equal (Seq.item 0 resumed.Model.Processes).Id (Some id) "Membership resumes"
         Expect.isTrue resumed.IsDirty "Root graph still awaits export"
         resumed.History.undo()
         Expect.equal (Seq.length resumed.Model.Processes) 0 "Membership undo survives reopening"
@@ -140,8 +158,8 @@ let tests = testList "Management prototype" [
         arc.close()
         use resumed = ARC.openFolder(path, "auto")
         let restored = resumed.Dataset.get(dsId)
-        same (Seq.item 0 restored.Processes) (resumed.Process.get(procId))
-        same (input (Seq.item 0 restored.Processes)) (resumed.Sample.get(sampleId))
+        Expect.equal (Seq.item 0 restored.Processes).Id (Some procId) "Process membership resumes"
+        Expect.equal (input (resumed.Process.get(procId))).Id (Some sampleId) "Endpoint resumes"
 
     testCase "saving preserves undo redo and starting a new branch clears redo" <| fun _ ->
         let path, arc = create()
@@ -168,40 +186,41 @@ let tests = testList "Management prototype" [
         let a = arc.Dataset.create("a")
         let b = arc.Dataset.create("b")
         let nested = arc.Dataset.create("nested")
+        let parts (dataset: Dataset) = dataset.HasParts |> Seq.map (fun part -> part.Id.Value) |> List.ofSeq
+        let processes (dataset: Dataset) = dataset.Processes |> Seq.map (fun proc -> proc.Id.Value) |> List.ofSeq
+        let current (dataset: Dataset) = arc.Dataset.get(dataset.Id.Value)
         arc.Dataset.addPart(arc.Model, a) |> ignore
         arc.Dataset.addPart(arc.Model, b) |> ignore
         arc.Dataset.addPart(a, nested) |> ignore
         arc.Dataset.removePart(arc.Model, a) |> ignore
         arc.Dataset.addPart(b, a) |> ignore
-        same (Seq.item 0 arc.Model.HasParts) b
-        same (Seq.item 0 b.HasParts) a
+        Expect.equal (parts arc.Model) [b.Id.Value] "Root holds b only"
+        Expect.equal (parts (current b)) [a.Id.Value] "b holds a"
         arc.History.undo()
         arc.History.undo()
-        same (Seq.item 0 arc.Model.HasParts) a
-        same (Seq.item 1 arc.Model.HasParts) b
-        same (Seq.item 0 a.HasParts) nested
+        Expect.equal (parts arc.Model) [a.Id.Value; b.Id.Value] "Order restored"
+        Expect.equal (parts (current a)) [nested.Id.Value] "Nested part kept"
         let p1 = arc.Process.create("one")
         let p2 = arc.Process.create("two")
         arc.Dataset.addProcess(a, p1) |> ignore
         arc.Dataset.addProcess(a, p2) |> ignore
         arc.Dataset.removeProcess(a, p1) |> ignore
         arc.Dataset.addProcess(b, p1) |> ignore
-        same (Seq.item 0 a.Processes) p2
-        same (Seq.item 0 b.Processes) p1
+        Expect.equal (processes (current a)) [p2.Id.Value] "a holds p2"
+        Expect.equal (processes (current b)) [p1.Id.Value] "b holds p1"
         arc.History.undo()
         arc.History.undo()
-        same (Seq.item 0 a.Processes) p1
-        same (Seq.item 1 a.Processes) p2
+        Expect.equal (processes (current a)) [p1.Id.Value; p2.Id.Value] "Process order restored"
         arc.Dataset.removeProcess(a, p1) |> ignore
-        same (arc.Process.get(p1.Id.Value)) p1
+        Expect.equal (arc.Process.get(p1.Id.Value)).Name "one" "Detached process stays registered"
         arc.History.undo()
-        same (Seq.item 0 a.Processes) p1
+        Expect.equal (processes (current a)) [p1.Id.Value; p2.Id.Value] "Detach undone"
         arc.Dataset.removePart(a, nested) |> ignore
-        same (arc.Dataset.get(nested.Id.Value)) nested
+        Expect.equal (Seq.length (arc.Dataset.get(nested.Id.Value)).Identifiers) 1 "Detached dataset stays registered"
         arc.History.undo()
-        same (Seq.item 0 a.HasParts) nested
+        Expect.equal (parts (current a)) [nested.Id.Value] "Part detach undone"
 
-    testCase "dataset cascade and sample deletion restore identity and shared endpoints" <| fun _ ->
+    testCase "dataset cascade and sample deletion restore links and shared endpoints" <| fun _ ->
         let _, created = create()
         use arc = created
         let child = arc.Dataset.create("child")
@@ -215,30 +234,30 @@ let tests = testList "Management prototype" [
         arc.Dataset.addProcess(arc.Model, outside) |> ignore
         arc.Process.setInput(proc, Some(EntityReference.Sample shared)) |> ignore
         arc.Process.setOutput(outside, Some(EntityReference.Sample shared)) |> ignore
-        arc.Dataset.delete(child) |> ignore
+        arc.Dataset.delete(child)
         Expect.throws (fun () -> arc.Dataset.get(nested.Id.Value) |> ignore) "Descendant is removed"
         Expect.throws (fun () -> arc.Process.get(proc.Id.Value) |> ignore) "Nested process is removed"
-        same (arc.Sample.get(shared.Id.Value)) shared
-        same (output outside) shared
+        Expect.equal (arc.Sample.get(shared.Id.Value)).Name "shared" "Shared sample survives"
+        Expect.equal (output (arc.Process.get(outside.Id.Value))).Id shared.Id "Shared output survives"
         arc.History.undo()
-        same (Seq.item 0 arc.Model.HasParts) child
-        same (Seq.item 0 child.HasParts) nested
-        same (Seq.item 0 nested.Processes) proc
-        same (input proc) shared
-        arc.Sample.delete(shared) |> ignore
-        Expect.isNone proc.Input "Sample deletion clears input"
-        Expect.isNone outside.Output "Sample deletion clears shared output"
+        Expect.equal (Seq.item 0 arc.Model.HasParts).Id child.Id "Child restored"
+        Expect.equal (Seq.item 0 (arc.Dataset.get(child.Id.Value)).HasParts).Id nested.Id "Nested restored"
+        Expect.equal (Seq.item 0 (arc.Dataset.get(nested.Id.Value)).Processes).Id proc.Id "Process membership restored"
+        Expect.equal (input (arc.Process.get(proc.Id.Value))).Id shared.Id "Input restored"
+        arc.Sample.delete(shared)
+        Expect.isNone (arc.Process.get(proc.Id.Value)).Input "Sample deletion clears input"
+        Expect.isNone (arc.Process.get(outside.Id.Value)).Output "Sample deletion clears shared output"
         arc.History.undo()
-        same (input proc) shared
-        same (output outside) shared
+        Expect.equal (input (arc.Process.get(proc.Id.Value))).Id shared.Id "Input link restored"
+        Expect.equal (output (arc.Process.get(outside.Id.Value))).Id shared.Id "Output link restored"
         arc.Process.setOutput(outside, None) |> ignore
-        Expect.isNone outside.Output "Output clear"
+        Expect.isNone (arc.Process.get(outside.Id.Value)).Output "Output clear"
         arc.History.undo()
-        same (output outside) shared
-        arc.Process.delete(outside) |> ignore
+        Expect.equal (output (arc.Process.get(outside.Id.Value))).Id shared.Id "Output clear undone"
+        arc.Process.delete(outside)
         Expect.equal (Seq.length arc.Model.Processes) 0 "Deletion removes membership"
         arc.History.undo()
-        same (Seq.item 0 arc.Model.Processes) outside
+        Expect.equal (Seq.item 0 arc.Model.Processes).Id outside.Id "Membership restored"
 
     testCase "YAML reload preserves supported fields duplicates strings and shared samples" <| fun _ ->
         let path = folder()
@@ -264,7 +283,7 @@ let tests = testList "Management prototype" [
         Expect.equal model.DateCreated (Some "") "Empty text is not absent"
         Expect.equal model.DateModified root.DateModified "Modification text preserved"
         Expect.equal (Seq.item 0 model.HasParts).Title (Some "") "Empty title preserved"
-        same (input (Seq.item 0 model.Processes)) (output (Seq.item 0 (Seq.item 0 model.HasParts).Processes))
+        Expect.equal (input (Seq.item 0 model.Processes)).Id (output (Seq.item 0 (Seq.item 0 model.HasParts).Processes)).Id "Shared sample keeps one ID"
         Expect.equal (reloaded.Sample.list()).Count 1 "Shared sample resolves once"
         Expect.isFalse reloaded.History.CanUndo "Explicit YAML creates fresh history"
         Expect.isFalse reloaded.IsDirty "Reloaded graph matches its source"
@@ -290,9 +309,9 @@ let tests = testList "Management prototype" [
         let proc = arc.Process.create("name")
         arc.Process.setName(proc, "renamed") |> ignore
         arc.History.undo()
-        Expect.equal proc.Name "name" "Process name restored"
+        Expect.equal (arc.Process.get(proc.Id.Value)).Name "name" "Process name restored"
 
-    testCase "ownership and ID collisions fail without history" <| fun _ ->
+    testCase "ID collisions and references of the wrong type fail without history" <| fun _ ->
         let _, created = create()
         use arc = created
         let proc = arc.Process.create("local")
@@ -300,13 +319,13 @@ let tests = testList "Management prototype" [
         let child = arc.Dataset.create("child")
         arc.Dataset.addPart(arc.Model, child) |> ignore
         let commands = count "history" arc.DatabasePath
-        Expect.throws (fun () -> arc.Process.setInput(proc, Some(EntityReference.Sample foreign)) |> ignore) "Foreign object rejected"
+        Expect.throws (fun () -> arc.Process.setInput(proc, Some(EntityReference.Sample foreign)) |> ignore) "A sample reference to a process ID is rejected"
         Expect.throws (fun () -> arc.Sample.add(foreign) |> ignore) "Cross-kind ID collision rejected"
-        Expect.throws (fun () -> arc.Dataset.delete(arc.Model) |> ignore) "Root cannot be deleted"
+        Expect.throws (fun () -> arc.Dataset.delete(arc.Model)) "Root cannot be deleted"
+        Expect.throws (fun () -> arc.Sample.setName(Sample("anonymous"), "oops") |> ignore) "A subject without an ID is rejected"
+        Expect.throws (fun () -> arc.Sample.setName(Sample("missing", id = "unknown"), "oops") |> ignore) "A subject that is not stored is rejected"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed commands create no history"
-        let fake = ARCBaseModel.Process("fake", id = proc.Id.Value)
-        Expect.throws (fun () -> arc.Process.setName(fake, "oops") |> ignore) "Same ID does not confer ownership"
-        same (Seq.item 0 arc.Model.HasParts) child
+        Expect.equal (Seq.item 0 arc.Model.HasParts).Id child.Id "Graph unchanged"
 
     testCase "invalid graph is rejected before assigning IDs" <| fun _ ->
         let _, created = create()
@@ -319,7 +338,7 @@ let tests = testList "Management prototype" [
         Expect.isNone sample.Id "No sample ID assigned on failure"
         Expect.equal (arc.Process.list()).Count 0 "Registry unchanged"
 
-    testCase "SQL failure rolls back model registry IDs and history" <| fun _ ->
+    testCase "SQL failure rolls back stored state and history" <| fun _ ->
         let _, created = create()
         use arc = created
         let sample = arc.Sample.create("original")
@@ -327,10 +346,10 @@ let tests = testList "Management prototype" [
         withSql arc.DatabasePath (fun sql ->
             sql.ExecuteScript("CREATE TRIGGER reject_sample BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END; CREATE TRIGGER reject_sample_update BEFORE UPDATE ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END;"))
         Expect.throws (fun () -> arc.Sample.setName(sample, "reject") |> ignore) "SQL failure rejects command"
-        Expect.equal sample.Name "original" "Live model rolls back"
+        Expect.equal (arc.Sample.get(sample.Id.Value)).Name "original" "Stored state rolls back"
         let pending = Sample("reject")
         Expect.throws (fun () -> arc.Sample.add(pending) |> ignore) "Registration failure"
-        Expect.isNone pending.Id "Failed registration restores optional ID"
+        Expect.isNone pending.Id "Supplied input stays unchanged"
         Expect.equal (arc.Sample.list()).Count 1 "Failed registration rolls back registry"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed writes do not journal commands"
         withSql arc.DatabasePath (fun sql ->
@@ -338,19 +357,93 @@ let tests = testList "Management prototype" [
         arc.History.undo()
         Expect.equal (arc.Sample.list()).Count 0 "Previous history is usable"
 
-    testCase "direct mutation and closed sessions reject commands" <| fun _ ->
+    testCase "returned values stay unchanged after edits undo redo and closure" <| fun _ ->
         let _, arc = create()
-        arc.Model.State <- { arc.Model.State with Title = Some "bypass" }
-        Expect.throws (fun () -> arc.save()) "Direct mutation detected on save"
-        Expect.throws (fun () -> arc.Sample.create("x") |> ignore) "Direct mutation detected on commands"
-        arc.Model.State <- { arc.Model.State with Title = None }
-        arc.Dataset.setTitle(arc.Model, Some("managed")) |> ignore
+        let before = arc.Model
+        let sample = arc.Sample.create("first")
+        let edited = arc.Dataset.setTitle(before, Some("managed"))
+        let renamed = arc.Sample.setName(sample, "second")
+        arc.History.undo()
+        arc.History.undo()
+        arc.History.redo()
+        Expect.isNone before.Title "Earlier root value is unchanged"
+        Expect.equal edited.Title (Some "managed") "Edit result is unchanged by undo"
+        Expect.equal sample.Name "first" "Created value is unchanged"
+        Expect.equal renamed.Name "second" "Renamed value is unchanged by undo"
         let operations = arc.Sample
         arc.close()
         arc.close()
+        Expect.equal edited.Title (Some "managed") "Values survive closure"
         Expect.throws (fun () -> operations.create("closed") |> ignore) "Cached service cannot outlive session"
-        Expect.throws (fun () -> operations.upsert(Sample("closed"))) "Upsert cannot outlive session"
+        Expect.throws (fun () -> operations.upsert(Sample("closed")) |> ignore) "Upsert cannot outlive session"
         Expect.throws (fun () -> arc.Model |> ignore) "Closed model access rejected"
+
+    testCase "a no-op setter keeps revision history and the redo branch" <| fun _ ->
+        let _, created = create()
+        use arc = created
+        let sample = arc.Sample.create("same")
+        arc.Sample.setName(sample, "changed") |> ignore
+        arc.History.undo()
+        let commands = count "history" arc.DatabasePath
+        let revision = withSql arc.DatabasePath (fun sql -> sql.Query("SELECT revision FROM arc").[0].Get(0).AsInteger())
+        let result = arc.Sample.setName(sample, "same")
+        Expect.equal result.Name "same" "No-op setter returns the stored value"
+        arc.Dataset.setTitle(arc.Model, None) |> ignore
+        Expect.isTrue arc.History.CanRedo "Redo branch survives no-op commands"
+        Expect.equal (count "history" arc.DatabasePath) commands "No history row added"
+        Expect.equal (withSql arc.DatabasePath (fun sql -> sql.Query("SELECT revision FROM arc").[0].Get(0).AsInteger())) revision "Revision unchanged"
+
+    testCase "a setter on an older value preserves current unrelated fields" <| fun _ ->
+        let _, created = create()
+        use arc = created
+        let older = arc.Dataset.setTitle(arc.Model, Some("title"))
+        arc.Dataset.setDescription(older, Some("description")) |> ignore
+        let result = arc.Dataset.setLicense(older, Some("license"))
+        Expect.equal result.Title (Some "title") "Title kept"
+        Expect.equal result.Description (Some "description") "Description set through another value is kept"
+        Expect.equal result.License (Some "license") "License applied"
+        Expect.isNone older.Description "The older value is unchanged"
+
+    testCase "add rejects an existing ID and inserts new nested entities" <| fun _ ->
+        let _, created = create()
+        use arc = created
+        arc.Sample.upsert(Sample("stored", id = "sample-1")) |> ignore
+        let commands = count "history" arc.DatabasePath
+        Expect.throws (fun () -> arc.Sample.add(Sample("again", id = "sample-1")) |> ignore) "Existing ID rejected"
+        let proc = ARCBaseModel.Process("p", input = EntityReference.Sample(Sample("nested")))
+        let stored = arc.Process.add(proc)
+        Expect.isSome (input stored).Id "New nested entity inserted with an ID"
+        Expect.equal (arc.Sample.list()).Count 2 "Nested insertion is stored"
+        Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Failed add left no history"
+
+    testCase "non-recursive upsert links stored nested entities and recursive upsert replaces them" <| fun _ ->
+        let _, created = create()
+        use arc = created
+        arc.Sample.upsert(Sample("stored", id = "sample-1")) |> ignore
+        let nested = Sample("changed", id = "sample-1")
+        let proc = ARCBaseModel.Process("p", id = "process-1", input = EntityReference.Sample nested)
+        arc.Process.upsert(proc) |> ignore
+        Expect.equal (arc.Sample.get("sample-1")).Name "stored" "Stored nested entity is only linked"
+        Expect.equal (input (arc.Process.get("process-1"))).Name "stored" "The link resolves to the stored entity"
+        arc.Process.upsert(proc, true) |> ignore
+        Expect.equal (arc.Sample.get("sample-1")).Name "changed" "Recursive upsert writes the nested entity"
+        let again = arc.Process.upsert(ARCBaseModel.Process("p2", id = "process-1"), recursive = false)
+        Expect.equal again.Name "p2" "The root is always replaced"
+        Expect.isNone again.Input "Replacement drops the old input"
+
+    testCase "distinct objects with one ID must carry equal definitions" <| fun _ ->
+        let _, created = create()
+        use arc = created
+        let commands = count "history" arc.DatabasePath
+        let first = Sample("one", id = "shared")
+        let second = Sample("two", id = "shared")
+        let proc = ARCBaseModel.Process("p", input = EntityReference.Sample first, output = EntityReference.Sample second)
+        Expect.throws (fun () -> arc.Process.add(proc) |> ignore) "Conflicting definitions rejected"
+        let equal = ARCBaseModel.Process("p", input = EntityReference.Sample(Sample("one", id = "shared")), output = EntityReference.Sample(Sample("one", id = "shared")))
+        let stored = arc.Process.add(equal)
+        Expect.equal (input stored).Id (output stored).Id "Equal definitions share one row"
+        Expect.equal (arc.Sample.list()).Count 1 "Stored once"
+        Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Only the valid command is journaled"
 
     testCase "automatic selection reloads external YAML only for a clean session" <| fun _ ->
         let path, arc = create()
@@ -382,15 +475,22 @@ let tests = testList "Management prototype" [
         Path.appendFileText yaml "\n# another external edit\n"
         Expect.throws (fun () -> resumed.save()) "Further external edits reject save"
 
-    testCase "two open sessions cannot silently overwrite each other's SQL revision" <| fun _ ->
+    testCase "a second connection sees committed edits and its writes apply to the refreshed state" <| fun _ ->
         let path, first = create()
         use first = first
         use second = ARC.openFolder(path, "auto")
         first.Dataset.setTitle(first.Model, Some("first writer")) |> ignore
-        Expect.throws (fun () -> second.Dataset.setTitle(second.Model, Some("stale writer")) |> ignore) "Stale SQL revision rejected"
-        Expect.isNone second.Model.Title "Failed stale command leaves projection unchanged"
-        Expect.throws (fun () -> second.save()) "Stale save rejected"
+        Expect.equal second.Model.Title (Some "first writer") "The next read refreshes the second connection"
+        second.Dataset.setDescription(second.Model, Some("second writer")) |> ignore
+        Expect.equal first.Model.Title (Some "first writer") "The first edit survives the second write"
+        Expect.equal first.Model.Description (Some "second writer") "The first connection sees the second write"
+        let stale = second.Model
+        first.Dataset.setLicense(first.Model, Some("license")) |> ignore
+        let result = second.Dataset.setTitle(stale, Some("third writer"))
+        Expect.equal result.License (Some "license") "A write from an older value starts from the refreshed state"
+        Expect.isTrue second.History.CanUndo "The second connection recorded history"
         first.save()
+        Expect.isFalse first.IsDirty "Save publishes the refreshed state"
 
     testCase "initial invalid graph leaves no broken session database" <| fun _ ->
         let path = folder()
@@ -491,87 +591,81 @@ let tests = testList "Management prototype" [
         use arc = created
         let supplied = Sample("supplied", id = "sample-1", additionalTypes = ["custom"; "custom"])
         let assigned = Sample("assigned")
-        let result: unit = arc.Sample.upsert(supplied)
-        arc.Sample.upsert(assigned)
-        Expect.equal result () "Upsert returns unit"
-        Expect.equal supplied.Id (Some "sample-1") "Supplied ID retained"
-        Expect.isSome assigned.Id "Missing ID assigned by Layer 2"
-        same (arc.Sample.get(supplied.Id.Value)) supplied
-        same (arc.Sample.get(assigned.Id.Value)) assigned
+        let first = arc.Sample.upsert(supplied)
+        let second = arc.Sample.upsert(assigned)
+        Expect.equal first.Id (Some "sample-1") "Supplied ID retained"
+        Expect.isNone assigned.Id "Supplied input keeps its absent ID"
+        Expect.isSome second.Id "Missing ID assigned to the stored copy"
+        Expect.equal (arc.Sample.get("sample-1")).Name "supplied" "Supplied sample resolves"
+        Expect.equal (arc.Sample.get(second.Id.Value)).Name "assigned" "Assigned sample resolves"
         Expect.equal (count "sample" arc.DatabasePath) 2L "Both insertions written to SQL"
         withSql arc.DatabasePath (fun sql ->
             let rows = sql.Query("SELECT kind FROM history ORDER BY sequence")
             Expect.equal (rows |> Seq.map (fun row -> row.Get(0).AsText()) |> Seq.toList)
                 ["Sample.set"; "Sample.set"] "One upsert command per insertion")
-        let id = assigned.Id.Value
+        let id = second.Id.Value
         arc.History.undo()
         Expect.equal (arc.Sample.list()).Count 1 "Undo removes the inserted registration"
         arc.History.redo()
-        same (arc.Sample.get(id)) assigned
+        Expect.equal (arc.Sample.get(id)).Name "assigned" "Redo restores the same ID"
         arc.History.undo()
         arc.History.undo()
         Expect.equal (count "sample" arc.DatabasePath) 0L "SQL insertion undone"
         arc.History.redo()
-        same (arc.Sample.get("sample-1")) supplied
-        Expect.equal (Seq.toList supplied.AdditionalTypes) ["custom"; "custom"] "Duplicates restored"
+        Expect.equal (Seq.toList (arc.Sample.get("sample-1")).AdditionalTypes) ["custom"; "custom"] "Duplicates restored"
 
-    testCase "sample upsert replaces values while retaining shared references" <| fun _ ->
+    testCase "sample upsert replaces values while keeping shared references" <| fun _ ->
         let _, created = create()
         use arc = created
-        let canonical = Sample("original", id = "sample-1", additionalTypes = ["old"; "old"])
-        arc.Sample.upsert(canonical)
+        arc.Sample.upsert(Sample("original", id = "sample-1", additionalTypes = ["old"; "old"])) |> ignore
+        let canonical = arc.Sample.get("sample-1")
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         arc.Process.setInput(proc, Some(EntityReference.Sample canonical)) |> ignore
         arc.Process.setOutput(proc, Some(EntityReference.Sample canonical)) |> ignore
-        let types = canonical.AdditionalTypes
         let replacement = Sample("updated", id = "sample-1", additionalTypes = ["new"; "new"; "other"])
         let commands = count "history" arc.DatabasePath
-        arc.Sample.upsert(replacement)
+        arc.Sample.upsert(replacement) |> ignore
         Expect.equal (count "history" arc.DatabasePath) (commands + 1L) "Replacement is one command"
         Expect.equal (arc.Sample.list()).Count 1 "No duplicate registered object"
-        same (arc.Sample.get("sample-1")) canonical
-        same (input proc) canonical
-        same (output proc) canonical
-        Expect.equal (Seq.toList types) ["old"; "old"] "Previously returned collection is unchanged"
-        Expect.equal canonical.Name "updated" "Registered values replaced"
-        Expect.equal (Seq.toList canonical.AdditionalTypes) ["new"; "new"; "other"] "Types replaced, not merged"
+        let current = arc.Process.get(proc.Id.Value)
+        Expect.equal (input current).Id canonical.Id "Input still points to the entity"
+        Expect.equal (output current).Id canonical.Id "Output still points to the entity"
+        Expect.equal (input current).Name "updated" "Linked entity shows the new values"
+        Expect.equal canonical.Name "original" "Previously returned value is unchanged"
+        Expect.equal (Seq.toList canonical.AdditionalTypes) ["old"; "old"] "Previously returned collection is unchanged"
+        Expect.equal (Seq.toList (arc.Sample.get("sample-1")).AdditionalTypes) ["new"; "new"; "other"] "Types replaced, not merged"
         replacement.State <- { replacement.State with Name = "later caller edit" }
-        replacement.Common <- { replacement.Common with AdditionalTypes = ["new"; "new"; "other"; "later"] }
-        Expect.equal canonical.Name "updated" "Caller object was not installed over the canonical instance"
-        Expect.equal (Seq.length canonical.AdditionalTypes) 3 "Caller collection was copied"
+        Expect.equal (arc.Sample.get("sample-1")).Name "updated" "Later edits of the supplied object do not reach the store"
         withSql arc.DatabasePath (fun sql ->
             Expect.equal (sql.Query("SELECT name FROM sample").[0].Get(0).AsText()) "updated" "SQL value replaced")
         arc.History.undo()
-        Expect.equal canonical.Name "original" "Prior scalar restored"
-        Expect.equal (Seq.toList canonical.AdditionalTypes) ["old"; "old"] "Prior collection restored"
-        same (input proc) canonical
+        Expect.equal (arc.Sample.get("sample-1")).Name "original" "Prior scalar restored"
+        Expect.equal (Seq.toList (arc.Sample.get("sample-1")).AdditionalTypes) ["old"; "old"] "Prior collection restored"
         arc.History.redo()
-        Expect.equal canonical.Name "updated" "Recorded values, not later caller edits, replayed"
-        arc.Sample.upsert(Sample("", id = "sample-1"))
-        Expect.equal canonical.Name "" "Empty name preserved"
-        Expect.equal (Seq.length canonical.AdditionalTypes) 0 "Empty collection clears earlier values"
+        Expect.equal (arc.Sample.get("sample-1")).Name "updated" "Recorded values, not later caller edits, replayed"
+        arc.Sample.upsert(Sample("", id = "sample-1")) |> ignore
+        Expect.equal (arc.Sample.get("sample-1")).Name "" "Empty name preserved"
+        Expect.equal (Seq.length (arc.Sample.get("sample-1")).AdditionalTypes) 0 "Empty collection clears earlier values"
         arc.History.undo()
-        Expect.equal (Seq.toList canonical.AdditionalTypes) ["new"; "new"; "other"] "Clearing is reversible"
+        Expect.equal (Seq.toList (arc.Sample.get("sample-1")).AdditionalTypes) ["new"; "new"; "other"] "Clearing is reversible"
 
     testCase "sample upsert history and pending edits recover across reopening" <| fun _ ->
         let path, created = create()
         use arc = created
-        let sample = Sample("original", id = "sample-1")
-        arc.Sample.upsert(sample)
+        let sample = arc.Sample.upsert(Sample("original", id = "sample-1"))
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
         arc.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore
         arc.save()
-        arc.Sample.upsert(Sample("updated", id = "sample-1", additionalTypes = ["custom"; "custom"]))
+        arc.Sample.upsert(Sample("updated", id = "sample-1", additionalTypes = ["custom"; "custom"])) |> ignore
         Expect.isTrue arc.IsDirty "Linked sample replacement awaits filesystem export"
         arc.close()
         use resumed = ARC.openFolder(path, "auto")
-        let restored = resumed.Sample.get("sample-1")
-        Expect.equal restored.Name "updated" "SQL working state recovered"
-        same (input (Seq.item 0 resumed.Model.Processes)) restored
+        Expect.equal (resumed.Sample.get("sample-1")).Name "updated" "SQL working state recovered"
+        Expect.equal (input (Seq.item 0 resumed.Model.Processes)).Name "updated" "Link resolves to the replacement"
         resumed.History.undo()
-        Expect.equal restored.Name "original" "Recovered history undoes replacement"
+        Expect.equal (resumed.Sample.get("sample-1")).Name "original" "Recovered history undoes replacement"
         Expect.isFalse resumed.IsDirty "Undo returns to saved root"
         resumed.close()
         use reopened = ARC.openFolder(path, "auto")
@@ -580,69 +674,59 @@ let tests = testList "Management prototype" [
         let redone = reopened.Sample.get("sample-1")
         Expect.equal redone.Name "updated" "Recovered replacement redone"
         Expect.equal (Seq.toList redone.AdditionalTypes) ["custom"; "custom"] "SQL snapshots retain duplicate values"
-        same (input (Seq.item 0 reopened.Model.Processes)) redone
+        Expect.equal (input (Seq.item 0 reopened.Model.Processes)).Id redone.Id "Link follows the entity"
 
-    testCase "sample upsert can reactivate a deleted ID without replacing its retained instance" <| fun _ ->
+    testCase "sample upsert can insert a deleted ID again" <| fun _ ->
         let _, created = create()
         use arc = created
-        let canonical = Sample("original", id = "sample-1")
-        arc.Sample.upsert(canonical)
-        arc.Sample.delete(canonical) |> ignore
-        arc.Sample.upsert(Sample("replacement", id = "sample-1"))
-        same (arc.Sample.get("sample-1")) canonical
-        Expect.equal canonical.Name "replacement" "Deleted ID is inserted again"
+        let canonical = arc.Sample.upsert(Sample("original", id = "sample-1"))
+        arc.Sample.delete(canonical)
+        arc.Sample.upsert(Sample("replacement", id = "sample-1")) |> ignore
+        Expect.equal (arc.Sample.get("sample-1")).Name "replacement" "Deleted ID is inserted again"
         arc.History.undo()
         Expect.equal (count "sample" arc.DatabasePath) 0L "Reactivation undone"
         arc.History.undo()
-        same (arc.Sample.get("sample-1")) canonical
-        Expect.equal canonical.Name "original" "Original deletion can still be undone"
+        Expect.equal (arc.Sample.get("sample-1")).Name "original" "Original deletion can still be undone"
         arc.History.redo()
         arc.History.redo()
-        same (arc.Sample.get("sample-1")) canonical
-        Expect.equal canonical.Name "replacement" "Reactivation redo retains identity"
+        Expect.equal (arc.Sample.get("sample-1")).Name "replacement" "Reactivation redone"
+        Expect.equal canonical.Name "original" "The earlier value is unchanged"
 
-    testCase "sample upsert rejects invalid inputs cross-type IDs and direct live mutations" <| fun _ ->
+    testCase "sample upsert rejects invalid inputs and cross-type IDs" <| fun _ ->
         let _, created = create()
         use arc = created
-        let canonical = Sample("original", id = "sample-1")
-        arc.Sample.upsert(canonical)
+        arc.Sample.upsert(Sample("original", id = "sample-1")) |> ignore
         let proc = arc.Process.create("measurement")
         let commands = count "history" arc.DatabasePath
-        Expect.throws (fun () -> arc.Sample.upsert(Sample("collision", id = arc.Model.Id.Value))) "Dataset ID collision rejected"
-        Expect.throws (fun () -> arc.Sample.upsert(Sample("collision", id = proc.Id.Value))) "Process ID collision rejected"
-        Expect.throws (fun () -> arc.Sample.upsert(Unchecked.defaultof<Sample>)) "Null input rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(Sample("collision", id = arc.Model.Id.Value)) |> ignore) "Dataset ID collision rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(Sample("collision", id = proc.Id.Value)) |> ignore) "Process ID collision rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(Unchecked.defaultof<Sample>) |> ignore) "Null input rejected"
         let invalid = Sample("invalid")
         invalid.State <- { invalid.State with Name = Unchecked.defaultof<string> }
-        Expect.throws (fun () -> arc.Sample.upsert(invalid)) "Null name rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(invalid) |> ignore) "Null name rejected"
         Expect.isNone invalid.Id "Validation failure does not assign an ID"
         let property = Annotation("property")
         property.State <- { property.State with Name = Unchecked.defaultof<string> }
         let invalid = Sample("invalid", id = "sample-1", additionalProperties = [property])
-        Expect.throws (fun () -> arc.Sample.upsert(invalid)) "Invalid nested properties are rejected"
+        Expect.throws (fun () -> arc.Sample.upsert(invalid) |> ignore) "Invalid nested properties are rejected"
         let invalidTypes = Sample("invalid", id = "sample-1", additionalTypes = [Unchecked.defaultof<string>])
-        Expect.throws (fun () -> arc.Sample.upsert(invalidTypes)) "Null collection values rejected"
-        canonical.State <- { canonical.State with Name = "bypassed" }
-        Expect.throws (fun () -> arc.Sample.upsert(canonical)) "Upsert does not commit direct live edits"
-        canonical.State <- { canonical.State with Name = "original" }
+        Expect.throws (fun () -> arc.Sample.upsert(invalidTypes) |> ignore) "Null collection values rejected"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed upserts create no history"
-        same (arc.Sample.get("sample-1")) canonical
-        Expect.equal canonical.Name "original" "Registered values unchanged"
-        Expect.throws (fun () -> arc.Sample.add(Sample("duplicate", id = "sample-1")) |> ignore) "Registration still rejects duplicates"
+        Expect.equal (arc.Sample.get("sample-1")).Name "original" "Stored values unchanged"
 
     testCase "sample upsert SQL failure rolls back updates insertions and assigned IDs" <| fun _ ->
         let _, created = create()
         use arc = created
-        let canonical = Sample("original", id = "sample-1", additionalTypes = ["old"])
-        arc.Sample.upsert(canonical)
+        arc.Sample.upsert(Sample("original", id = "sample-1", additionalTypes = ["old"])) |> ignore
         let commands = count "history" arc.DatabasePath
         withSql arc.DatabasePath (fun sql ->
             sql.ExecuteScript("CREATE TRIGGER reject_upsert BEFORE INSERT ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END; CREATE TRIGGER reject_upsert_update BEFORE UPDATE ON sample WHEN NEW.name='reject' BEGIN SELECT RAISE(ABORT,'injected failure'); END;"))
-        Expect.throws (fun () -> arc.Sample.upsert(Sample("reject", id = "sample-1", additionalTypes = ["new"]))) "Replacement SQL failure"
-        Expect.equal canonical.Name "original" "Failed update leaves canonical values unchanged"
-        Expect.equal (Seq.toList canonical.AdditionalTypes) ["old"] "Failed update restores collection values"
+        Expect.throws (fun () -> arc.Sample.upsert(Sample("reject", id = "sample-1", additionalTypes = ["new"])) |> ignore) "Replacement SQL failure"
+        Expect.equal (arc.Sample.get("sample-1")).Name "original" "Failed update leaves stored values unchanged"
+        Expect.equal (Seq.toList (arc.Sample.get("sample-1")).AdditionalTypes) ["old"] "Failed update keeps collection values"
         let pending = Sample("reject")
-        Expect.throws (fun () -> arc.Sample.upsert(pending)) "Insertion SQL failure"
-        Expect.isNone pending.Id "Failed insertion restores missing ID"
+        Expect.throws (fun () -> arc.Sample.upsert(pending) |> ignore) "Insertion SQL failure"
+        Expect.isNone pending.Id "Supplied input stays unchanged"
         Expect.equal (arc.Sample.list()).Count 1 "Failed insertion leaves registry unchanged"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed SQL creates no upsert history"
         withSql arc.DatabasePath (fun sql ->
@@ -654,15 +738,13 @@ let tests = testList "Management prototype" [
         let _, created = create()
         use arc = created
         arc.save()
-        let sample = Sample("original")
-        arc.Sample.upsert(sample)
+        let sample = arc.Sample.upsert(Sample("original"))
         let id = sample.Id.Value
         arc.History.undo()
         Expect.isTrue arc.History.CanRedo "Insertion can be redone"
-        arc.Sample.upsert(Sample("new branch", id = id))
+        arc.Sample.upsert(Sample("new branch", id = id)) |> ignore
         Expect.isFalse arc.History.CanRedo "New upsert clears the redo branch"
-        same (arc.Sample.get(id)) sample
-        Expect.equal sample.Name "new branch" "Retained identity reused on the new branch"
+        Expect.equal (arc.Sample.get(id)).Name "new branch" "The ID is reused on the new branch"
         Expect.isFalse arc.IsDirty "Standalone upsert does not change the saved root graph"
         Expect.isTrue arc.HasSessionOnlyObjects "Standalone state is tracked separately"
 ]

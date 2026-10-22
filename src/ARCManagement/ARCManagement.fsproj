@@ -23,7 +23,6 @@
     <Compile Include="Storage/CoreSchema.fs" />
     <Compile Include="Storage/SQLiteStore.fs" />
     <Compile Include="Storage/Repository.fs" />
-    <Compile Include="AppliedOperation.fs" />
     <Compile Include="Runtime/Session.fs" />
     <Compile Include="Runtime/ArcFactory.fs" />
     <Compile Include="Operations/EntityOperations.fs" />

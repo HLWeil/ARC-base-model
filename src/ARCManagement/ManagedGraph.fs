@@ -42,10 +42,7 @@ type ManagedGraph private (context: GraphContext) =
     member _.ArcId = context.ArcId
     member _.DatabasePath = context.DatabasePath
     member _.HasSessionOnlyObjects = context.HasSessionOnlyObjects
-    member _.toYaml() =
-        context.Repository.Access(fun () ->
-            context.Check()
-            Codec.encodeGraph context.State)
+    member _.toYaml() = context.ToYaml()
     member _.close() =
         if not context.IsClosed then context.Repository.Access(context.Close)
     static member internal Wrap(context: GraphContext) =

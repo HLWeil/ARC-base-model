@@ -3,6 +3,7 @@ namespace ARCManagement.Internal
 open ARCManagement.Helper
 
 open System
+open System.Collections.Generic
 open Fable.Core
 open ARCBaseModel
 
@@ -19,7 +20,7 @@ module internal Model =
     let number value = value
 #endif
     let required name value = if isNull (box value) then nullArg name else value
-    let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no session ID; add it through ARC operations first.")
+    let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no ID; add it through ARC operations first.")
     let kind (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Type
     let id (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Id
     let setId (entity: obj) id =
@@ -365,3 +366,47 @@ module internal Model =
                 row.Extensions |> Map.toList |> List.collect (snd >> extensionReferences) |> List.fold visit seen
         visit Set.empty state.Root
     let sessionOnly state = (reachable state).Count < state.Entities.Length
+
+/// Adoption copies a submitted object graph into rows. The submitted objects stay unchanged and missing IDs
+/// are assigned only to the rows.
+module internal Adoption =
+    /// Returns the next state and the ID of the submitted root. A strict adoption rejects a root ID that exists.
+    /// Without recursion, nested objects whose supplied ID exists in the state are links and are not written.
+    let adopt (state: State) (accepts: string -> bool) (submitted: obj) (strict: bool) (recursive: bool) : State * string =
+        Model.required "entity" submitted |> ignore
+        if not (accepts (Model.kind submitted)) then invalidArg "entity" "Wrong entity type."
+        let existing = Dictionary<string, EntityRow>()
+        for row in state.Entities do existing[row.Id] <- row
+        let ids = Dictionary<obj, string>(HashIdentity.Reference)
+        let written = Dictionary<string, EntityRow>()
+        let inserted = ResizeArray<string>()
+        let rec visit (isRoot: bool) (value: obj) : string =
+            Model.required "entity" value |> ignore
+            match ids.TryGetValue value with
+            | true, id -> id
+            | _ ->
+                let supplied = Model.id value
+                let stored =
+                    match supplied with
+                    | Some id -> (match existing.TryGetValue id with | true, row -> Some row | _ -> None)
+                    | None -> None
+                if isRoot && strict && stored.IsSome then invalidOp ("Entity ID already exists: " + supplied.Value)
+                if not isRoot && not recursive && stored.IsSome then
+                    ids[value] <- supplied.Value
+                    supplied.Value
+                else
+                    let id = supplied |> Option.defaultWith Identifier.newId
+                    ids[value] <- id
+                    match stored with
+                    | Some row when row.Kind <> Model.kind value -> invalidOp ("Entity ID belongs to another entity type: " + id)
+                    | _ -> ()
+                    let row = { Model.capture id (visit false) value with SuppliedId = Some id }
+                    match written.TryGetValue id with
+                    | true, previous -> if previous <> row then invalidOp ("Conflicting definitions for entity ID " + id)
+                    | _ ->
+                        written[id] <- row
+                        if stored.IsNone then inserted.Add id
+                    id
+        let rootId = visit true submitted
+        let replaced = state.Entities |> List.map (fun row -> match written.TryGetValue row.Id with | true, next -> next | _ -> row)
+        { state with Entities = replaced @ [for id in inserted -> written[id]] }, rootId

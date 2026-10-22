@@ -198,12 +198,12 @@ let tests = testList "Detached and managed YAML" [
         let yaml = graph.toYaml()
         Expect.isFalse (yaml.Contains("standalone")) "Standalone registered objects excluded"
         Expect.isTrue graph.History.CanRedo "Export leaves redo branch intact"
-        same (graph.Sample.get(sample.Id.Value)) sample
+        Expect.equal (graph.Sample.get(sample.Id.Value)).Name "standalone" "Registry unchanged by export"
         let detached = DatasetYaml.decode(yaml)
         Expect.equal (Seq.item 0 detached.Processes).Name "attached" "Exports retained root state"
         Expect.equal detached.Id graph.Model.Id "Assigned domain ID retained"
         graph.History.redo()
-        Expect.equal proc.Name "changed" "History remains usable"
-        graph.Model.State <- { graph.Model.State with Title = Some "unsupported direct mutation" }
-        Expect.throws (fun () -> graph.toYaml() |> ignore) "Managed export detects direct mutation")
+        Expect.equal (graph.Process.get(proc.Id.Value)).Name "changed" "History remains usable"
+        Expect.equal proc.Name "attached" "Held value is unchanged"
+        Expect.isTrue ((graph.toYaml()).Contains("changed")) "Export follows the current state")
 ]

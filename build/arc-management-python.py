@@ -24,7 +24,7 @@ OUTPUT = REPOSITORY / "build/out/arc-management"
 GROUPS = ("entity", "dataset", "process", "sample", "data", "recipe", "annotation",
           "formal_parameter", "defined_term", "defined_term_set", "descriptor", "agent",
           "organization", "scholarly_article", "history")
-PUBLIC = {"ManagedGraph": "managed_graph.py", "AppliedOperation": "applied_operation.py",
+PUBLIC = {"ManagedGraph": "managed_graph.py",
           "Session": "session.py", "ArcInfo": "session.py",
           "DatasetYaml": "Serialization/dataset_yaml.py",
           **{''.join(word.title() for word in group.split('_')) + "Operations":
@@ -113,7 +113,8 @@ def declarations(source: Path, public: dict[str, str], workspace: bool = False) 
                     parameters.append("self")
                     continue
                 annotation = public_annotation(argument.annotation, name, member.name, argument.arg)
-                parameters.append(f"{argument.arg}: {annotation}" + (" = ..." if default else ""))
+                none = isinstance(default, ast.Constant) and default.value is None
+                parameters.append(f"{argument.arg}: {annotation}" + (" = None" if none else " = ..." if default else ""))
             result = public_annotation(member.returns, name, member.name, "return")
             lines.extend(f"    @{decorator}" for decorator in decorators)
             lines.append(f"    def {member.name}({', '.join(parameters)}) -> {result}: ...")

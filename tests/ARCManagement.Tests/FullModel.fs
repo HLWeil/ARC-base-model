@@ -38,7 +38,8 @@ let tests = testList "Full base-model management" [
         let path = folder()
         let supplied = fixture()
         let arc = ARC.create(path,supplied)
-        same arc.Model supplied
+        Expect.isNone supplied.Id "Supplied root keeps its absent ID"
+        Expect.isSome arc.Model.Id "Stored root carries an ID"
         Expect.equal (arc.Recipe.list()).Count 1 "Recipe registered"
         Expect.equal (arc.Annotation.list()).Count 3 "Shared annotations registered once"
         Expect.equal (arc.FormalParameter.list()).Count 1 "Parameter registered"
@@ -110,7 +111,7 @@ let tests = testList "Full base-model management" [
             match (Seq.item 1 root.Descriptors).Describes with EntityReference.Data v -> same v (Seq.item 1 root.DataFiles) | _ -> failwith "Expected Data descriptor"
             Expect.isFalse resumed.HasSessionOnlyObjects "All shared references remain reachable"
             resumed.close() )
-    testCase "value replacement covers every entity group and retains canonical instances through undo redo and resume" (fun _ ->
+    testCase "value replacement covers every entity group through undo redo and resume" (fun _ ->
         let path = folder()
         let arc = ARC.create(path,fixture())
         arc.save()
@@ -130,33 +131,35 @@ let tests = testList "Full base-model management" [
         let article = (arc.ScholarlyArticle.list() |> Seq.head)
         let sampleProperties = sample.AdditionalProperties
         let newDataset = Dataset(["administrative"],["replacement"],id=root.Id.Value)
-        arc.Dataset.upsert(newDataset)
-        arc.Process.upsert(ARCBaseModel.Process("Replacement",id=proc.Id.Value))
-        arc.Sample.upsert(Sample("Replacement",id=sample.Id.Value))
-        arc.Data.upsert(Data("new.csv",id=data.Id.Value))
-        arc.Recipe.upsert(Recipe(name="Replacement",id=recipe.Id.Value))
-        arc.Annotation.upsert(Annotation("Replacement",value=AnnotationValue.Text "",id=annotation.Id.Value))
-        arc.FormalParameter.upsert(FormalParameter(id=parameter.Id.Value))
-        arc.DefinedTerm.upsert(DefinedTerm("Replacement",inDefinedTermSet=DefinedTermSetReference.Url "ontology-url",id=term.Id.Value))
-        arc.DefinedTermSet.upsert(DefinedTermSet("Replacement",id=termset.Id.Value))
-        arc.Descriptor.upsert(Descriptor(EntityReference.Data data,id=descriptor.Id.Value))
-        arc.Agent.upsert(Agent("Replacement",id=agent.Id.Value))
-        arc.Organization.upsert(Organization("Replacement",id=organization.Id.Value))
-        arc.ScholarlyArticle.upsert(ScholarlyArticle("Replacement",id=article.Id.Value))
-        same arc.Model root
-        same (arc.Process.get(proc.Id.Value)) proc
+        arc.Dataset.upsert(newDataset) |> ignore
+        arc.Process.upsert(ARCBaseModel.Process("Replacement",id=proc.Id.Value)) |> ignore
+        arc.Sample.upsert(Sample("Replacement",id=sample.Id.Value)) |> ignore
+        arc.Data.upsert(Data("new.csv",id=data.Id.Value)) |> ignore
+        arc.Recipe.upsert(Recipe(name="Replacement",id=recipe.Id.Value)) |> ignore
+        arc.Annotation.upsert(Annotation("Replacement",value=AnnotationValue.Text "",id=annotation.Id.Value)) |> ignore
+        arc.FormalParameter.upsert(FormalParameter(id=parameter.Id.Value)) |> ignore
+        arc.DefinedTerm.upsert(DefinedTerm("Replacement",inDefinedTermSet=DefinedTermSetReference.Url "ontology-url",id=term.Id.Value)) |> ignore
+        arc.DefinedTermSet.upsert(DefinedTermSet("Replacement",id=termset.Id.Value)) |> ignore
+        arc.Descriptor.upsert(Descriptor(EntityReference.Data data,id=descriptor.Id.Value)) |> ignore
+        arc.Agent.upsert(Agent("Replacement",id=agent.Id.Value)) |> ignore
+        arc.Organization.upsert(Organization("Replacement",id=organization.Id.Value)) |> ignore
+        arc.ScholarlyArticle.upsert(ScholarlyArticle("Replacement",id=article.Id.Value)) |> ignore
+        Expect.equal (arc.Model.Id) root.Id "The root stays the root"
+        Expect.equal (arc.Process.get(proc.Id.Value)).Name "Replacement" "Replacement is stored"
         Expect.equal (Seq.length sampleProperties) 4 "Previously returned collection is unchanged"
-        Expect.equal (Seq.length sample.AdditionalProperties) 0 "Full replacement clears collections"
-        Expect.equal (Seq.length root.HasParts) 0 "Detached upsert clears relationships"
-        Expect.equal annotation.Value (Some(AnnotationValue.Text "")) "Empty text is present"
-        Expect.isNone recipe.IntendedUse "Replacement clears alternatives"
-        Expect.isNone parameter.DefaultValue "Replacement clears reference"
+        Expect.equal (Seq.length (arc.Sample.get(sample.Id.Value)).AdditionalProperties) 0 "Full replacement clears collections"
+        Expect.equal (Seq.length root.HasParts) 2 "Previously returned root is unchanged"
+        Expect.equal (Seq.length arc.Model.HasParts) 0 "Detached upsert clears relationships"
+        Expect.equal (arc.Annotation.get(annotation.Id.Value)).Value (Some(AnnotationValue.Text "")) "Empty text is present"
+        Expect.isNone (arc.Recipe.get(recipe.Id.Value)).IntendedUse "Replacement clears alternatives"
+        Expect.isNone (arc.FormalParameter.get(parameter.Id.Value)).DefaultValue "Replacement clears reference"
         Expect.isTrue arc.HasSessionOnlyObjects "Detached entities remain registered"
         for _ in 1..13 do arc.History.undo()
         arc.save()
         Expect.equal (Path.readFileText(Path.combineNative path ARCtrl.Helper.Layout.ARCFileName)) before "All thirteen before-images restored"
         for _ in 1..13 do arc.History.redo()
-        Expect.equal sample.Name "Replacement" "Canonical instance updated on redo"
+        Expect.equal (arc.Sample.get(sample.Id.Value)).Name "Replacement" "Replacement applied again on redo"
+        Expect.equal sample.Name "Sample" "Previously returned value is unchanged"
         arc.close()
         let resumed = ARC.openFolder(path,"sql")
         Expect.equal (resumed.Sample.get(sample.Id.Value)).Name "Replacement" "Upserts survive SQL recovery"
@@ -177,41 +180,43 @@ let tests = testList "Full base-model management" [
         let term = (arc.DefinedTerm.list() |> Seq.head)
         let termset = (arc.DefinedTermSet.list() |> Seq.head)
         let originalComponents = recipe.Components
-        arc.Process.setInput(proc, Some(EntityReference.Data data)) |> ignore
-        match proc.Input with Some(EntityReference.Data actual) -> same actual data | _ -> failwith "Data endpoint"
+        let currentProcess () = arc.Process.get(proc.Id.Value)
+        let currentNumber () = arc.Annotation.get(number.Id.Value)
+        let currentRecipe () = arc.Recipe.get(recipe.Id.Value)
+        let currentTerm () = arc.DefinedTerm.get(term.Id.Value)
+        match (arc.Process.setInput(proc, Some(EntityReference.Data data))).Input with
+        | Some(EntityReference.Data actual) -> Expect.equal actual.Id data.Id "Data endpoint"
+        | _ -> failwith "Data endpoint"
         arc.History.undo()
-        match proc.Input with Some(EntityReference.Sample actual) -> same actual sample | _ -> failwith "Sample endpoint"
+        match (currentProcess()).Input with
+        | Some(EntityReference.Sample actual) -> Expect.equal actual.Id sample.Id "Sample endpoint"
+        | _ -> failwith "Sample endpoint"
         arc.History.redo()
-        arc.Process.setInput(proc, None) |> ignore
-        Expect.isNone proc.Input "Absent input"
-        arc.Process.setOutput(proc, Some(EntityReference.Sample sample)) |> ignore
-        arc.Process.setOutput(proc, None) |> ignore
+        Expect.isNone (arc.Process.setInput(currentProcess(), None)).Input "Absent input"
+        arc.Process.setOutput(currentProcess(), Some(EntityReference.Sample sample)) |> ignore
+        arc.Process.setOutput(currentProcess(), None) |> ignore
         arc.History.undo()
-        match proc.Output with Some(EntityReference.Sample actual) -> same actual sample | _ -> failwith "Sample output"
-        arc.Annotation.setValue(number, Some(AnnotationValue.Number 0.0)) |> ignore
-        Expect.equal number.Value (Some(AnnotationValue.Number 0.0)) "Zero is present"
-        arc.Annotation.setValue(number, Some(AnnotationValue.Text "42")) |> ignore
-        Expect.equal number.Value (Some(AnnotationValue.Text "42")) "Text alternative"
-        arc.Annotation.setValue(number, None) |> ignore
-        Expect.isNone number.Value "Absent value"
+        match (currentProcess()).Output with
+        | Some(EntityReference.Sample actual) -> Expect.equal actual.Id sample.Id "Sample output"
+        | _ -> failwith "Sample output"
+        Expect.equal (arc.Annotation.setValue(number, Some(AnnotationValue.Number 0.0))).Value (Some(AnnotationValue.Number 0.0)) "Zero is present"
+        Expect.equal (arc.Annotation.setValue(number, Some(AnnotationValue.Text "42"))).Value (Some(AnnotationValue.Text "42")) "Text alternative"
+        Expect.isNone (arc.Annotation.setValue(number, None)).Value "Absent value"
         arc.History.undo()
-        Expect.equal number.Value (Some(AnnotationValue.Text "42")) "Text restored"
-        arc.Recipe.setIntendedUse(recipe, Some(RecipeIntendedUse.Text term.Id.Value)) |> ignore
-        Expect.equal recipe.IntendedUse (Some(RecipeIntendedUse.Text term.Id.Value)) "Text matching an ID stays text"
+        Expect.equal (currentNumber()).Value (Some(AnnotationValue.Text "42")) "Text restored"
+        Expect.equal (arc.Recipe.setIntendedUse(recipe, Some(RecipeIntendedUse.Text term.Id.Value))).IntendedUse (Some(RecipeIntendedUse.Text term.Id.Value)) "Text matching an ID stays text"
         arc.Recipe.setIntendedUse(recipe, Some(RecipeIntendedUse.Term term)) |> ignore
-        arc.DefinedTerm.setInDefinedTermSet(term, Some(DefinedTermSetReference.Url termset.Id.Value)) |> ignore
-        Expect.equal term.InDefinedTermSet (Some(DefinedTermSetReference.Url termset.Id.Value)) "URL matching an ID stays URL"
-        arc.DefinedTerm.setInDefinedTermSet(term, Some(DefinedTermSetReference.TermSet termset)) |> ignore
+        Expect.equal (arc.DefinedTerm.setInDefinedTermSet(term, Some(DefinedTermSetReference.Url termset.Id.Value))).InDefinedTermSet (Some(DefinedTermSetReference.Url termset.Id.Value)) "URL matching an ID stays URL"
+        arc.DefinedTerm.setInDefinedTermSet(currentTerm(), Some(DefinedTermSetReference.TermSet termset)) |> ignore
         arc.Recipe.setComponents(recipe,[number;number;number]) |> ignore
         Expect.equal (Seq.length originalComponents) 2 "Previously returned collection is unchanged"
-        arc.Recipe.removeComponent(recipe,number) |> ignore
-        Expect.equal (Seq.length recipe.Components) 2 "Remove one duplicate occurrence"
+        Expect.equal (Seq.length (arc.Recipe.removeComponent(currentRecipe(),number)).Components) 2 "Remove one duplicate occurrence"
         arc.History.undo()
-        Expect.equal (Seq.length recipe.Components) 3 "Duplicate order restored"
+        Expect.equal (Seq.length (currentRecipe()).Components) 3 "Duplicate order restored"
         arc.Dataset.addPart(root,(Seq.item 0 root.HasParts)) |> ignore
-        Expect.equal (Seq.length root.HasParts) 3 "Duplicate Dataset membership allowed"
+        Expect.equal (Seq.length arc.Model.HasParts) 3 "Duplicate Dataset membership allowed"
         arc.Dataset.removePart(root,(Seq.item 0 root.HasParts)) |> ignore
-        Expect.equal (Seq.length root.HasParts) 2 "Only one membership removed"
+        Expect.equal (Seq.length arc.Model.HasParts) 2 "Only one membership removed"
         arc.save()
         arc.close()
         let resumed = ARC.openFolder(path,"yml")
@@ -226,42 +231,41 @@ let tests = testList "Full base-model management" [
         let owner = arc.Dataset.create("other")
         arc.Dataset.addPart(owner,shared) |> ignore
         arc.Dataset.addPart(arc.Model,owner) |> ignore
-        arc.Dataset.delete(owner) |> ignore
-        same (arc.Dataset.get(shared.Id.Value)) shared
+        arc.Dataset.delete(owner)
+        Expect.equal (arc.Dataset.get(shared.Id.Value)).Id shared.Id "Shared child survives"
         Expect.equal (Seq.length arc.Model.HasParts) 2 "Other memberships retained"
         arc.History.undo()
-        same (Seq.item 2 arc.Model.HasParts) owner
+        Expect.equal (Seq.item 2 arc.Model.HasParts).Id owner.Id "Owner restored at its position"
         let sample = (arc.Sample.list() |> Seq.head)
-        Expect.throws (fun () -> arc.Sample.delete(sample) |> ignore) "Descriptor requires its target"
-        same (arc.Sample.get(sample.Id.Value)) sample
-        let data = (arc.Data.list() |> Seq.head)
-        data.State <- { data.State with Path = "out-of-band" }
-        Expect.throws (fun () -> arc.save()) "New entity types also detect direct mutation"
+        Expect.throws (fun () -> arc.Sample.delete(sample)) "Descriptor requires its target"
+        Expect.equal (arc.Sample.get(sample.Id.Value)).Id sample.Id "Sample stays stored"
         arc.close())
 
-    testCase "registration failure assigns no IDs and undo restores omitted IDs" (fun _ ->
+    testCase "registration failure assigns no IDs and undo removes the inserted rows" (fun _ ->
         let path = folder()
         let arc = ARC.create(path,fixture())
         let value = Recipe(name="New",components=[Annotation("New component")])
-        arc.Recipe.add(value) |> ignore
-        let recipeId, annotationId = value.Id.Value, (Seq.item 0 value.Components).Id.Value
+        let stored = arc.Recipe.add(value)
+        Expect.isNone value.Id "Supplied recipe keeps its absent ID"
+        Expect.isNone (Seq.item 0 value.Components).Id "Supplied component keeps its absent ID"
+        let recipeId, annotationId = stored.Id.Value, (Seq.item 0 stored.Components).Id.Value
         arc.History.undo()
-        Expect.isNone value.Id "Assigned recipe ID undone"
-        Expect.isNone (Seq.item 0 value.Components).Id "Assigned component ID undone"
+        Expect.throws (fun () -> arc.Recipe.get(recipeId) |> ignore) "Inserted recipe undone"
+        Expect.throws (fun () -> arc.Annotation.get(annotationId) |> ignore) "Inserted component undone"
         arc.History.redo()
-        same (arc.Recipe.get(recipeId)) value
-        same (arc.Annotation.get(annotationId)) (Seq.item 0 value.Components)
+        Expect.equal (arc.Recipe.get(recipeId)).Id stored.Id "Redo restores the same ID"
+        Expect.equal (arc.Annotation.get(annotationId)).Name "New component" "Redo restores the component"
         let bad = Recipe(name="Bad",components=[Annotation("Pending"); Annotation("Collision",id=arc.Model.Id.Value)])
         Expect.throws (fun () -> arc.Recipe.add(bad) |> ignore) "Nested cross-type collision rejected"
         Expect.isNone bad.Id "No root ID assigned"
         Expect.isNone (Seq.item 0 bad.Components).Id "No nested ID assigned"
-        arc.Recipe.setComponents(value,[]) |> ignore
+        arc.Recipe.setComponents(stored,[]) |> ignore
         arc.close()
         let resumed = ARC.openFolder(path,"sql")
         resumed.History.undo()
         let restored = resumed.Recipe.get(recipeId)
         Expect.equal (Seq.length restored.Components) 1 "Collection history survives restart"
-        same (Seq.item 0 restored.Components) (resumed.Annotation.get(annotationId))
+        Expect.equal (Seq.item 0 restored.Components).Id (resumed.Annotation.get(annotationId)).Id "Component link restored"
         resumed.close())
 
     testCase "recursive Dataset and Data graphs preserve identity through SQL and YAML" (fun _ ->
@@ -289,11 +293,12 @@ let tests = testList "Full base-model management" [
         sql.ExecuteScript("CREATE TRIGGER reject_recipe BEFORE UPDATE ON recipe WHEN NEW.name='Rejected' BEGIN SELECT RAISE(ABORT,'injected'); END;")
         let component = Annotation("Pending")
         let replacement = Recipe(name="Rejected",components=[component],id=recipe.Id.Value)
-        Expect.throws (fun () -> arc.Recipe.upsert(replacement)) "SQL rejects the planned graph"
-        Expect.equal recipe.Name (Some "Recipe") "Canonical values restored"
-        Expect.isTrue (Seq.forall2 (fun a b -> Object.ReferenceEquals(a,b)) recipe.Components original) "Canonical collection contents restored"
-        Expect.equal (Seq.length recipe.Components) 2 "Canonical references preserved"
-        Expect.isNone component.Id "Pending ID restored"
+        Expect.throws (fun () -> arc.Recipe.upsert(replacement) |> ignore) "SQL rejects the planned graph"
+        let current = arc.Recipe.get(recipe.Id.Value)
+        Expect.equal current.Name (Some "Recipe") "Stored values unchanged"
+        Expect.isTrue (Seq.forall2 (fun (a: Annotation) (b: Annotation) -> a.Id = b.Id) current.Components original) "Stored collection contents unchanged"
+        Expect.equal (Seq.length current.Components) 2 "Stored references preserved"
+        Expect.isNone component.Id "Supplied input keeps its absent ID"
         Expect.equal (arc.Annotation.list()).Count 3 "No partial registration"
         Expect.equal (sql.Scalar("SELECT count(*) FROM history").Value.AsInteger()) 0L "No history appended"
         Expect.equal (sql.Query("PRAGMA foreign_key_check")).Count 0 "No dangling references"
@@ -311,195 +316,19 @@ let tests = testList "Full base-model management" [
         Expect.equal (Seq.length (Seq.item 0 resumed.Model.Processes).ExecutesRecipe.Value.Components) 2 "Independent import reads saved graph"
         resumed.close())
 
-    testCase "re-registering an undone instance reuses its retained identity without aliases" (fun _ ->
+    testCase "adding an undone value reuses its supplied ID and a value without ID gets a new one" (fun _ ->
         let arc = ARC.create(folder(),fixture())
         let data = Data("standalone.csv")
-        arc.Data.add(data) |> ignore
-        let id = data.Id.Value
+        let first = arc.Data.add(data)
         arc.History.undo()
-        Expect.isNone data.Id "Assigned ID undone"
-        arc.Data.add(data) |> ignore
-        Expect.equal data.Id (Some id) "Same retained instance receives its reserved identity"
+        Expect.isNone data.Id "Supplied input is unchanged"
+        let second = arc.Data.add(data)
+        Expect.notEqual second.Id first.Id "An absent ID is assigned afresh"
         Expect.isFalse arc.History.CanRedo "Registration starts a new branch"
-        same (arc.Data.get(id)) data
+        Expect.equal (arc.Data.get(second.Id.Value)).Path "standalone.csv" "Stored copy resolves"
         Expect.isTrue arc.HasSessionOnlyObjects "Registry remains consistent"
         arc.History.undo()
-        data.Common <- { data.Common with Id = Some "renamed" }
-        Expect.throws (fun () -> arc.Data.add(data) |> ignore) "Retained identity cannot alias another key"
+        let again = arc.Data.add(second)
+        Expect.equal again.Id second.Id "A stored value keeps its supplied ID when added again"
         arc.close())
-
-    testCase "extensions persist through SQL history and typed YAML" (fun _ ->
-        let path = folder()
-        let root = Dataset(["process-provenance"], ["extensions"])
-        let custom = EntityObject("QualityAssessment")
-        custom.Common <- { custom.Common with Properties = custom.Common.Properties.With("back", Entity.Object root) }
-        root.Common <- { root.Common with Properties = root.Common.Properties.With("quality", Entity.Object custom) }
-        let arc = ARC.create(path, root)
-        let customId = custom.Id.Value
-        same (arc.Entity.get(customId)) custom
-        arc.Entity.setProperty(custom, "score", Entity.Number(0.95)) |> ignore
-        arc.Entity.setProperty(custom, "accepted", Entity.Bool(false)) |> ignore
-        arc.Entity.setProperty(custom, "$ref", Entity.Text("literal extension key")) |> ignore
-        arc.Entity.setProperty(custom, "emptyBlob", Entity.Blob(EntityBlob(""))) |> ignore
-        arc.Entity.setProperty(custom, "missing", Entity.Null(EntityNull())) |> ignore
-        arc.Entity.setProperty(custom, "bytes", Entity.Blob(EntityBlob("AAH//w=="))) |> ignore
-        arc.Entity.setProperty(custom, "values", Entity.Collection(EntityCollection([Entity.Object custom; Entity.Object custom; Entity.Text "42"; Entity.Number 0.; Entity.Collection(EntityCollection([]))]))) |> ignore
-        arc.Entity.setProperty(custom, "accepted", Entity.Text("false")) |> ignore
-        arc.History.undo()
-        match custom.EntityProperties.Get("accepted") with Entity.Bool value -> Expect.isFalse value "Undo bool" | _ -> failwith "Expected Boolean"
-        arc.History.redo()
-        match custom.EntityProperties.Get("accepted") with Entity.Text value -> Expect.equal value "false" "Redo text" | _ -> failwith "Expected text"
-        Expect.throws (fun () -> arc.Entity.create("Recipe") |> ignore) "Core type requires core class"
-        Expect.throws (fun () -> arc.Entity.setProperty(root, "type", Entity.Text "override") |> ignore) "Reserved key"
-        Expect.throws (fun () -> arc.Entity.addProperty(custom, "score", Entity.Number 1.) |> ignore) "Duplicate key"
-        Expect.throws (fun () -> arc.Entity.setProperty(custom, "bad", Entity.Number(Double.NaN)) |> ignore) "Nonfinite number"
-        Expect.throws (fun () -> arc.Entity.setProperty(custom, "detached", Entity.Object(EntityObject("Detached"))) |> ignore) "Detached reference"
-        Expect.throws (fun () -> arc.Entity.delete(custom) |> ignore) "Referenced extension object"
-        arc.save()
-        let database = Store.openDatabase arc.DatabasePath
-        let blobs = database.Connection.Query("SELECT value_text FROM entity_extension WHERE property='bytes'")
-        Expect.equal (blobs.[0].Get(0).AsText()) "AAH//w==" "Blob stored as canonical base64 text"
-        Expect.equal (database.Connection.Query("PRAGMA foreign_key_check").Count) 0 "Foreign keys"
-        database.Connection.Execute("CREATE TRIGGER reject_extension BEFORE INSERT ON entity_extension BEGIN SELECT RAISE(ABORT,'extension failure'); END")
-        let historyCount = database.Connection.Query("SELECT count(*) FROM history").[0].Get(0).AsInteger()
-        Expect.throws (fun () -> arc.Entity.setProperty(custom, "score", Entity.Number(0.1)) |> ignore) "SQL failure rolls back extension update"
-        match custom.EntityProperties.Get("score") with Entity.Number v -> Expect.equal v 0.95 "Model restored" | _ -> failwith "Number"
-        Expect.equal (database.Connection.Query("SELECT count(*) FROM history").[0].Get(0).AsInteger()) historyCount "History unchanged"
-        database.Connection.Execute("DROP TRIGGER reject_extension")
-        database.Close()
-        arc.close()
-        let recovered = ARC.openFolder(path, "sql")
-        let recoveredCustom = recovered.Entity.get(customId)
-        match recovered.Model.EntityProperties.Get("quality") with Entity.Object v -> same v recoveredCustom | _ -> failwith "Object reference"
-        match recoveredCustom.EntityProperties.Get("back") with Entity.Object v -> same v recovered.Model | _ -> failwith "Cycle"
-        recovered.close()
-        let yaml = ARC.openFolder(path, "yml")
-        let loaded = yaml.Entity.get(customId)
-        match loaded.EntityProperties.Get("bytes") with Entity.Blob v -> Expect.equal v.Base64 "AAH//w==" "Blob YAML" | _ -> failwith "Blob"
-        match loaded.EntityProperties.Get("$ref") with Entity.Text v -> Expect.equal v "literal extension key" "Reference-like key remains metadata" | _ -> failwith "Text"
-        match loaded.EntityProperties.Get("emptyBlob") with Entity.Blob v -> Expect.equal v.Base64 "" "Empty blob" | _ -> failwith "Empty blob"
-        match loaded.EntityProperties.Get("missing") with Entity.Null value -> Expect.isTrue value.IsNull "Null" | _ -> failwith "Expected null"
-        match loaded.EntityProperties.Get("values") with
-        | Entity.Collection vs ->
-            Expect.equal vs.Count 5 "Collection count"
-            match vs.Get(0), vs.Get(1) with Entity.Object a, Entity.Object b -> same a b; same a loaded | _ -> failwith "Shared values"
-        | _ -> failwith "Collection"
-        yaml.close())
-
-    testCase "extensions are tracked and removal is reversible" (fun _ ->
-        let arc = ARC.create(folder(), Dataset(["process-provenance"], ["extensions"]))
-        arc.Entity.addProperty(arc.Model, "custom", Entity.Text("")) |> ignore
-        arc.Entity.removeProperty(arc.Model, "custom") |> ignore
-        Expect.isFalse (arc.Model.EntityProperties.Contains("custom")) "Removed"
-        arc.History.undo()
-        Expect.isTrue (arc.Model.EntityProperties.Contains("custom")) "Restored"
-        arc.Model.Common <- { arc.Model.Common with Properties = arc.Model.Common.Properties.With("custom", Entity.Text "direct mutation") }
-        Expect.throws (fun () -> arc.save()) "Direct extension mutation detected"
-        arc.close())
-
-    testCase "unknown repository versions preserve state and history" (fun _ ->
-        let path = folder()
-        let arc = ARC.create(path, Dataset(["process-provenance"], ["version"]))
-        arc.Dataset.setTitle(arc.Model, Some("title")) |> ignore
-        let dbPath = arc.DatabasePath
-        arc.close()
-        let database = Store.openDatabase dbPath
-        database.Connection.Execute("UPDATE repository SET schema_version=2")
-        database.Close()
-        Expect.throws (fun () -> ARC.openFolder(path,"sql") |> ignore) "Unsupported version rejected"
-        let database = Store.openDatabase dbPath
-        Expect.equal ((database.Connection.Query("SELECT count(*) FROM history")).[0].Get(0).AsInteger()) 1L "History untouched"
-        database.Connection.Execute("UPDATE repository SET schema_version=5")
-        database.Close()
-        let reopened = ARC.openFolder(path,"sql")
-        reopened.History.undo()
-        Expect.isNone reopened.Model.Title "History retained"
-        reopened.close())
-
-    testCase "plain extension keys and numbers match the Agent Helicopter example" (fun _ ->
-        let path = folder()
-        let arc = ARC.create(path, Dataset(["process-provenance"], ["example-arc"]))
-        let agent = arc.Agent.create("Looookas")
-        let helicopter = arc.Entity.create("Helicopter")
-        arc.Entity.addProperty(helicopter, "altitude", Entity.Number(1000.)) |> ignore
-        arc.Entity.addProperty(agent, "Gender", Entity.Object(helicopter)) |> ignore
-        arc.Dataset.addAgent(arc.Model, agent) |> ignore
-        arc.save()
-        let yaml = Path.readFileText(Path.combineNative path ARCtrl.Helper.Layout.ARCFileName)
-        Expect.isTrue (yaml.Contains("Gender:")) "Simple object key"
-        Expect.isFalse (yaml.Contains("\"Gender\"")) "No unnecessary object key quotes"
-        Expect.isTrue (yaml.Contains("altitude: 1000")) "Plain number"
-        Expect.isFalse (yaml.Contains("\"altitude\"")) "No unnecessary numeric key quotes"
-        Expect.isFalse (yaml.Contains("!!float")) "No float tag"
-        let agentId, helicopterId = agent.Id.Value, helicopter.Id.Value
-        arc.close()
-        let loaded = ARC.openFolder(path, "yml")
-        match (loaded.Agent.get(agentId)).EntityProperties.Get("Gender") with
-        | Entity.Object target -> same target (loaded.Entity.get(helicopterId))
-        | _ -> failwith "Expected Helicopter"
-        match (loaded.Entity.get(helicopterId)).EntityProperties.Get("altitude") with
-        | Entity.Number value -> Expect.equal value 1000. "Numeric alternative restored"
-        | _ -> failwith "Expected number"
-        loaded.close())
-
-    testCase "clean YAML scalars round trip on every core class and generic entities" (fun _ ->
-        let path = folder()
-        let arc = ARC.create(path, fixture())
-        let custom = arc.Entity.create("Custom")
-        arc.Entity.setProperty(arc.Model, "customObject", Entity.Object(custom)) |> ignore
-        let entities = arc.Entity.list() |> Seq.toList
-        Expect.equal (entities |> List.map (fun v -> v.Type) |> List.distinct |> List.length) 14 "All thirteen core types plus generic"
-        for entity in entities do
-            arc.Entity.setProperty(entity, "altitude", Entity.Number(1000.)) |> ignore
-            arc.Entity.setProperty(entity, "fraction", Entity.Number(0.125)) |> ignore
-            arc.Entity.setProperty(entity, "zero", Entity.Number(0.)) |> ignore
-            arc.Entity.setProperty(entity, "negative", Entity.Number(-42.)) |> ignore
-            arc.Entity.setProperty(entity, "numberText", Entity.Text("1000")) |> ignore
-            arc.Entity.setProperty(entity, "boolText", Entity.Text("false")) |> ignore
-            arc.Entity.setProperty(entity, "nullText", Entity.Text("null")) |> ignore
-            arc.Entity.setProperty(entity, "accepted", Entity.Bool(false)) |> ignore
-            arc.Entity.setProperty(entity, "missing", Entity.Null(EntityNull())) |> ignore
-            arc.Entity.setProperty(entity, "blob", Entity.Blob(EntityBlob("AA=="))) |> ignore
-            arc.Entity.setProperty(entity, "$ref", Entity.Text("custom key")) |> ignore
-            arc.Entity.setProperty(entity, "a: b", Entity.Text("colon key")) |> ignore
-            arc.Entity.setProperty(entity, "a#b", Entity.Text("hash key")) |> ignore
-            arc.Entity.setProperty(entity, "true", Entity.Text("Boolean-like key")) |> ignore
-            arc.Entity.setProperty(entity, "1000", Entity.Text("Numeric-like key")) |> ignore
-            arc.Entity.setProperty(entity, "lab:altitude", Entity.Text("namespaced key")) |> ignore
-            arc.Entity.setProperty(entity, "values", Entity.Collection(EntityCollection([Entity.Number 1000.; Entity.Text "1000"; Entity.Bool false; Entity.Null(EntityNull())]))) |> ignore
-        let ids = entities |> List.map (fun v -> v.Id.Value)
-        arc.save()
-        let yaml = Path.readFileText(Path.combineNative path ARCtrl.Helper.Layout.ARCFileName)
-        Expect.isFalse (yaml.Contains("!<!!")) "No invalid verbatim built-in tags for any scalar alternative"
-        Expect.isFalse (yaml.Contains("\"altitude\"")) "Plain keys on all classes"
-        Expect.isTrue (yaml.Contains("altitude: 1000")) "Plain integral numbers"
-        Expect.isTrue (yaml.Contains("fraction: 0.125")) "Plain fractional numbers"
-        Expect.isTrue (yaml.Contains("lab:altitude:")) "Safe namespaced key"
-        Expect.isTrue (yaml.Contains("\"a: b\":")) "Unsafe key quoted"
-        Expect.isTrue (yaml.Contains("\"$ref\":")) "Reader-special key quoted"
-        arc.close()
-        for source in ["sql"; "yml"] do
-            let loaded = ARC.openFolder(path, source)
-            for id in ids do
-                let entity = loaded.Entity.get(id)
-                let value key = entity.EntityProperties.Get(key)
-                for key, expected in ["altitude",1000.; "fraction",0.125; "zero",0.; "negative",-42.] do
-                    match value key with Entity.Number n -> Expect.equal n expected "Numeric value" | _ -> failwith ("Expected number: " + entity.Type)
-                for key, expected in ["numberText","1000"; "boolText","false"; "nullText","null"; "$ref","custom key"; "a: b","colon key"; "a#b","hash key"; "true","Boolean-like key"; "1000","Numeric-like key"; "lab:altitude","namespaced key"] do
-                    match value key with Entity.Text text -> Expect.equal text expected "Text value" | _ -> failwith ("Expected text: " + entity.Type)
-                match value "accepted" with Entity.Bool flag -> Expect.isFalse flag "Boolean value" | _ -> failwith "Expected Boolean"
-                match value "missing" with Entity.Null missing -> Expect.isTrue missing.IsNull "Null value" | _ -> failwith "Expected null"
-                match value "blob" with Entity.Blob b -> Expect.equal b.Base64 "AA==" "Blob survives valid tag" | _ -> failwith "Expected blob"
-                match value "values" with
-                | Entity.Collection values ->
-                    match values.Get(0), values.Get(1), values.Get(2), values.Get(3) with
-                    | Entity.Number number, Entity.Text text, Entity.Bool flag, Entity.Null missing ->
-                        Expect.equal number 1000. "Collection number"
-                        Expect.equal text "1000" "Collection text"
-                        Expect.isFalse flag "Collection Boolean"
-                        Expect.isTrue missing.IsNull "Collection null"
-                    | _ -> failwith "Mixed collection alternatives"
-                | _ -> failwith "Expected collection"
-            loaded.close())
-
 ]

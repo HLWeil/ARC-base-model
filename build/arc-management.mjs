@@ -16,7 +16,7 @@ const modelTypes = path.join(repository, "build/out/base-model/js/node_modules/a
 const groups = ["Entity", "Dataset", "Process", "Sample", "Data", "Recipe", "Annotation", "FormalParameter",
   "DefinedTerm", "DefinedTermSet", "Descriptor", "Agent", "Organization", "ScholarlyArticle", "History"];
 const exports = new Map([
-  ["ManagedGraph", "ManagedGraph.ts"], ["AppliedOperation", "AppliedOperation.ts"],
+  ["ManagedGraph", "ManagedGraph.ts"],
   ["Session", "Session.ts"], ["ArcInfo", "Session.ts"],
   ["DatasetYaml", "Serialization/DatasetYaml.ts"],
   ...groups.map(name => [`${name}Operations`, `Operations/${name}Operations.ts`]),

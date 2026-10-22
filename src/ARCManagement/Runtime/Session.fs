@@ -9,143 +9,183 @@ open PolyglotSQLite
 open ARCManagement
 open ARCManagement.Internal
 
-type internal GraphContext(repository: Repository, arcId: string, supplied: (string * obj) list) =
+/// Everything one revision of an ARC entry holds. SQL is authoritative and this value is replaced as a whole.
+type internal Stored =
+    { State: State
+      Ordinals: Map<string, int64>
+      Cursor: int
+      Revision: int64
+      Folder: string option
+      Baseline: string option
+      SavedGraph: string option }
+
+/// Caches the stored rows of one ARC entry and hydrates fresh immutable model values from them.
+type internal GraphContext(repository: Repository, arcId: string) =
     let db = repository.Connection
-    let metadata = Store.metadata db arcId
-    let loaded, loadedOrdinals = Store.load db arcId
-    // Supplied objects still hold their original IDs here, restore assigns the session IDs afterwards.
-    let mutable state =
-        let original = supplied |> List.map (fun (id, value) -> id, Model.id value) |> Map.ofList
-        let patch (row: EntityRow) =
-            match Map.tryFind row.Id original with
-            | Some suppliedId -> { row with SuppliedId = suppliedId }
-            | None -> row
-        { loaded with Entities = loaded.Entities |> List.map patch }
-    let mutable ordinals = loadedOrdinals
-    let mutable cursor = int (metadata.GetByName("cursor").AsInteger())
-    let mutable revision = metadata.GetByName("revision").AsInteger()
-    let mutable baseline = Store.optText metadata "baseline"
-    let mutable savedGraph = Store.optText metadata "saved_graph"
+    let arcParameters values = Store.parameters (("arc", Store.text arcId) :: values)
+    let execute sql values = Store.execute db sql (("arc", Store.text arcId) :: values)
+    let query sql values = db.Query(sql, arcParameters values)
+    let readStored () =
+        let metadata = Store.metadata db arcId
+        let state, ordinals = Store.load db arcId
+        { State = state
+          Ordinals = ordinals
+          Cursor = int (metadata.GetByName("cursor").AsInteger())
+          Revision = metadata.GetByName("revision").AsInteger()
+          Folder = Store.optText metadata "folder"
+          Baseline = Store.optText metadata "baseline"
+          SavedGraph = Store.optText metadata "saved_graph" }
+    let mutable stored = readStored ()
+    let index = Dictionary<string, EntityRow>()
+    // Hydrated values of the current revision. Any publication of a new revision clears it.
+    let cache = Dictionary<string, obj>()
     let mutable closed = false
-    // Retained instances also serve as tombstones so undo preserves identity.
-    let entities = Dictionary<string,obj>()
-    let mutable folder = Store.optText metadata "folder"
-    let active id = state.Entities |> List.exists (fun row -> row.Id = id)
+    let publish (next: Stored) =
+        stored <- next
+        index.Clear()
+        for row in next.State.Entities do index[row.Id] <- row
+        cache.Clear()
+    let references (row: EntityRow) =
+        let linked = row.Properties |> Map.toList |> List.collect (fun (_, cell) -> match cell with Links ids -> ids | _ -> [])
+        linked @ (row.Extensions |> Map.toList |> List.collect (snd >> Model.extensionReferences))
+    let hydrate (id: string) : obj =
+        match cache.TryGetValue id with
+        | true, value -> value
+        | _ ->
+            let fresh = ResizeArray<EntityRow>()
+            let pending = ResizeArray<string>()
+            pending.Add id
+            while pending.Count > 0 do
+                let next = pending[pending.Count - 1]
+                pending.RemoveAt(pending.Count - 1)
+                if not (cache.ContainsKey next) then
+                    let row = index[next]
+                    cache[next] <- Model.create row
+                    fresh.Add row
+                    for target in references row do pending.Add target
+            // Restoring touches only objects allocated above, which no caller has seen yet.
+            for row in fresh do Model.restore (fun target -> cache[target]) row cache[row.Id]
+            cache[id]
     let ensureOpen () =
         repository.EnsureOpen()
         if closed then invalidOp "The ARC context is closed."
-    let owned entity =
-        Model.required "entity" entity |> ignore
-        let id = Model.id entity |> Model.entityId
-        if not (active id && entities.ContainsKey(id) && obj.ReferenceEquals(entities[id], entity)) then
-            invalidOp (Model.kind entity + " is not registered in this ARC.")
-        id
-    let execute sql values = Store.execute db sql (("arc",Store.text arcId)::values)
-    let query sql values = db.Query(sql, Store.parameters (("arc",Store.text arcId)::values))
-    let restore next =
-        for row in next.Entities do
-            if not (entities.ContainsKey row.Id) then
-                let value = Model.create row
-                repository.Claim(arcId,value)
-                entities.Add(row.Id,value)
-        for row in next.Entities do Model.restore (fun id -> entities[id]) row entities[row.Id]
-    let check () =
+    // Picks up commits of other connections. Call inside the repository gate.
+    let sync () =
         ensureOpen()
-        let captured = { state with Entities = state.Entities |> List.map (fun row -> {Model.capture (owned entities[row.Id]) owned entities[row.Id] with SuppliedId = row.SuppliedId}) }
-        if captured <> state then invalidOp "Direct model mutation detected. Use ARC operations or close and reopen this ARC."
-    let assertRevision () =
-        if (Store.metadata db arcId).GetByName("revision").AsInteger() <> revision then
-            invalidOp "ARC changed through another connection. Close this ARC and reopen it with session.openArc or ARC.openFolder."
+        let rows = query "SELECT revision FROM arc WHERE arc_id=$arc" []
+        if rows.Count <> 1 then invalidOp "Unknown ARC entry."
+        if rows[0].Get(0).AsInteger() <> stored.Revision then
+            let scope = db.BeginTransaction()
+            try
+                let fresh = readStored ()
+                scope.Commit()
+                publish fresh
+            finally scope.Close()
+    let read (action: unit -> 'T) : 'T = repository.Access(fun () -> sync (); action ())
+    // Runs one command in a write transaction. The command receives the current stored revision and returns the next one,
+    // or None when it changed nothing. It performs its own SQL writes.
+    let run (command: Stored -> Stored option) : unit =
+        repository.Access(fun () ->
+            ensureOpen()
+            let scope = db.BeginTransaction()
+            try
+                let rows = query "UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc RETURNING revision" []
+                if rows.Count <> 1 then invalidOp "Unknown ARC entry."
+                let previous = rows[0].Get(0).AsInteger() - 1L
+                // Reloaded data stays published even when the command fails, because another connection committed it.
+                if previous <> stored.Revision then publish { readStored () with Revision = previous }
+                match command stored with
+                | None -> scope.Rollback()
+                | Some next ->
+                    scope.Commit()
+                    publish { next with Revision = previous + 1L }
+            finally scope.Close())
+    let requireRow (state: State) (id: string) (kind: string) =
+        if not (state.Entities |> List.exists (fun row -> row.Id = id && row.Kind = kind)) then
+            invalidOp (kind + " is not registered in this ARC.")
+    let sortByOrdinal (state: State) (ordinals: Map<string, int64>) =
+        { state with Entities = state.Entities |> List.sortBy (fun row -> Map.find row.Id ordinals) }
     // The preset map carries recorded list positions for entities that an undo or redo restores.
-    let update (previous: State) next nextCursor kind action operationId (preset: Map<string, int64>) =
+    let applyState (previous: Stored) (next: State) (preset: Map<string, int64>) kind (action: string) operationId =
         Model.validate next
-        // An edit that changes no entity writes nothing, so revision, history and the redo branch stay as they are.
-        if action = "apply" && List.isEmpty (Store.changes previous next (fun _ -> 0L)) then () else
-        try
-            let sorted, updated =
-                db.WithTransaction(fun () ->
-                    assertRevision()
-                    let updated = Store.write db arcId preset previous next
-                    let sorted = { next with Entities = next.Entities |> List.sortBy (fun row -> Map.find row.Id updated) }
-                    if action = "apply" then
-                        execute "DELETE FROM history WHERE arc_id=$arc AND sequence > $cursor" ["cursor", SqlValue.Integer(int64 cursor)]
-                        let ordinalOf id = match Map.tryFind id updated with Some ordinal -> ordinal | None -> Map.find id preset
-                        execute "INSERT INTO history(arc_id,sequence,operation_id,kind,changes) VALUES($arc,$sequence,$id,$kind,$changes)"
-                            ["sequence", SqlValue.Integer(int64 nextCursor); "id", Store.text operationId; "kind", Store.text kind
-                             "changes", Store.text (Codec.encodeChanges (Store.changes previous next ordinalOf))]
-                    execute "UPDATE arc SET root_id=$root,cursor=$cursor,revision=$revision WHERE arc_id=$arc"
-                        ["root",Store.text next.Root; "cursor", SqlValue.Integer(int64 nextCursor); "revision", SqlValue.Integer(revision + 1L)]
-                    restore sorted
-                    if action = "undo" && (kind.EndsWith(".register") || kind.EndsWith(".set")) then
-                        for row in previous.Entities do
-                            if not (next.Entities |> List.exists (fun nextRow -> nextRow.Id = row.Id)) then
-                                Model.setId entities[row.Id] row.SuppliedId
-                    sorted, updated)
-            state <- sorted; ordinals <- updated; cursor <- nextCursor; revision <- revision + 1L
-        with _ -> restore state; reraise()
-    do
-        Model.validate state
-        for id,value in supplied do
-            repository.Claim(arcId,value)
-            entities.Add(id,value)
-        restore state
+        let updated = Store.write db arcId preset previous.State next
+        let nextCursor = if action = "undo" then previous.Cursor - 1 else previous.Cursor + 1
+        if action = "apply" then
+            execute "DELETE FROM history WHERE arc_id=$arc AND sequence > $cursor" ["cursor", SqlValue.Integer(int64 previous.Cursor)]
+            let ordinalOf id = match Map.tryFind id updated with Some ordinal -> ordinal | None -> Map.find id preset
+            execute "INSERT INTO history(arc_id,sequence,operation_id,kind,changes) VALUES($arc,$sequence,$id,$kind,$changes)"
+                ["sequence", SqlValue.Integer(int64 nextCursor); "id", Store.text operationId; "kind", Store.text kind
+                 "changes", Store.text (Codec.encodeChanges (Store.changes previous.State next ordinalOf))] |> ignore
+        execute "UPDATE arc SET root_id=$root,cursor=$cursor WHERE arc_id=$arc"
+            ["root", Store.text next.Root; "cursor", SqlValue.Integer(int64 nextCursor)] |> ignore
+        { previous with State = sortByOrdinal next updated; Ordinals = updated; Cursor = nextCursor }
+    do Model.validate stored.State
+    do publish stored
 
-    member _.Model = ensureOpen(); unbox<Dataset> entities[state.Root]
     member _.ArcId = arcId
     member _.Repository = repository
     member _.IsClosed = closed
-    member _.Folder = ensureOpen(); folder
     member _.DatabasePath = repository.DatabasePath
-    member _.State = ensureOpen(); state
-    member _.Baseline = baseline
-    member _.SavedGraph = savedGraph
-    member _.Revision = revision
-    member _.IsDirty = check(); savedGraph <> Some(Codec.encodeGraph state)
-    member _.HasSessionOnlyObjects = check(); Model.sessionOnly state
-    member _.CanUndo = ensureOpen(); cursor > 0
-    member _.CanRedo = ensureOpen(); (query "SELECT sequence FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence",SqlValue.Integer(int64 (cursor + 1))]).Count > 0
-    member _.Check() = check()
-    member _.Id(value: obj) = ensureOpen(); owned value
+    member _.Model = read (fun () -> unbox<Dataset> (hydrate stored.State.Root))
+    member _.State = read (fun () -> stored.State)
+    member _.Folder = read (fun () -> stored.Folder)
+    member _.Baseline = read (fun () -> stored.Baseline)
+    member _.Revision = read (fun () -> stored.Revision)
+    member _.IsDirty = read (fun () -> stored.SavedGraph <> Some(Codec.encodeGraph stored.State))
+    member _.HasSessionOnlyObjects = read (fun () -> Model.sessionOnly stored.State)
+    member _.CanUndo = read (fun () -> stored.Cursor > 0)
+    member _.CanRedo =
+        read (fun () -> (query "SELECT sequence FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence", SqlValue.Integer(int64 (stored.Cursor + 1))]).Count > 0)
+    member _.ToYaml() = read (fun () -> Codec.encodeGraph stored.State)
+    member _.Id(value: obj) = Model.required "entity" value |> ignore; Model.id value |> Model.entityId
     member _.List<'T>(kind: string) =
-        ensureOpen()
-        state.Entities |> Seq.filter (fun row -> row.Kind = kind) |> Seq.map (fun row -> unbox<'T> entities[row.Id]) |> ResizeArray
+        read (fun () ->
+            stored.State.Entities |> Seq.filter (fun row -> row.Kind = kind) |> Seq.map (fun row -> unbox<'T> (hydrate row.Id)) |> ResizeArray)
     member _.Get<'T>(kind: string, id: string) =
-        ensureOpen()
-        if not (state.Entities |> List.exists (fun row -> row.Id = id && row.Kind = kind)) then invalidArg "id" ("Unknown " + kind)
-        unbox<'T> entities[id]
-    member _.Execute(kind, transform) = repository.Access(fun () ->
-        check()
-        let next = transform state
-        let operationId = Identifier.newId()
-        update state next (cursor + 1) kind "apply" operationId ordinals
-        AppliedOperation(operationId, kind))
-    member this.Change(entity: obj, key: string, value: Cell option, kind: string) =
-        let id = this.Id(entity)
-        this.Execute(kind, fun state ->
+        read (fun () ->
+            if not (index.ContainsKey id && index[id].Kind = kind) then invalidArg "id" ("Unknown " + kind)
+            unbox<'T> (hydrate id))
+    member _.GetEntity(id: string) =
+        read (fun () ->
+            if not (index.ContainsKey id) then invalidArg "id" "Unknown entity."
+            unbox<EntityObject> (hydrate id))
+    member _.ListEntities() =
+        read (fun () -> stored.State.Entities |> Seq.map (fun row -> unbox<EntityObject> (hydrate row.Id)) |> ResizeArray)
+    /// Applies a pure state transform as one history entry. An unchanged result writes nothing.
+    member _.Apply(kind: string, transform: State -> State) : unit =
+        run (fun previous ->
+            let next = transform previous.State
+            if List.isEmpty (Store.changes previous.State next (fun _ -> 0L)) then None
+            else Some(applyState previous next previous.Ordinals kind "apply" (Identifier.newId())))
+    member private _.Hydrated<'T>(id: string) : 'T =
+        repository.Access(fun () ->
+            ensureOpen()
+            unbox<'T> (hydrate id))
+    member this.Change<'T>(entity: obj, key: string, value: Cell option, kind: string) : 'T =
+        let id, expected = this.Id(entity), Model.kind entity
+        this.Apply(kind, fun state ->
+            requireRow state id expected
             let rows = state.Entities |> List.map (fun row ->
                 if row.Id <> id then row
                 else { row with Properties = match value with Some v -> Map.add key v row.Properties | None -> Map.remove key row.Properties })
             { state with Entities = rows })
-    member _.GetEntity(id: string) =
-        ensureOpen()
-        if not (active id) then invalidArg "id" "Unknown entity."
-        unbox<EntityObject> entities[id]
-    member _.ListEntities() =
-        ensureOpen()
-        state.Entities |> Seq.map (fun row -> unbox<EntityObject> entities[row.Id]) |> ResizeArray
-    member this.Extension(entity: EntityObject, key: string, value: Entity option, addOnly: bool) =
+        this.Hydrated<'T>(id)
+    member this.Extension<'T>(entity: EntityObject, key: string, value: Entity option, addOnly: bool) : 'T =
         let id = this.Id(entity)
-        let captured = value |> Option.map (Model.captureExtension owned)
-        this.Execute(entity.Type + "." + (if value.IsNone then "removeProperty" elif addOnly then "addProperty" else "setProperty"), fun state ->
+        let captured = value |> Option.map (Model.captureExtension (fun target -> this.Id(target)))
+        this.Apply(entity.Type + "." + (if value.IsNone then "removeProperty" elif addOnly then "addProperty" else "setProperty"), fun state ->
+            requireRow state id entity.Type
             let rows = state.Entities |> List.map (fun row ->
                 if row.Id <> id then row
                 else
                     if addOnly && Map.containsKey key row.Extensions then invalidArg "key" "Duplicate extension property."
                     {row with Extensions = match captured with Some v -> Map.add key v row.Extensions | None -> Map.remove key row.Extensions})
             {state with Entities = rows})
-    member this.Collection(entity: obj, key: string, target: obj, append: bool, kind: string) =
-        let id, targetId = this.Id(entity), this.Id(target)
-        this.Execute(kind, fun state ->
+        this.Hydrated<'T>(id)
+    member this.Collection<'T>(entity: obj, key: string, target: obj, append: bool, kind: string) : 'T =
+        let id, targetId, expected = this.Id(entity), this.Id(target), Model.kind entity
+        this.Apply(kind, fun state ->
+            requireRow state id expected
             let rows = state.Entities |> List.map (fun row ->
                 if row.Id <> id then row else
                     let values = Model.links key row
@@ -153,9 +193,11 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
                     let rec remove = function [] -> [] | head :: tail when head = targetId -> tail | head :: tail -> head :: remove tail
                     {row with Properties = Map.add key (Links(if append then values @ [targetId] else remove values)) row.Properties})
             {state with Entities = rows})
-    member this.Delete(entity: obj) =
-        let id = this.Id(entity)
-        this.Execute(Model.kind entity + ".delete",fun state ->
+        this.Hydrated<'T>(id)
+    member this.Delete(entity: obj) : unit =
+        let id, expected = this.Id(entity), Model.kind entity
+        this.Apply(expected + ".delete", fun state ->
+            requireRow state id expected
             if id = state.Root then invalidOp "The root Dataset cannot be deleted."
             // Cascade Dataset containment only when it is exclusively owned by deleted nodes.
             let rec cascade removed =
@@ -184,121 +226,59 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
                     | _ -> Some(key,cell)) |> Map.ofList
                 {row with Properties = props})
             {state with Entities = rows})
-    member private _.Adopt(entity: obj, kind: string, replaceExisting: bool, operationKind: string) = repository.Access(fun () ->
-        check()
-        Model.required "entity" entity |> ignore
-        if Model.kind entity <> kind then invalidArg "entity" "Wrong entity type."
-        let pending = ResizeArray<string * obj>()
-        let replacements = Dictionary<string,EntityRow>()
-        let mutable planned = state.Entities
-        let rec register (value: obj) =
-            Model.required "entity" value |> ignore
-            repository.AssertAvailable(arcId,value)
-            match pending |> Seq.tryFind (fun (_,existing) -> obj.ReferenceEquals(value,existing)) with
-            | Some(id,_) -> id
-            | None ->
-                let retained = entities |> Seq.tryFind (fun item -> obj.ReferenceEquals(item.Value,value))
-                let id =
-                    match retained, Model.id value with
-                    | Some item, None -> item.Key
-                    | Some item, Some supplied when item.Key <> supplied -> invalidOp "A retained instance cannot change its session identity. Use a detached input."
-                    | _, Some supplied -> supplied
-                    | _ -> Identifier.newId()
-                let isRoot = obj.ReferenceEquals(entity,value)
-                if entities.ContainsKey id then
-                    let canonical = entities[id]
-                    if Model.kind canonical <> Model.kind value then invalidOp ("Session ID collision: " + id)
-                    if (isRoot && replaceExisting) || (not (active id) && obj.ReferenceEquals(canonical,value)) then
-                        // Reserve first to permit self-references in detached graphs.
-                        pending.Add(id,value)
-                        let row = Model.capture id register value
-                        let suppliedId = state.Entities |> List.tryFind (fun row -> row.Id = id) |> Option.map (fun row -> row.SuppliedId) |> Option.defaultWith (fun () -> Model.id canonical)
-                        let row = {row with SuppliedId = suppliedId}
-                        replacements[id] <- Model.capture id (fun reference -> entities |> Seq.find (fun item -> obj.ReferenceEquals(item.Value,reference)) |> fun item -> item.Key) canonical
-                        planned <- planned |> List.filter (fun row -> row.Id <> id)
-                        planned <- planned @ [row]
-                        id
-                    elif active id && obj.ReferenceEquals(canonical,value) then id
-                    else invalidOp ("Session ID collision: " + id)
-                else
-                    if pending |> Seq.exists (fun (existing,_) -> existing = id) then invalidOp ("Session ID collision: " + id)
-                    pending.Add(id,value)
-                    let row = Model.capture id register value
-                    planned <- planned @ [row]
-                    id
-        register entity |> ignore
-        let next = {state with Entities = planned}
-        Model.validate next
-        let additions = pending |> Seq.filter (fun (id,_) -> not (entities.ContainsKey id)) |> Seq.map (fun (id,value) -> id,value,Model.id value) |> Seq.toList
-        for id,value,_ in additions do
-            repository.Claim(arcId,value)
-            entities.Add(id,value)
-        try
-            if next <> state then update state next (cursor + 1) operationKind "apply" (Identifier.newId()) ordinals
-        with _ ->
-            for KeyValue(id,row) in replacements do
-                Model.restore (fun id -> entities[id]) row entities[id]
-                if not (active id) then Model.setId entities[id] row.SuppliedId
-            for id,value,original in additions do
-                entities.Remove(id) |> ignore
-                repository.Release(arcId,value)
-                Model.setId value original
-            reraise())
-    member this.Register(entity: obj, kind: string) = this.Adopt(entity,kind,false,kind + ".register")
-    member this.Set(entity: obj, kind: string) = this.Adopt(entity,kind,true,kind + ".set")
-    member _.History(redo: bool) = repository.Access(fun () ->
-        check()
-        let sequence = if redo then cursor + 1 else cursor
-        let rows = query "SELECT * FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence",SqlValue.Integer(int64 sequence)]
-        if sequence <= 0 || rows.Count = 0 then invalidOp (if redo then "Nothing to redo." else "Nothing to undo.")
-        let row = rows[0]
-        let records = row.GetByName("changes").AsText() |> Codec.decodeChanges
-        let restored = Store.restoreSuppliedIds state records redo
-        let next, preset = Store.applyChanges restored ordinals records redo
-        update restored next (if redo then cursor + 1 else cursor - 1) (row.GetByName("kind").AsText())
-            (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText()) preset)
-    member _.AssertRevision() = ensureOpen(); assertRevision()
-    member _.SetBinding(path: string) =
-        check()
-        assertRevision()
-        execute "UPDATE arc SET folder=$folder,baseline=NULL,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
-            ["folder",Store.text path; "revision",SqlValue.Integer(revision + 1L)]
-        folder <- Some path; baseline <- None; savedGraph <- None; revision <- revision + 1L
-    member _.SetCheckpoint(graph: string) =
-        execute "UPDATE arc SET baseline=$graph,saved_graph=$graph,revision=$revision WHERE arc_id=$arc"
-            ["graph",Store.text graph; "revision",SqlValue.Integer(revision + 1L)]
-    member _.AcceptCheckpoint(graph: string) =
-        baseline <- Some graph; savedGraph <- Some graph; revision <- revision + 1L
-    member _.AcceptPersistentBaseline(current: string option) =
-        check()
-        if current <> baseline then
-            db.WithTransaction(fun () ->
-                assertRevision()
-                execute "UPDATE arc SET baseline=$baseline,saved_graph=NULL,revision=$revision WHERE arc_id=$arc"
-                    ["baseline",Store.optional current; "revision",SqlValue.Integer(revision + 1L)])
-            baseline <- current; savedGraph <- None; revision <- revision + 1L
-    member _.Reload(next: State, current: string) =
-        check()
-        Model.validate next
-        let updated =
-            db.WithTransaction(fun () ->
-                assertRevision()
-                Store.archive db arcId state |> ignore
-                execute "DELETE FROM history WHERE arc_id=$arc" []
-                let updated = Store.write db arcId ordinals state next
-                execute "UPDATE arc SET root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0,revision=$revision WHERE arc_id=$arc"
-                    ["root",Store.text next.Root; "baseline",Store.text current
-                     "saved",Store.text (Codec.encodeGraph next); "revision",SqlValue.Integer(revision + 1L)]
-                updated)
-        // New instances isolate displaced state from the replacement projection.
-        for value in entities.Values do repository.Release(arcId,value)
-        entities.Clear()
-        let next = { next with Entities = next.Entities |> List.sortBy (fun row -> Map.find row.Id updated) }
-        state <- next; ordinals <- updated; cursor <- 0; revision <- revision + 1L
-        baseline <- Some current; savedGraph <- Some(Codec.encodeGraph next)
-        restore next
+    member private this.Adopt<'T>(value: obj, kind: string option, strict: bool, recursive: bool) : 'T =
+        Model.required "entity" value |> ignore
+        let accepts = match kind with Some expected -> (fun actual -> actual = expected) | None -> (fun actual -> not (Schema.isCore actual))
+        let rootId = ref ""
+        this.Apply(Model.kind value + (if strict then ".register" else ".set"), fun state ->
+            let next, id = Adoption.adopt state accepts value strict recursive
+            rootId.Value <- id
+            next)
+        this.Hydrated<'T>(rootId.Value)
+    member this.Add<'T>(value: obj, kind: string option) : 'T = this.Adopt<'T>(value, kind, true, false)
+    member this.Upsert<'T>(value: obj, kind: string option, recursive: bool) : 'T = this.Adopt<'T>(value, kind, false, recursive)
+    member _.History(redo: bool) : unit =
+        run (fun previous ->
+            let sequence = if redo then previous.Cursor + 1 else previous.Cursor
+            let rows = query "SELECT * FROM history WHERE arc_id=$arc AND sequence=$sequence" ["sequence", SqlValue.Integer(int64 sequence)]
+            if sequence <= 0 || rows.Count = 0 then invalidOp (if redo then "Nothing to redo." else "Nothing to undo.")
+            let row = rows[0]
+            let records = row.GetByName("changes").AsText() |> Codec.decodeChanges
+            let next, preset = Store.applyChanges previous.State previous.Ordinals records redo
+            Some(applyState previous next preset (row.GetByName("kind").AsText()) (if redo then "redo" else "undo") (row.GetByName("operation_id").AsText())))
+    /// Binds the entry to a folder. The check runs against the freshly read binding inside the write transaction.
+    member _.SetBinding(path: string, check: unit -> unit) : unit =
+        run (fun previous ->
+            if previous.Folder = Some path then None
+            else
+                check ()
+                execute "UPDATE arc SET folder=$folder,baseline=NULL,saved_graph=NULL WHERE arc_id=$arc" ["folder", Store.text path] |> ignore
+                Some { previous with Folder = Some path; Baseline = None; SavedGraph = None })
+    /// Records a checkpoint. The publication callback writes the exported graph and returns its text.
+    member _.Checkpoint(publication: Stored -> string) : unit =
+        run (fun previous ->
+            let graph = publication previous
+            execute "UPDATE arc SET baseline=$graph,saved_graph=$graph WHERE arc_id=$arc" ["graph", Store.text graph] |> ignore
+            Some { previous with Baseline = Some graph; SavedGraph = Some graph })
+    member _.AcceptPersistentBaseline(current: string option) : unit =
+        run (fun previous ->
+            if current = previous.Baseline then None
+            else
+                execute "UPDATE arc SET baseline=$baseline,saved_graph=NULL WHERE arc_id=$arc" ["baseline", Store.optional current] |> ignore
+                Some { previous with Baseline = current; SavedGraph = None })
+    member _.Reload(next: State, current: string) : unit =
+        run (fun previous ->
+            Model.validate next
+            Store.archive db arcId previous.State |> ignore
+            execute "DELETE FROM history WHERE arc_id=$arc" [] |> ignore
+            let updated = Store.write db arcId previous.Ordinals previous.State next
+            let sorted = sortByOrdinal next updated
+            let graph = Codec.encodeGraph sorted
+            execute "UPDATE arc SET root_id=$root,baseline=$baseline,saved_graph=$saved,cursor=0 WHERE arc_id=$arc"
+                ["root", Store.text next.Root; "baseline", Store.text current; "saved", Store.text graph] |> ignore
+            Some { previous with State = sorted; Ordinals = updated; Cursor = 0; Baseline = Some current; SavedGraph = Some graph })
     member _.Close() =
         if not closed then
             closed <- true
             repository.Forget(arcId)
-            entities.Clear()
+            cache.Clear()

@@ -487,19 +487,6 @@ module internal Store =
         let entities = rows.Values |> Seq.sortBy snd |> Seq.map fst |> List.ofSeq
         { state with Entities = entities }, known
 
-    /// Rows that an undo or redo removes still hold the pre-adoption IDs on the opposite side of their record.
-    let restoreSuppliedIds (state: State) (records: Change list) (redo: bool) : State =
-        let recorded = Dictionary<string, string option>()
-        for record in records do
-            match (if redo then record.Before, record.After else record.After, record.Before) with
-            | Some row, None -> recorded[record.EntityId] <- row.SuppliedId
-            | _ -> ()
-        let patch (row: EntityRow) =
-            match recorded.TryGetValue row.Id with
-            | true, suppliedId -> { row with SuppliedId = suppliedId }
-            | _ -> row
-        { state with Entities = state.Entities |> List.map patch }
-
     let addArc (db: SqliteConnection) arcId state folder baseline =
         Model.validate state
         db.WithTransaction(fun () ->

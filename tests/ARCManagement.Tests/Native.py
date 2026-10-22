@@ -76,57 +76,58 @@ folder = str(Path("build/out/arc-management") / ("native-python-" + uuid4().hex)
 arc = ARC.create(folder, Dataset(["process-provenance", "semantic-designation", "administrative"], ["native"]))
 try:
     sample = arc.Sample.add(Sample("sample"))
-    data = arc.Data.add(Data("results.csv"))
-    fragment = arc.Data.add(Data("results.csv"))
-    arc.Data.set_selector(fragment, "row=1")
-    arc.Data.set_has_parts(data, [fragment, fragment])
+    data0 = arc.Data.add(Data("results.csv"))
+    fragment0 = arc.Data.add(Data("results.csv"))
+    fragment = arc.Data.set_selector(fragment0, "row=1")
+    assert fragment0.Selector is None and fragment.Selector == "row=1"
+    data = arc.Data.set_has_parts(data0, [fragment, fragment])
     value = arc.Annotation.create("value")
-    arc.Annotation.set_value(value, 0)
+    value = arc.Annotation.set_value(value, 0)
     assert value.Value == 0 and type(value.Value) is float
     parameter = arc.FormalParameter.create("parameter")
-    arc.FormalParameter.set_default_value(parameter, value)
-    arc.Annotation.set_instance_of(value, parameter)
-    recipe = arc.Recipe.create("recipe")
-    arc.Recipe.set_parameters(recipe, [parameter, parameter])
-    arc.Recipe.set_components(recipe, [value, value])
+    parameter = arc.FormalParameter.set_default_value(parameter, value)
+    value = arc.Annotation.set_instance_of(value, parameter)
+    recipe0 = arc.Recipe.create("recipe")
+    arc.Recipe.set_parameters(recipe0, [parameter, parameter])
+    arc.Recipe.set_components(recipe0, [value, value])
     termset = arc.DefinedTermSet.create("ontology")
-    term = arc.DefinedTerm.create("term")
-    arc.DefinedTerm.set_in_defined_term_set(term, termset)
-    arc.Recipe.set_intended_use(recipe, term)
-    proc = arc.Process.create("process")
-    arc.Process.set_input(proc, sample)
-    arc.Process.set_output(proc, data)
-    arc.Process.set_executes_recipe(proc, recipe)
-    descriptor = arc.Descriptor.create(sample)
-    arc.Descriptor.set_annotations(descriptor, [value, value])
+    term = arc.DefinedTerm.set_in_defined_term_set(arc.DefinedTerm.create("term"), termset)
+    recipe = arc.Recipe.set_intended_use(recipe0, term)
+    proc0 = arc.Process.create("process")
+    arc.Process.set_input(proc0, sample)
+    arc.Process.set_output(proc0, data)
+    proc = arc.Process.set_executes_recipe(proc0, recipe)
+    assert proc.Input.Id == sample.Id and proc0.Input is None
+    descriptor = arc.Descriptor.set_annotations(arc.Descriptor.create(sample), [value, value])
     organization = arc.Organization.create("organization")
-    agent = arc.Agent.create("agent")
-    arc.Agent.set_affiliations(agent, [organization, organization])
-    arc.Agent.set_job_titles(agent, [term])
-    article = arc.ScholarlyArticle.create("article")
-    arc.ScholarlyArticle.set_authors(article, [agent, agent])
+    agent0 = arc.Agent.create("agent")
+    arc.Agent.set_affiliations(agent0, [organization, organization])
+    agent = arc.Agent.set_job_titles(agent0, [term])
+    article = arc.ScholarlyArticle.set_authors(arc.ScholarlyArticle.create("article"), [agent, agent])
     child = arc.Dataset.create("child")
     arc.Dataset.set_has_parts(arc.Model, [child, child])
     arc.Dataset.set_processes(arc.Model, [proc])
     arc.Dataset.set_data_files(arc.Model, [data, fragment, data])
     arc.Dataset.set_descriptors(arc.Model, [descriptor])
     arc.Dataset.set_agents(arc.Model, [agent])
-    arc.Dataset.set_citations(arc.Model, [article])
+    model = arc.Dataset.set_citations(arc.Model, [article])
     assert type(arc.Data.list()) is list
-    assert data.HasParts[0] is data.HasParts[1]
+    assert model.HasParts[0] is model.HasParts[1]
+    assert model.DataFiles[0].HasParts[0] is model.DataFiles[0].HasParts[1]
     quality = arc.Entity.add(EntityObject("QualityAssessment"))
-    arc.Entity.set_property(quality, "score", 0)
-    arc.Entity.set_property(quality, "accepted", False)
-    arc.Entity.set_property(quality, "missing", EntityNull())
-    arc.Entity.set_property(quality, "bytes", EntityBlob("AA=="))
-    arc.Entity.set_property(quality, "values", EntityCollection([0, False, ""]))
+    quality = arc.Entity.set_property(quality, "score", 0)
+    quality = arc.Entity.set_property(quality, "accepted", False)
+    quality = arc.Entity.set_property(quality, "missing", EntityNull())
+    quality = arc.Entity.set_property(quality, "bytes", EntityBlob("AA=="))
+    quality = arc.Entity.set_property(quality, "values", EntityCollection([0, False, ""]))
     arc.Entity.set_property(arc.Model, "quality", quality)
     assert quality.EntityProperties.Get("score") == 0
     assert quality.EntityProperties.Get("accepted") is False
     assert quality.EntityProperties.Contains("missing")
     replacement = EntityObject.with_id(Annotation("replaced", value=""), value.Id)
-    arc.Annotation.upsert(replacement)
-    assert value.Value == "" and value is not replacement
+    replaced = arc.Annotation.upsert(replacement)
+    assert replaced.Value == "" and value.Value == 0 and value is not replaced
+    assert arc.Annotation.upsert(replacement, recursive=True).Value == ""
     arc.save()
     arc.close()
     resumed = ARC.open_folder(folder, "sql")
@@ -156,20 +157,24 @@ assert isinstance(first, ManagedGraph)
 assert not hasattr(first, "save") and not hasattr(first, "bind_folder")
 rejects(lambda: session.import_yaml(detached_yaml))
 sample = Sample("first", id="same")
-assert first.Sample.add(sample) is sample
+stored = first.Sample.add(sample)
+assert stored.Id == "same" and stored is not sample
 other = Sample("second", id="same")
-assert second.Sample.add(other) is other
+second.Sample.add(other)
 numeric = first.Annotation.create("numeric boundary")
-first.Annotation.set_value(numeric, 0)
+numeric = first.Annotation.set_value(numeric, 0)
 assert type(numeric.Value) is float
 rejects(lambda: first.Annotation.set_value(numeric, False))
 process = first.Process.create("process")
-rejects(lambda: first.Process.set_input(process, other))
-first.Process.set_input(process, sample)
+rejects(lambda: first.Process.set_input(process, Sample("unknown", id="unknown-id")))
+# A value from another ARC resolves by ID in the destination.
+assert first.Process.set_input(process, other).Input.Name == "first"
 first.Dataset.add_process(first.Model, process)
-first.Sample.set_name(sample, "changed")
+renamed = first.Sample.set_name(stored, "changed")
+assert renamed.Name == "changed" and stored.Name == "first"
 first.History.undo()
-assert sample.Name == "first" and other.Name == "second"
+assert first.Sample.get("same").Name == "first" and renamed.Name == "changed"
+assert second.Sample.get("same").Name == "second"
 assert session.open_arc(first.ArcId) is first
 assert len(session.list_arcs()) == 2
 assert session.list_arcs()[0].RootEntityId == "root"
@@ -183,11 +188,11 @@ workspace.save()
 first_id, second_id = first.ArcId, second.ArcId
 workspace.close()
 rejects(lambda: first.Sample.create("closed"))
-second.Sample.set_name(other, "independent")
+second.Sample.set_name(second.Sample.get("same"), "independent")
 session.close()
 session = Session.open_file(path)
 resumed = session.open_arc(first_id)
-assert resumed.Model.Processes[0].Input is resumed.Sample.get("same")
+assert resumed.Model.Processes[0].Input.Id == resumed.Sample.get("same").Id
 resumed.History.redo()
 assert resumed.Sample.get("same").Name == "changed"
 assert session.open_arc(second_id).Sample.get("same").Name == "independent"

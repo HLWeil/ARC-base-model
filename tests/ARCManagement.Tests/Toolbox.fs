@@ -13,6 +13,10 @@ let private folder () = Helpers.folder "toolbox"
 
 let private root () = Dataset(["process-provenance"],["root"],id="root")
 let private sql (session: ARCManagement.Session) = session.Repository.Connection
+let private input (proc: ARCBaseModel.Process) =
+    match proc.Input with
+    | Some(EntityReference.Sample sample) -> sample
+    | _ -> failwith "Expected sample input"
 let private same actual expected = Expect.isTrue (Object.ReferenceEquals(actual,expected)) "Shared object reference"
 let private scalar (db: SqliteConnection) statement = db.Query(statement).[0].Get(0).AsInteger()
 
@@ -23,8 +27,8 @@ let tests = testList "ARC toolbox" [
         let first,second = session.createArc(root()),session.createArc(root())
         Expect.notEqual first.ArcId second.ArcId "ARC identity is separate from root identity"
         same (session.openArc(first.ArcId)) first
-        first.Sample.upsert(Sample("first",id="sample"))
-        second.Sample.upsert(Sample("second",id="sample"))
+        first.Sample.upsert(Sample("first",id="sample")) |> ignore
+        second.Sample.upsert(Sample("second",id="sample")) |> ignore
         first.Sample.setName(first.Sample.get("sample"),"changed") |> ignore
         second.Dataset.setTitle(second.Model,Some("other")) |> ignore
         first.History.undo()
@@ -35,25 +39,31 @@ let tests = testList "ARC toolbox" [
         Expect.equal (session.listArcs()).Count 2 "Both entries"
         Expect.isNone (session.listArcs()).[0].Folder "Unbound metadata")
 
-    testCase "API rejects foreign targets and adopting a managed graph" (fun _ ->
+    testCase "values read from another ARC are accepted and resolve by ID in the destination" (fun _ ->
         use session = ARCManagement.Session.createInMemory()
         let first,second = session.createArc(root()),session.createArc(root())
         let sample = first.Sample.create("sample")
         let proc = second.Process.create("process")
-        Expect.throws (fun () -> second.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore) "Foreign endpoint"
-        Expect.throws (fun () -> second.Sample.add(sample) |> ignore) "Foreign registration"
-        Expect.throws (fun () -> session.createArc(first.Model) |> ignore) "Foreign root"
-        Expect.throws (fun () -> second.Entity.setProperty(second.Model, "foreign", Entity.Object(sample)) |> ignore) "Foreign extension"
+        Expect.throws (fun () -> second.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore) "A target that is not stored in the destination is rejected"
+        Expect.throws (fun () -> second.Entity.setProperty(second.Model, "foreign", Entity.Object(sample)) |> ignore) "An extension target must be stored too"
+        let copied = second.Sample.add(sample)
+        Expect.equal copied.Id sample.Id "The foreign value keeps its ID"
+        let linked = second.Process.setInput(proc, Some(EntityReference.Sample sample))
+        Expect.equal (input linked).Name "sample" "The link resolves to the stored copy"
+        second.Entity.setProperty(second.Model, "foreign", Entity.Object(sample)) |> ignore
+        Expect.equal (second.Sample.list()).Count 1 "One stored copy"
+        let third = session.createArc(first.Model)
+        Expect.notEqual third.ArcId first.ArcId "A managed root creates an independent entry"
+        Expect.equal third.Model.Id first.Model.Id "The supplied root ID is kept"
         use otherSession = ARCManagement.Session.createInMemory()
-        Expect.throws (fun () -> otherSession.createArc(first.Model) |> ignore) "Ownership extends across repositories"
-        let other = otherSession.createArc(root())
-        Expect.throws (fun () -> other.Sample.add(sample) |> ignore) "Foreign registration across repositories"
-        Expect.isNone proc.Input "Failure leaves model untouched")
+        let other = otherSession.createArc(first.Model)
+        Expect.equal (other.Sample.add(sample)).Id sample.Id "Values are accepted across repositories"
+        Expect.isNone (first.Process.list() |> Seq.tryHead) "The source ARC is unaffected")
 
     testCase "SQL foreign keys reject cross ARC targets and typed endpoints" (fun _ ->
         use session = ARCManagement.Session.createInMemory()
         let first,second = session.createArc(root()),session.createArc(root())
-        first.Sample.upsert(Sample("sample",id="foreign"))
+        first.Sample.upsert(Sample("sample",id="foreign")) |> ignore
         let proc = second.Process.create("process")
         let db = sql session
         let parameters = [SqlParameter("arc",SqlValue.Text(second.ArcId));SqlParameter("id",SqlValue.Text(proc.Id.Value))]
@@ -209,19 +219,27 @@ let tests = testList "ARC toolbox" [
         Expect.equal (second.Sample.list()).Count 1 "Other ARC remains writable"
         Expect.equal (db.Query("PRAGMA foreign_key_check")).Count 0 "Foreign keys intact")
 
-    testCase "separate connections check revisions per ARC" (fun _ ->
+    testCase "separate connections refresh per ARC" (fun _ ->
         let path = Path.combineNative (folder()) "revision.sqlite"
         use firstSession = ARCManagement.Session.createFile(path)
         let first,second = firstSession.createArc(root()),firstSession.createArc(root())
         use otherSession = ARCManagement.Session.openFile(path)
-        let stale = otherSession.openArc(first.ArcId)
+        let reader = otherSession.openArc(first.ArcId)
         let other = otherSession.openArc(second.ArcId)
         first.Dataset.setTitle(first.Model,Some("first writer")) |> ignore
-        Expect.throws (fun () -> stale.Dataset.setTitle(stale.Model,Some("stale")) |> ignore) "Stale ARC rejected"
-        Expect.isNone stale.Model.Title "Failed stale write leaves graph intact"
+        Expect.equal reader.Model.Title (Some "first writer") "The next read sees the other connection's commit"
+        let held = reader.Model
+        first.Dataset.setDescription(first.Model,Some("described")) |> ignore
+        let result = reader.Dataset.setLicense(held,Some("license"))
+        Expect.equal result.Description (Some "described") "A write applies to the refreshed state"
+        Expect.equal result.Title (Some "first writer") "Earlier commits are kept"
+        Expect.isNone held.Description "The held value is unchanged"
+        Expect.equal first.Model.License (Some "license") "The first connection sees the second write"
         other.Dataset.setTitle(other.Model,Some("independent")) |> ignore
-        stale.close()
-        Expect.equal (otherSession.openArc(first.ArcId)).Model.Title (Some "first writer") "Explicit reopen recovers")
+        Expect.isNone second.Model.Description "Other ARC unaffected"
+        Expect.equal second.Model.Title (Some "independent") "Other ARC refreshed"
+        reader.close()
+        Expect.equal (otherSession.openArc(first.ArcId)).Model.Title (Some "first writer") "Reopening reads the same state")
 
     testCase "workspace wrappers delegate one graph and borrowed close preserves siblings" (fun _ ->
         use session = ARCManagement.Session.createInMemory()
@@ -231,13 +249,13 @@ let tests = testList "ARC toolbox" [
         let workspace = ARC.bind(graph,path)
         let otherWrapper = ARC.fromGraph(graph)
         same workspace.ManagedGraph graph
-        same workspace.Model graph.Model
+        Expect.equal workspace.Model.Id graph.Model.Id "Forwarded model"
         same workspace.Sample graph.Sample
         same workspace.Dataset graph.Dataset
         same workspace.History graph.History
         same otherWrapper.ManagedGraph (session.openArc(graph.ArcId))
         let sample = workspace.Sample.create("shared")
-        same (graph.Sample.get(sample.Id.Value)) sample
+        Expect.equal (graph.Sample.get(sample.Id.Value)).Name "shared" "Both facades read the same state"
         workspace.save()
         let db = sql session
         let checkpoint = (Store.metadata db graph.ArcId).GetByName("saved_graph").AsText()
@@ -321,7 +339,7 @@ let tests = testList "ARC toolbox" [
         let before = scalar db "SELECT total_changes()"
         graph.Dataset.setTitle(graph.Model,Some("edited")) |> ignore
         let changed = scalar db "SELECT total_changes()" - before
-        Expect.equal changed 3L "Dataset row, history row and arc row"
+        Expect.equal changed 4L "Revision bump, dataset row, history row and cursor update"
         Expect.equal (graph.Model.Title) (Some "edited") "Edit applied")
 
     testCase "appending to a long list inserts one association row" (fun _ ->
@@ -333,7 +351,7 @@ let tests = testList "ARC toolbox" [
         let before = scalar db "SELECT total_changes()"
         graph.Dataset.addProcess(graph.Model,extra) |> ignore
         let changed = scalar db "SELECT total_changes()" - before
-        Expect.equal changed 3L "One dataset_process row, one history row and the arc row"
+        Expect.equal changed 4L "Revision bump, one dataset_process row, one history row and the cursor update"
         Expect.equal (scalar db "SELECT count(*) FROM dataset_process") 101L "All rows kept"
         Expect.equal (scalar db ("SELECT position FROM dataset_process WHERE process_id='" + extra.Id.Value + "'")) 100L "Appended at the end")
 
@@ -347,7 +365,7 @@ let tests = testList "ARC toolbox" [
         let db = sql session
         let rows = scalar db "SELECT count(*) FROM history"
         let revision = scalar db "SELECT revision FROM arc"
-        graph.Sample.upsert(Sample("first", id = first.Id.Value))
+        graph.Sample.upsert(Sample("first", id = first.Id.Value)) |> ignore
         Expect.isTrue graph.History.CanRedo "Redo branch untouched"
         Expect.equal (scalar db "SELECT count(*) FROM history") rows "No history row added"
         Expect.equal (scalar db "SELECT revision FROM arc") revision "Revision unchanged")
@@ -365,15 +383,15 @@ let tests = testList "ARC toolbox" [
         let positions () =
             db.Query("SELECT id FROM entity WHERE type='Sample' ORDER BY ordinal") |> Seq.map (fun row -> row.Get(0).AsText()) |> List.ofSeq
         let expected = [a.Id.Value; b.Id.Value; c.Id.Value]
-        graph.Sample.delete(b) |> ignore
+        graph.Sample.delete(b)
         Expect.equal (names()) ["a";"c"] "Deleted"
-        Expect.isNone proc.Input "Link removed with the target"
+        Expect.isNone (graph.Process.get(proc.Id.Value)).Input "Link removed with the target"
         Expect.equal (linked()) 0L "Endpoint row removed"
         graph.History.undo()
         Expect.equal (names()) ["a";"b";"c"] "List position restored"
         Expect.equal (positions()) expected "Stored order restored"
         Expect.equal (linked()) 1L "Endpoint row restored"
-        match proc.Input with Some(EntityReference.Sample sample) -> same sample b | _ -> failwith "Expected restored input"
+        match (graph.Process.get(proc.Id.Value)).Input with Some(EntityReference.Sample sample) -> Expect.equal sample.Id b.Id "Restored input" | _ -> failwith "Expected restored input"
         graph.History.redo()
         Expect.equal (names()) ["a";"c"] "Redo deletes again"
         Expect.equal (linked()) 0L "Redo removes the endpoint row"
@@ -391,7 +409,7 @@ let tests = testList "ARC toolbox" [
         graph.Dataset.setTitle(graph.Model,Some("")) |> ignore
         graph.Entity.setProperty(graph.Model, "score", Entity.Number(0.5)) |> ignore
         graph.Entity.addProperty(graph.Model, "label", Entity.Text("x")) |> ignore
-        graph.Sample.delete(graph.Sample.create("gone")) |> ignore
+        graph.Sample.delete(graph.Sample.create("gone"))
         let withoutSupplied (state: State) = { state with Entities = state.Entities |> List.map (fun row -> { row with SuppliedId = None }) }
         let expected = withoutSupplied graph.Context.State
         let arcId = graph.ArcId

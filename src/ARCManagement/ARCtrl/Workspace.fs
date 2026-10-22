@@ -20,48 +20,39 @@ module internal Workspace =
 
     let bind (context: GraphContext) folder =
         let folder = Path.fullPath(Model.required "folder" folder)
-        context.Repository.Access(fun () ->
-            context.Check()
-            if context.Folder <> Some folder then
-                if Path.pathExists(Path.combineNative folder Layout.ARCFileName) then invalidOp "Folder already contains arc.yml. Use ARC.importFolder."
-                context.Repository.Connection.WithTransaction(fun () -> context.SetBinding(folder)))
+        context.SetBinding(folder, fun () ->
+            if Path.pathExists(Path.combineNative folder Layout.ARCFileName) then invalidOp "Folder already contains arc.yml. Use ARC.importFolder.")
 
     let save (context: GraphContext) =
-        context.Repository.Access(fun () ->
-            context.Check()
-            let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding. Use ARC.bind before save.")
+        context.Checkpoint(fun stored ->
+            let folder = stored.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding. Use ARC.bind before save.")
             let rootPath = Path.combineNative folder Layout.ARCFileName
-            if Path.readFileTextOptional rootPath <> context.Baseline then invalidOp "Persistent YAML changed externally. Reopen with an explicit source preference."
-            let graph = Codec.encodeGraph context.State
+            if Path.readFileTextOptional rootPath <> stored.Baseline then invalidOp "Persistent YAML changed externally. Reopen with an explicit source preference."
+            let graph = Codec.encodeGraph stored.State
             let temporary = Path.combineNative folder (".arc-" + ARCManagement.Helper.Identifier.newId() + ".tmp")
             Path.createDirectory folder
             try
-                context.Repository.Connection.WithTransaction(fun () ->
-                    context.AssertRevision()
-                    Path.writeFileText temporary graph
-                    if Path.readFileTextOptional rootPath <> context.Baseline then invalidOp "Persistent YAML changed during save."
-                    Path.replaceFile temporary rootPath
-                    context.SetCheckpoint(graph))
-                context.AcceptCheckpoint(graph)
+                Path.writeFileText temporary graph
+                if Path.readFileTextOptional rootPath <> stored.Baseline then invalidOp "Persistent YAML changed during save."
+                Path.replaceFile temporary rootPath
+                graph
             finally
                 if Path.pathExists temporary then Path.deleteFile temporary)
 
     let recover (context: GraphContext) source =
-        context.Repository.Access(fun () ->
-            context.Check()
-            let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding.")
-            let current = Path.readFileTextOptional(Path.combineNative folder Layout.ARCFileName)
-            let reload () =
-                let yaml = current |> Option.defaultWith (fun () -> invalidOp "No arc.yml exists in this folder.")
-                let state = DatasetYaml.decode(yaml) |> ArcFactory.snapshot
-                context.Reload(state,yaml)
-            match source with
-            | "sql" -> context.AcceptPersistentBaseline(current)
-            | "yml" -> reload()
-            | "auto" when current = context.Baseline -> context.AssertRevision()
-            | "auto" when context.IsDirty || context.HasSessionOnlyObjects -> invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
-            | "auto" -> reload()
-            | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'.")
+        let folder = context.Folder |> Option.defaultWith (fun () -> invalidOp "ARC has no folder binding.")
+        let current = Path.readFileTextOptional(Path.combineNative folder Layout.ARCFileName)
+        let reload () =
+            let yaml = current |> Option.defaultWith (fun () -> invalidOp "No arc.yml exists in this folder.")
+            let state = DatasetYaml.decode(yaml) |> ArcFactory.snapshot
+            context.Reload(state,yaml)
+        match source with
+        | "sql" -> context.AcceptPersistentBaseline(current)
+        | "yml" -> reload()
+        | "auto" when current = context.Baseline -> ()
+        | "auto" when context.IsDirty || context.HasSessionOnlyObjects -> invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
+        | "auto" -> reload()
+        | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'."
 
     let openFolder folder source =
         let folder = Path.fullPath(Model.required "folder" folder)
