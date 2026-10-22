@@ -258,7 +258,8 @@ the managed ID of every entity, repeats an entity with all its fields at each
 occurrence, and writes a cycle as an `{"@id": id}` reference. It preserves
 extensions and numeric/text distinctions. It quotes Annotation values, extension text,
 `intendedUse` text and ambiguous extension keys, quotes core text scalars (IDs
-included) that a YAML reader would type as null, a Boolean or a number, and uses
+included) that are empty, read as a null or Boolean word of YAML 1.1 or 1.2, or start
+like a number, and uses
 the standard binary tag URI. This codec contract does not change normative YAML
 schemas.
 
@@ -279,7 +280,8 @@ differing definitions. Inline mode repeats every occurrence in full and writes
 `{"@id": id}` only for a cycle. Indexed mode moves Annotations, Recipes and Agents that
 have IDs into the root sections `annotations`, `recipes` and `agentIndex`. Entities
 without IDs are written inline at each occurrence, so their sharing is not
-preserved, and a cycle among them fails on encode. Consecutive processes with equal
+preserved, except for the common fields of a grouped process entry, and a cycle
+among them fails on encode. Consecutive processes with equal
 non-endpoint row data share one entry with aligned `inputs` and `outputs` arrays. The
 decoder accepts the ProcessCore aliases and the lenient forms listed in the guide.
 The `$ref` and anchor readers are removed and there is no migration.
@@ -368,7 +370,7 @@ Storage verification (2026-10-22, after the review fixes): `RunTests` passed wit
 
 Runtime and API verification (2026-10-22): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 156/156 shared tests on each of .NET, JavaScript and Python, plus the native and packed checks. `TestBaseModel` ran 27/27 per runtime.
 
-YAML verification (2026-10-22): `TestARCManagement` passed with FAKE `Status: Ok`. It ran 176/176 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The YAML tests read the example documents and the ProcessCore-generated fixtures from the repository root on all three runtimes. `TestBaseModel` ran 27/27 per runtime with native and packed checks, and `TestCoreSQL` passed 176/176 on the .NET target. `RunTests` then passed with FAKE `Status: Ok`, including PolyglotSQLite, Core SQL on Node and Python, and ProcessCore (659 JavaScript and 660 .NET cases, two ignored on each).
+YAML verification (2026-10-22): `TestARCManagement` passed with FAKE `Status: Ok`. It ran 178/178 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The YAML tests read the example documents and the ProcessCore-generated fixtures from the repository root on all three runtimes. `TestBaseModel` ran 27/27 per runtime with native and packed checks, and `TestCoreSQL` passed 178/178 on the .NET target. `RunTests` then passed with FAKE `Status: Ok`, including PolyglotSQLite, Core SQL on Node and Python, and ProcessCore (659 JavaScript and 660 .NET cases, two ignored on each).
 
 A cross-runtime database writer/reader test for the version 5 store is planned for the close-out acceptance step.
 

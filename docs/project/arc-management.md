@@ -277,10 +277,14 @@ The inline mode (`encode`, `toYaml`, `arc.yml`) writes every occurrence of an en
 with all its fields, as ProcessCore does. The only reference is `{"@id": id}` for an
 entity that is still being written, which encodes a cycle. Entities without IDs are
 also written inline at each occurrence. Their sharing is not preserved, so the
-decoder returns distinct equal objects. A cycle among entities without IDs fails on
+decoder returns distinct equal objects. The exception is the common fields of a
+grouped process entry, whose entities stay shared (see the process entry rules below).
+A cycle among entities without IDs fails on
 encode, because it has no way to name the entity. Two distinct objects that write the
 same ID must have equal definitions, or the encoder fails with the same conflict
-message.
+message. The comparison is structural: it looks at the kind, the properties and the
+extensions, compares a target that has an ID by that ID and an ID-less target by its own
+structure, and never depends on how the entity is written.
 
 The indexed mode (`encodeIndexed`) writes each Annotation, Recipe and Agent that has
 an ID once, in the root sections `annotations`, `recipes` and `agentIndex`. An entry
@@ -351,8 +355,12 @@ The decoder accepts what ProcessCore documents contain.
   kind everywhere.
 - A plain scalar that looks like a finite YAML number is a number only in
   `Annotation.value` and in extension values. Every other text property stays text.
-  The encoder quotes core text scalars, IDs included, that a YAML reader would type as
-  null, a Boolean or a number when plain (`"null"`, `"true"`, `"12"`).
+  The encoder quotes core text scalars and extension keys, IDs included, when a YAML 1.1
+  or 1.2 reader could type them implicitly: empty text, the null and Boolean words
+  (`null`, `~`, `true`, `false`, `yes`, `no`, `on`, `off`, `y`, `n`, `.inf`, `.nan` in any
+  case), and any text that starts like a number (an optional sign, then a digit, or a dot
+  and a digit). This over-quotes `0x10`, `1_000` and `2026-01-02` on purpose, and the check
+  uses character tests, so every runtime writes the same text.
 - A Dataset needs at least one identifier, as in the model.
 
 #### ProcessCore interoperability
