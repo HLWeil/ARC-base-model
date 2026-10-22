@@ -99,19 +99,26 @@ read-only collection on .NET, a frozen array on JavaScript, a tuple on Python).
 `recursive` is a positional optional argument in JavaScript and a keyword in
 Python.
 
-- Subjects are identified by their `Id` and must exist with the group's kind.
-  Setters apply to the current stored state, so the setter always wins.
-  Relationship targets must already be stored.
+- Subjects are identified by their `Id` and must exist with the group's kind. A
+  group rejects a subject whose stored kind differs from its own. The `Entity`
+  group accepts any kind. Setters apply to the current stored state, so the setter
+  always wins. Relationship targets must already be stored. A relationship or
+  extension target whose ID is stored with a different kind is rejected.
 - `add` inserts strictly (an existing ID fails) and inserts new nested entities.
 - `upsert` inserts an unknown root or replaces the root's own fields. Nested
   entities with stored IDs are links and stay unchanged unless `recursive` is
   true, which writes every reachable submitted entity as the last truth.
-  Distinct submitted objects with one ID must have equal definitions. Upserting
-  a Dataset never changes the ARC root.
+  With `recursive`, distinct submitted objects with one ID are accepted when their
+  definitions are equal. Equal definitions means equal stored rows, so nested
+  objects without IDs must be the same objects, and two distinct ID-less children
+  make the definitions differ. Upserting a Dataset never changes the ARC root.
+- `add`, non-recursive `upsert`, `createArc`, `importYaml`, and workspace import
+  and recovery reject distinct new objects that share one ID. History entries for `add` and `upsert` are named
+  `<Kind>.add` and `<Kind>.upsert`.
 - Management never modifies supplied objects. It assigns missing IDs to the
   persisted copies. ID assignment belongs to this management layer, never Layer 1.
-  Identity is not inferred from names, paths, or equal values. Undo of a new
-  registration restores originally omitted IDs and redo restores the assigned IDs.
+  Identity is not inferred from names, paths, or equal values. Undo of an add
+  removes the added rows, and redo restores them with their assigned IDs.
 - Collection edits preserve order, duplicates, and shared references. Removal
   deletes one occurrence and does not unregister the target. Replacement setters
   handle shared or repeated members.
@@ -125,9 +132,11 @@ Python.
   extension references prevent target deletion; undo restores affected links.
 
 `graph.Entity` also manages generic typed objects and extension properties on all
-core classes. Typed helpers cover text, finite binary64 numbers, Boolean, null,
-canonical base64 blobs, object references, and nested ordered collections.
-Missing properties, explicit null, and empty collections remain distinct.
+core classes. Extension values go through `setProperty`, `addProperty`, and
+`removeProperty` with Layer 1 value classes: text, finite binary64 numbers,
+Boolean, null, canonical base64 blobs, object references, and nested ordered
+collections. Missing properties, explicit null, and empty collections remain
+distinct. Removing a missing property changes nothing and writes no history.
 Object cycles are supported; self-containing collection containers are rejected.
 Core property names are reserved. Extension changes use the same command,
 validation, SQL, and history pipeline as core edits.

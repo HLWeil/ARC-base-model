@@ -305,8 +305,8 @@ Investigate any phase that grows them substantially.
 Storage phase result: the management directories (`Runtime/`, `Internal/`, `Storage/`
 and `Serialization/`) grew from 1,479 to 1,989 lines. Most of the growth is the 93 DDL
 statements in `CoreSchema.fs` and the diff writer.
-Runtime and API result: the same four management folders shrank from 1,989 to 1,938
-lines after the runtime rewrite.
+Runtime and API result: the same four management folders shrank from 1,999 lines
+(measured at 1ab7328^) to 1,938 lines (measured at 5f527e0) after the runtime rewrite.
 Phase 1 result: `src/ARCBaseModel` grew from 474 to 815 lines and the management
 directories from 1,477 to 1,479 lines. Most of the Layer 1 growth is the state
 records and about 73 short `with*` copy members that replace mutable properties. Record actual results in

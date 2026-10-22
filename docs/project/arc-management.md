@@ -110,15 +110,25 @@ returns an immutable collection in ordinal order (a read-only collection on .NET
 frozen array on JavaScript, and a tuple on Python). Identity across revisions is
 not promised, so compare entities by their IDs.
 
-Subjects are identified by their `Id` and must exist with the group's kind.
-Setters apply to the current stored state, so the setter always wins over a
-subject value that has fallen behind. Relationship targets must already be stored.
+Subjects are identified by their `Id` and must exist with the group's kind. A
+group rejects a subject whose stored kind differs from its own. The `Entity` group
+accepts any kind. Setters apply to the current stored state, so the setter always
+wins over a subject value that has fallen behind. Relationship targets must
+already be stored, and a relationship or extension target whose ID is stored with
+a different kind is rejected.
 `add` inserts strictly: an existing ID fails, and new nested entities are inserted
 with it. `upsert` inserts an unknown root or replaces the root's own fields.
 Nested entities with stored IDs are links and stay unchanged unless `recursive`
 is true. Then every reachable submitted entity is written as the last truth.
-Distinct submitted objects with one ID must have equal definitions. Upserting a
-Dataset never changes the ARC root. Cross-type ID collisions are rejected.
+With `recursive`, distinct submitted objects with one ID are accepted when their
+definitions are equal. Equal definitions means equal stored rows, so nested
+objects without IDs must be the same objects. Two distinct ID-less children make
+the definitions differ. Every other adoption rejects distinct new objects that
+share one ID: `add`, non-recursive `upsert`, `createArc`, `importYaml`, and
+workspace import and recovery.
+Upserting a Dataset never changes the ARC root. Cross-type ID collisions are
+rejected. History entries for `add` and `upsert` are named `<Kind>.add` and
+`<Kind>.upsert`, for example `Process.add`.
 
 Management never modifies supplied objects. It assigns missing IDs to the
 persisted copies. ID assignment belongs to management, never Layer 1.
@@ -151,7 +161,7 @@ so edits to another entry never affect a graph. SQLite permits one writer.
 
 Undo and redo are linear and persisted, and they apply the recorded before and
 after rows through the same writer. Editing after undo discards redo. Undoing an
-adoption restores originally absent IDs, and redo restores assigned IDs. Saving
+add removes the added rows, and redo restores them with their assigned IDs. Saving
 preserves history and standalone objects.
 
 Root deletion is rejected. Dataset deletion cascades only to descendants and
@@ -182,8 +192,8 @@ forward aliases, and mixed legacy reference syntax are rejected. Legacy prototyp
 typed entity is supported.
 
 `session.importYaml(yaml)` decodes detached objects, then adopts them through
-ordinary management rules: missing IDs are assigned and distinct-object ID
-collisions rejected. It creates a fresh unbound entry with empty history.
+ordinary management rules: missing IDs are assigned and distinct objects that
+share one ID are rejected. It creates a fresh unbound entry with empty history.
 
 `graph.toYaml()` exports only the graph reachable from `Model` using the
 prototype `id`/`$ref` format also used by workspace saves. Shared/circular
@@ -194,13 +204,14 @@ remain private. These prototype formats do not revise normative YAML schemas.
 ## Extensions and storage
 
 `graph.Entity` manages extensions on core classes and generic typed
-`EntityObject` values through the same transaction/history pipeline. Typed
-helpers cover text, finite binary64 numbers, Boolean, null, canonical padded
-base64 blobs, object references, and nested ordered collections. Missing
+`EntityObject` values through the same transaction/history pipeline. Extension
+values go through `setProperty`, `addProperty`, and `removeProperty` and use
+Layer 1 value classes: text, finite binary64 numbers, Boolean, null, canonical
+padded base64 blobs, object references, and nested ordered collections. Missing
 properties, explicit null, and empty collections are distinct. Core property
-names are reserved and comparisons are case-sensitive. Set replaces or inserts;
-add rejects duplicate properties. Removing a missing property is reversible with
-no property effect. Property enumeration has no guaranteed order.
+names are reserved and comparisons are case-sensitive. Set replaces or inserts,
+and add rejects duplicate properties. Removing a missing property changes nothing
+and writes no history. Property enumeration has no guaranteed order.
 
 Object references resolve by ID and support cycles, including
 through collections. Self-containing collection containers are rejected; express
@@ -237,7 +248,7 @@ the history insert, and the separate `arc` revision and cursor updates. Associat
 prefix, so appending one element writes one row. The store has no journal, typed
 payload tables, mirror tables, or full state snapshots in history. The registry
 and core tables do not store `SuppliedId`. History change records and archived
-state do, so undoing an adoption after reopening restores absent IDs.
+state do.
 
 Opening compares every expected object in `sqlite_master` with its exact SQL
 text. Opening rejects a version 4 database with a hint to re-import the ARC from

@@ -144,7 +144,9 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   Setters and add/remove return the updated immutable value, `create`/`add`/
   `upsert` return the stored copy, `delete`/`undo`/`redo` return unit, and `list`
   returns an immutable collection. Subjects are identified by `Id`, must exist
-  with the group's kind, and setters apply to current stored state. `add` is
+  with the group's kind (the `Entity` group accepts any kind), and setters
+  apply to current stored state. Link targets stored with a different kind are
+  rejected. `add` is
   strict, `upsert` inserts an unknown root or replaces the root's own fields,
   and nested stored entities are links unless `recursive = true` (a positional
   optional argument in JavaScript and a keyword in Python). Writes run in one

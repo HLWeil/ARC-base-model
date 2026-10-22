@@ -31,8 +31,8 @@ let graph = session.createArc(Dataset(["process-provenance"], ["example"]))
 let arc = ARC.bind(graph, "./arc-a")
 let sample = arc.Sample.create("sample")
 let proc = arc.Process.create("process")
-arc.Process.setInputSample(proc, sample) |> ignore
-arc.Dataset.addProcess(arc.Model, proc) |> ignore
+let linked = arc.Process.setInput(proc, Some(EntityReference.Sample sample))
+arc.Dataset.addProcess(arc.Model, linked) |> ignore
 arc.save()
 let arcId = graph.ArcId
 arc.close()
