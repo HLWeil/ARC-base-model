@@ -22,6 +22,36 @@ module internal ProcessCoreYaml =
         | Schema.Wire.OneOrMany(singular, _) -> singular
         | Schema.Wire.FirstAndAll(first, _) -> first
 
+    /// A structural description of a row that never depends on how the row is written. A target with an ID is
+    /// described by that ID and an ID-less target by its own structure. Both codec directions use it to decide
+    /// whether two rows are one definition.
+    let private fingerprint (lookup: string -> EntityRow) (idOf: string -> string option) (start: EntityRow) : string =
+        let sized (value: string) = string value.Length + ":" + value
+        let rec print (path: string list) (row: EntityRow) : string =
+            let target (key: string) =
+                match idOf key with
+                | Some id -> "i" + sized id
+                | None -> if List.contains key path then "cycle" else "(" + print (key :: path) (lookup key) + ")"
+            let cell (value: Cell) =
+                match value with
+                | Text v -> "t" + sized v
+                | Number v -> "n" + string v
+                | Texts vs -> "[" + String.concat "," (List.map sized vs) + "]"
+                | Links ks -> "<" + String.concat "," (List.map target ks) + ">"
+            let rec extension (value: ExtensionCell) =
+                match value with
+                | ExtensionText v -> "t" + sized v
+                | ExtensionNumber v -> "n" + string v
+                | ExtensionBool v -> if v then "true" else "false"
+                | ExtensionNull -> "null"
+                | ExtensionBlob v -> "b" + sized v
+                | ExtensionObject k -> "o" + target k
+                | ExtensionCollection vs -> "[" + String.concat "," (List.map extension vs) + "]"
+            let properties = row.Properties |> Map.toList |> List.map (fun (key, value) -> sized key + cell value)
+            let extensions = row.Extensions |> Map.toList |> List.map (fun (key, value) -> sized key + extension value)
+            row.Kind + "{" + String.concat ";" properties + "|" + String.concat ";" extensions + "}"
+        print [start.Id] start
+
     // ---- encoding ----
 
     /// Writes the graph below state.Root. idOf maps a row key to the ID written for it. Rows without a written ID
@@ -42,6 +72,7 @@ module internal ProcessCoreYaml =
             | None -> ()
         let inProgress = HashSet<string>()
         let definitions = Dictionary<string, string>()
+        let describe (row: EntityRow) = fingerprint (fun key -> rows[key]) idOf row
         let indexKey = Dictionary<string, string>()
         let indexOrder = ResizeArray<string>()
         let indexElements = Dictionary<string, YAMLElement>()
@@ -73,10 +104,10 @@ module internal ProcessCoreYaml =
             inProgress.Remove key |> ignore
             match id with
             | Some id when colliding.Contains id ->
-                let text = Codec.write element
+                let description = describe rows[key]
                 match definitions.TryGetValue id with
-                | true, previous -> if previous <> text then invalidOp ("Conflicting definitions for entity ID " + id)
-                | _ -> definitions[id] <- text
+                | true, previous -> if previous <> description then invalidOp ("Conflicting definitions for entity ID " + id)
+                | _ -> definitions[id] <- description
             | _ -> ()
             element
 
@@ -372,27 +403,8 @@ module internal ProcessCoreYaml =
         let supplied = Dictionary<string, string>()
         let anonymous = ref 0
 
-        let rec fingerprint (row: EntityRow) : string =
-            let target (key: string) = if isIdKey key then key else "(" + fingerprint rows[key] + ")"
-            let sized (value: string) = string value.Length + ":" + value
-            let cell (value: Cell) =
-                match value with
-                | Text v -> "t" + sized v
-                | Number v -> "n" + string v
-                | Texts vs -> "[" + String.concat "," (List.map sized vs) + "]"
-                | Links ks -> "<" + String.concat "," (List.map target ks) + ">"
-            let rec extension (value: ExtensionCell) =
-                match value with
-                | ExtensionText v -> "t" + sized v
-                | ExtensionNumber v -> "n" + string v
-                | ExtensionBool v -> if v then "true" else "false"
-                | ExtensionNull -> "null"
-                | ExtensionBlob v -> "b" + sized v
-                | ExtensionObject k -> "o" + target k
-                | ExtensionCollection vs -> "[" + String.concat "," (List.map extension vs) + "]"
-            let properties = row.Properties |> Map.toList |> List.map (fun (key, value) -> sized key + cell value)
-            let extensions = row.Extensions |> Map.toList |> List.map (fun (key, value) -> sized key + extension value)
-            row.Kind + "{" + String.concat ";" properties + "|" + String.concat ";" extensions + "}"
+        let describe (row: EntityRow) =
+            fingerprint (fun key -> rows[key]) (fun key -> if isIdKey key then Some(key.Substring 2) else None) row
 
         let define (kind: string) (id: string option) (properties: Map<string, Cell>) (extensions: Map<string, ExtensionCell>) : string =
             let key =
@@ -406,7 +418,7 @@ module internal ProcessCoreYaml =
             | Some value ->
                 match rows.TryGetValue key with
                 | true, existing ->
-                    if existing.Kind <> kind || fingerprint existing <> fingerprint row then
+                    if describe existing <> describe row then
                         invalidOp ("Conflicting definitions for entity ID " + value)
                 | _ ->
                     rows[key] <- row

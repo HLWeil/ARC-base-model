@@ -10,11 +10,16 @@ module internal Codec =
     let text value = YAMLElement.Value(YAMLContent.create(value))
     let mapping pairs =
         pairs |> List.map (fun (key, value) -> YAMLElement.Mapping(YAMLContent.create(key), value)) |> YAMLElement.Object
-    /// True when a plain scalar with this text reads as null, a Boolean or a number under common YAML schemas.
+    /// True when a plain scalar with this text could be typed implicitly by a YAML 1.1 or 1.2 reader. The check uses
+    /// plain character tests, so every runtime writes the same text. It over-quotes anything that starts like a
+    /// number or a date.
     let implicitScalar (value: string) =
-        let mutable numeric = 0.0
-        List.contains (value.ToLowerInvariant()) ["true"; "false"; "null"; "~"; "yes"; "no"; "on"; "off"; ".nan"; ".inf"; "-.inf"; "+.inf"] ||
-        System.Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, &numeric)
+        if value.Length = 0 then true
+        elif List.contains (value.ToLowerInvariant()) ["null"; "~"; "true"; "false"; "yes"; "no"; "on"; "off"; "y"; "n"; ".inf"; "-.inf"; "+.inf"; ".nan"] then true
+        else
+            let start = if value.[0] = '+' || value.[0] = '-' then 1 else 0
+            let isDigit (index: int) = index < value.Length && value.[index] >= '0' && value.[index] <= '9'
+            isDigit start || (start < value.Length && value.[start] = '.' && isDigit (start + 1))
     /// Text that stays a string for every YAML reader: quoted when a plain scalar would be typed implicitly.
     let scalarText (value: string) =
         if implicitScalar value then YAMLElement.Value(YAMLContent.create(value, style = ScalarStyle.DoubleQuoted)) else text value

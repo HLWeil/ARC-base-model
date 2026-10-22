@@ -557,7 +557,8 @@ processes:
         Expect.isTrue graph.History.CanRedo "Redo exists before export"
         let yaml = graph.toYaml()
         Expect.isFalse (yaml.Contains("standalone")) "Standalone registered objects excluded"
-        Expect.isTrue (yaml.Contains("id: " + graph.Model.Id.Value)) "Managed IDs are written"
+        let managedId = graph.Model.Id.Value
+        Expect.isTrue (yaml.Contains("id: " + managedId) || yaml.Contains("id: \"" + managedId + "\"")) "Managed IDs are written"
         Expect.isTrue graph.History.CanRedo "Export leaves redo branch intact"
         Expect.equal (graph.Sample.get(sample.Id.Value)).Name "standalone" "Registry unchanged by export"
         let detached = DatasetYaml.decode(yaml)
@@ -665,6 +666,41 @@ processes:
         resumed.save()
         Expect.equal (Seq.toList (DatasetYaml.decode(Path.readFileText file)).Identifiers) ["example"] "The file is rewritten and readable"
         Expect.isFalse resumed.IsDirty "Saved")
+
+    testCase "text that could be typed implicitly is quoted the same way on every runtime" (fun _ ->
+        let quotedValues = ["0x10"; "0o17"; "1_000"; "2026-01-02"; ".5"; "-1"; "y"; "Off"; "+3"; "N"; ".NaN"; "-.inf"; ""]
+        let plainValues = ["abc1"; "a.5"; "x-1"; "yes please"]
+        let names = quotedValues @ plainValues
+        let source = Dataset.withAdditionalProperties(idRoot (), names |> List.map (fun name -> Annotation(name)))
+        let yaml = DatasetYaml.encode(source)
+        for value in quotedValues do
+            Expect.isTrue (yaml.Contains("name: \"" + value + "\"")) ("Quoted: " + value)
+        for value in plainValues do
+            Expect.isTrue (yaml.Contains("name: " + value)) ("Plain: " + value)
+            Expect.isFalse (yaml.Contains("name: \"" + value + "\"")) ("Not quoted: " + value)
+        let result = DatasetYaml.decode(yaml)
+        Expect.equal (result.AdditionalProperties |> Seq.map (fun a -> a.Name) |> List.ofSeq) names "Names round trip")
+
+    testCase "colliding rows are compared structurally, not by how they are written" (fun _ ->
+        let owner = ARCBaseModel.Process("p", id = "p")
+        let first = Annotation("v", id = "x")
+        let second = Annotation("v", id = "x")
+        setProperty first "owner" (Entity.Object owner)
+        setProperty second "owner" (Entity.Object owner)
+        owner.State <- { owner.State with ParameterValues = [first] }
+        let source = Dataset.withProcesses(Dataset.withAdditionalProperties(idRoot (), [second]), [owner])
+        for yaml in [DatasetYaml.encode(source); DatasetYaml.encodeIndexed(source)] do
+            let result = DatasetYaml.decode(yaml)
+            same (Seq.item 0 result.AdditionalProperties) (Seq.item 0 (firstProcess result).ParameterValues)
+        let different' = Annotation("w", id = "x")
+        setProperty different' "owner" (Entity.Object owner)
+        let conflicting = Dataset.withProcesses(Dataset.withAdditionalProperties(idRoot (), [different']), [owner])
+        failsWith "Conflicting definitions for entity ID x" (fun () -> DatasetYaml.encode(conflicting) |> ignore)
+        let other = ARCBaseModel.Process("q", id = "q")
+        let elsewhere = Annotation("v", id = "x")
+        setProperty elsewhere "owner" (Entity.Object other)
+        let ownerChanged = Dataset.withProcesses(Dataset.withAdditionalProperties(idRoot (), [elsewhere]), [owner])
+        failsWith "Conflicting definitions for entity ID x" (fun () -> DatasetYaml.encode(ownerChanged) |> ignore))
 
     testCase "history rows written with a suppliedId key still decode" (fun _ ->
         Expect.equal (Legacy.decodeWithSuppliedId ()) "s" "The obsolete key is ignored")
