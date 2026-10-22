@@ -300,16 +300,21 @@ are dropped. The decoder also accepts the sections `labProtocols` (an alias of
 
 Consecutive processes in one `processes` list share one entry when each has at least
 one endpoint, they have the same endpoint presence (input present, output present),
-all of them have an ID or none has, and the encoded text of their remaining state is
-equal (`name`, `additionalType`, `executesRecipe`, `parameterValue` and extensions).
-The entry writes `inputs` and `outputs` as arrays aligned by position. Its `id` is a
+all of them have an ID or none has, and their remaining row data is equal (`name`,
+`additionalType`, `executesRecipe`, `parameterValue` and extensions). Rows refer to
+other entities by key, so two distinct ID-less recipes with equal content do not
+group, while a recipe object that both processes share does. The entry writes `inputs` and `outputs` as arrays aligned by position. Its `id` is a
 sequence of the member IDs, or a scalar for one process.
 
 The decoder expands an entry to `max(1, inputs, outputs)` processes and pairs the Nth
 input with the Nth output. An endpoint is absent where its array is shorter. An `id`
 sequence needs exactly one item per expanded process, and a scalar `id` on an entry
-that expands to several processes fails. Every expanded process gets its own copy of
-the entry's entities that have no ID, while entities with an ID are shared.
+that expands to several processes fails. The expanded processes share the entities of
+the common fields (recipe, parameter values and extension values), with or without IDs,
+so re-encoding groups them again. Each process gets its own endpoints. While the
+encoder writes the endpoints of one member, the other members of the entry may appear
+inline in them, for example through an extension, because they are not yet being
+written.
 
 #### Extensions
 
@@ -332,12 +337,22 @@ The decoder accepts what ProcessCore documents contain.
 
 - A Dataset without `conformsTo` gets the profiles that its own fields imply:
   `process-provenance` for `processes`, `semantic-designation` for `descriptors` and
-  `administrative` for any administrative field. A Dataset with none of these gets
-  `administrative`.
+  `administrative` for any administrative field, including Data entries in `hasPart`,
+  which count as data files. A Dataset with none of these gets `administrative`.
 - An entry without a `type` takes the kind of its position. In a position that holds
   Samples or Data, or Datasets or Data, an entry with a `path` is Data.
+- Comments are ignored, whether they sit between mappings, inside an entry or between
+  sequence items.
+- A type alias (`File`, `MediaObject` and the `schema:` and `bioschemas:` names) means its
+  core kind only where the position accepts that kind. The root accepts `schema:Dataset`,
+  endpoint and `hasPart` positions accept `File` and `MediaObject` for Data, and index
+  sections accept the aliases of their kind. In an extension, `type: File` stays a
+  generic object of type `File`. Canonical names such as `type: Sample` mean the core
+  kind everywhere.
 - A plain scalar that looks like a finite YAML number is a number only in
   `Annotation.value` and in extension values. Every other text property stays text.
+  The encoder quotes core text scalars, IDs included, that a YAML reader would type as
+  null, a Boolean or a number when plain (`"null"`, `"true"`, `"12"`).
 - A Dataset needs at least one identifier, as in the model.
 
 #### ProcessCore interoperability

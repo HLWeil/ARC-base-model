@@ -93,7 +93,11 @@ inline mode of the ProcessCore-shaped codec (see the
 an entity is written with its fields and its managed ID, and a cycle uses an
 `{"@id": id}` reference. `ManagedGraph.toYaml()` produces the same root-only text
 without changing files, history, or save checkpoints. An `arc.yml` written by the
-earlier `$ref` format is not readable and must be written again.
+earlier `$ref` format is not readable. `ARC.importFolder` and the sources `"yml"` and
+`"auto"` of `ARC.openFolder` fail on it, and a folder without a SQL session has no way
+to read it. A folder that still has its `.arc/arc.sqlite` can be recovered: call
+`ARC.openFolder(folder, "sql")`, which takes the file text as the baseline and keeps the
+stored graph, then call `save()`, which rewrites `arc.yml` in the new format.
 
 The baseline compares observed `arc.yml` text, including absence. Save stages a
 replacement file and advances the SQL checkpoint only after publication. Failed
