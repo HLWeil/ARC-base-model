@@ -4,6 +4,7 @@ open System
 open ARCBaseModel
 open ARCManagement
 open ARCManagement.Helper
+open ARCtrl
 open Fable.Pyxpecto
 
 let private same actual expected = Expect.isTrue (obj.ReferenceEquals(actual, expected)) "Shared entity reference"
@@ -508,8 +509,13 @@ processes:
             | _ -> failwith "Expected a term"
             let value = Seq.item 0 (List.head processes).ParameterValues
             Expect.equal (value.Value, value.Unit) (Some(AnnotationValue.Number 4.0), Some "degree Celsius") "Parameter value"
-            if indexed then same (List.item 1 processes).ExecutesRecipe.Value recipe
-            else different (List.item 1 processes).ExecutesRecipe.Value recipe
+            same (List.item 1 processes).ExecutesRecipe.Value recipe
+            same (List.item 2 processes).ExecutesRecipe.Value recipe
+            same (Seq.item 0 (List.item 1 processes).ParameterValues) value
+            if not indexed then
+                let again = DatasetYaml.encode(result)
+                Expect.equal (occurrences again "name: Extraction") 1 "The expanded processes group into one entry again"
+                Expect.equal (occurrences again "type: Process") 2 "Extraction and Measurement"
             Expect.equal ((data (List.item 3 processes)).Path, (sample (List.item 3 processes)).Name) ("raw/measurement.tsv", "Extract 1") "Measurement"
             let agent = Seq.item 0 result.Agents
             Expect.equal (agent.Name, Seq.toList agent.Emails, Seq.toList agent.Identifiers) ("Ada Lovelace", ["ada@example.org"], ["ORCID:0000-0000-0000-0001"]) "Agent"
@@ -561,6 +567,104 @@ processes:
         Expect.equal (graph.Process.get(proc.Id.Value)).Name "changed" "History remains usable"
         Expect.equal proc.Name "attached" "Held value is unchanged"
         Expect.isTrue ((graph.toYaml()).Contains("changed")) "Export follows the current state")
+
+    testCase "type aliases apply only where a core kind is expected" (fun _ ->
+        let source = idRoot ()
+        setProperty source "file" (Entity.Object(EntityObject("File", id = "file-1")))
+        setProperty source "media" (Entity.Object(EntityObject("MediaObject")))
+        setProperty source "dataset" (Entity.Object(EntityObject("schema:Dataset")))
+        let check (result: Dataset) =
+            for key, expected in ["file", "File"; "media", "MediaObject"; "dataset", "schema:Dataset"] do
+                match result.EntityProperties.Get(key) with
+                | Entity.Object v -> Expect.equal v.Type expected ("Generic type " + expected)
+                | _ -> failwith "Expected an object"
+        check (DatasetYaml.decode(DatasetYaml.encode(source)))
+        check (DatasetYaml.decode(DatasetYaml.encodeIndexed(source)))
+        use session = Session.createInMemory()
+        let graph = session.createArc(source)
+        check (DatasetYaml.decode(graph.toYaml()))
+        check (session.importYaml(graph.toYaml())).Model
+        let typed = decode "mixed:\n  type: File\n  path: not-a-path-of-Data\n"
+        match typed.EntityProperties.Get("mixed") with
+        | Entity.Object v ->
+            Expect.equal v.Type "File" "A File in an extension is a generic object"
+            Expect.isTrue (v.EntityProperties.Contains "path") "Its members are extension properties"
+        | _ -> failwith "Expected an object"
+        Expect.equal (Seq.item 0 (decode "dataFiles:\n  - {type: File, path: p}\n").DataFiles).Path "p" "File is Data where Data is expected"
+        Expect.equal (DatasetYaml.decode("type: schema:Dataset\nidentifier: x\nconformsTo: [administrative]\n")).Type "Dataset" "The root accepts the Dataset alias")
+
+    testCase "comments are ignored between mappings and sequence items" (fun _ ->
+        let yaml = "# header\ntype: Dataset # trailing\nconformsTo: [administrative]\nidentifier: r\n# between\ntitle: t\nhasPart:\n  - type: Dataset\n    # inside an item\n    conformsTo: [administrative]\n    identifier: a\n  # between items\n  - type: Dataset\n    conformsTo: [administrative]\n    identifier: b\n"
+        let result = DatasetYaml.decode(yaml)
+        Expect.equal (result.Title, Seq.length result.HasParts) (Some "t", 2) "Comments do not change the content"
+        Expect.equal (Seq.item 0 (Seq.item 1 result.HasParts).Identifiers) "b" "Items after a comment are read")
+
+    testCase "a sibling of a grouped process can be written inside another member" (fun _ ->
+        for ids in [false; true] do
+            let identify (value: string) = if ids then Some value else None
+            let second = ARCBaseModel.Process("run", input = EntityReference.Sample(Sample("two")), ?id = identify "p2")
+            let one = Sample("one")
+            setProperty one "next" (Entity.Object second)
+            let first = ARCBaseModel.Process("run", input = EntityReference.Sample one, ?id = identify "p1")
+            let source = Dataset.withProcesses(Dataset(["process-provenance"], ["root"]), [first; second])
+            let yaml = DatasetYaml.encode(source)
+            Expect.isFalse (yaml.Contains "\"@id\"") "A sibling is not a cycle"
+            let result = DatasetYaml.decode(yaml)
+            Expect.equal (Seq.length result.Processes) 2 "Both processes come back"
+            match (sample (firstProcess result)).EntityProperties.Get("next") with
+            | Entity.Object (:? ARCBaseModel.Process as v) -> Expect.equal v.Name "run" "The sibling is nested"
+            | _ -> failwith "Expected a Process"
+        let one = Annotation("recipe")
+        let a = Recipe(name = "r", additionalProperties = [one])
+        let b = Recipe(name = "r", additionalProperties = [one])
+        let distinct = Dataset.withProcesses(Dataset(["process-provenance"], ["root"]), [ARCBaseModel.Process("run", input = EntityReference.Sample(Sample("a")), executesRecipe = a); ARCBaseModel.Process("run", input = EntityReference.Sample(Sample("b")), executesRecipe = b)])
+        Expect.equal (occurrences (DatasetYaml.encode(distinct)) "type: Process") 2 "Equal ID-less recipes that are distinct objects do not group"
+        let shared = Dataset.withProcesses(Dataset(["process-provenance"], ["root"]), [ARCBaseModel.Process("run", input = EntityReference.Sample(Sample("a")), executesRecipe = a); ARCBaseModel.Process("run", input = EntityReference.Sample(Sample("b")), executesRecipe = a)])
+        Expect.equal (occurrences (DatasetYaml.encode(shared)) "type: Process") 1 "A shared recipe object groups")
+
+    testCase "Data in hasPart follows explicit data files and counts for the inferred profile" (fun _ ->
+        let result = decode "dataFiles:\n  - {type: Data, path: a}\n  - {type: Data, path: b}\nhasPart:\n  - {type: Data, path: d}\n  - {type: Dataset, identifier: child, conformsTo: [administrative]}\n"
+        Expect.equal (result.DataFiles |> Seq.map (fun f -> f.Path) |> List.ofSeq) ["a"; "b"; "d"] "hasPart Data goes last and keeps its order"
+        Expect.equal (Seq.length result.HasParts) 1 "Datasets stay parts"
+        let inferred yaml = Seq.toList (DatasetYaml.decode("type: Dataset\nidentifier: x\n" + yaml).ConformsTo)
+        Expect.equal (inferred "processes:\n  - {type: Process, name: p}\nhasPart:\n  - {type: Data, path: d}\n") ["process-provenance"; "administrative"] "Data from hasPart implies administrative"
+        Expect.equal (inferred "hasPart:\n  - {type: Data, path: d}\n") ["administrative"] "Only Data in hasPart"
+        Expect.equal (inferred "processes:\n  - {type: Process, name: p}\nhasPart:\n  - {type: Dataset, identifier: c, conformsTo: [administrative]}\n") ["process-provenance"] "Dataset parts add nothing")
+
+    testCase "text that YAML would type implicitly is quoted" (fun _ ->
+        let source = Dataset(["administrative"], ["true"; "1"], id = "null", hasParts = [Dataset(["administrative"], ["x"], id = "12")], additionalProperties = [Annotation("n", id = "~", additionalTypes = ["false"])])
+        let yaml = DatasetYaml.encode(source)
+        for expected in ["id: \"null\""; "id: \"12\""; "id: \"~\""; "identifier: \"true\""; "additionalType: \"false\""] do
+            Expect.isTrue (yaml.Contains expected) ("Quoted: " + expected)
+        for unexpected in ["id: null"; "id: 12"; "id: ~"; "identifier: true"] do
+            Expect.isFalse (yaml.Contains unexpected) ("Not plain: " + unexpected)
+        let result = DatasetYaml.decode(yaml)
+        Expect.equal (result.Id, Seq.toList result.Identifiers) (Some "null", ["true"; "1"]) "Text round trip"
+        Expect.equal (Seq.item 0 result.HasParts).Id (Some "12") "Numeric-looking ID"
+        Expect.equal (Seq.item 0 result.AdditionalProperties).Id (Some "~") "Null-looking ID")
+
+    testCase "indexed mode rejects distinct objects that share an ID with differing definitions" (fun _ ->
+        let source = Dataset.withAdditionalProperties(idRoot (), [Annotation("one", id = "x"); Annotation("two", id = "x")])
+        failsWith "Conflicting definitions for entity ID x" (fun () -> DatasetYaml.encodeIndexed(source) |> ignore)
+        failsWith "Conflicting definitions for entity ID x" (fun () -> DatasetYaml.encode(source) |> ignore)
+        let equal = Dataset.withAdditionalProperties(idRoot (), [Annotation("one", id = "x"); Annotation("one", id = "x")])
+        let result = DatasetYaml.decode(DatasetYaml.encodeIndexed(equal))
+        same (Seq.item 0 result.AdditionalProperties) (Seq.item 1 result.AdditionalProperties))
+
+    testCase "a folder whose arc.yml cannot be read opens with the sql source and saves in the new format" (fun _ ->
+        let path = Helpers.folder "yaml"
+        let created = ARC.create(path, Dataset(["process-provenance"], ["example"]))
+        created.save()
+        created.close()
+        let file = Path.combineNative path ARCtrl.Helper.Layout.ARCFileName
+        Path.writeFileText file "type: Dataset\n$ref: legacy\n"
+        Expect.throws (fun () -> ARC.openFolder(path, "yml") |> ignore) "The old text is not readable"
+        Expect.throws (fun () -> ARC.openFolder(path, "auto") |> ignore) "Automatic recovery needs a readable file"
+        use resumed = ARC.openFolder(path, "sql")
+        Expect.isTrue resumed.IsDirty "The SQL state is not yet published"
+        resumed.save()
+        Expect.equal (Seq.toList (DatasetYaml.decode(Path.readFileText file)).Identifiers) ["example"] "The file is rewritten and readable"
+        Expect.isFalse resumed.IsDirty "Saved")
 
     testCase "history rows written with a suppliedId key still decode" (fun _ ->
         Expect.equal (Legacy.decodeWithSuppliedId ()) "s" "The obsolete key is ignored")

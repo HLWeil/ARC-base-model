@@ -10,14 +10,18 @@ module internal Codec =
     let text value = YAMLElement.Value(YAMLContent.create(value))
     let mapping pairs =
         pairs |> List.map (fun (key, value) -> YAMLElement.Mapping(YAMLContent.create(key), value)) |> YAMLElement.Object
+    /// True when a plain scalar with this text reads as null, a Boolean or a number under common YAML schemas.
+    let implicitScalar (value: string) =
+        let mutable numeric = 0.0
+        List.contains (value.ToLowerInvariant()) ["true"; "false"; "null"; "~"; "yes"; "no"; "on"; "off"; ".nan"; ".inf"; "-.inf"; "+.inf"] ||
+        System.Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, &numeric)
+    /// Text that stays a string for every YAML reader: quoted when a plain scalar would be typed implicitly.
+    let scalarText (value: string) =
+        if implicitScalar value then YAMLElement.Value(YAMLContent.create(value, style = ScalarStyle.DoubleQuoted)) else text value
     let extensionMappings pairs =
         let keyContent (key: string) =
-            let mutable numeric = 0.0
-            let implicitScalar =
-                List.contains (key.ToLowerInvariant()) ["true"; "false"; "null"; "~"; "yes"; "no"; "on"; "off"; ".nan"; ".inf"; "-.inf"; "+.inf"] ||
-                System.Double.TryParse(key, NumberStyles.Float, CultureInfo.InvariantCulture, &numeric)
             // '$' introduces YAMLicious array syntax; '['/'{' also interfere with its key parser.
-            if YAMLicious.Writer.StyleVerifier.isPlainSafe key && not (key.StartsWith("$") || key.Contains("[") || key.Contains("{")) && not implicitScalar then
+            if YAMLicious.Writer.StyleVerifier.isPlainSafe key && not (key.StartsWith("$") || key.Contains("[") || key.Contains("{")) && not (implicitScalar key) then
                 YAMLContent.create(key)
             else YAMLContent.create(key, style = ScalarStyle.DoubleQuoted)
         pairs |> List.map (fun (key, value) -> YAMLElement.Mapping(keyContent key, value))
@@ -53,11 +57,6 @@ module internal Codec =
         | Some(YAMLElement.Object [YAMLElement.Sequence values]) -> values
         | Some _ -> invalidOp ("Expected a sequence for " + key)
     let stringItems key element = items key element |> List.map scalar
-    let check kind allowed element =
-        if value "type" element <> kind then invalidOp ("Expected type " + kind)
-        for key, _ in fields element do
-            if not (List.contains key allowed) then invalidOp ("Unsupported " + kind + " property: " + key)
-    let id element = opt "id" element |> Option.defaultWith Identifier.newId
 #if FABLE_COMPILER_PYTHON
     [<Emit("str(float($0))")>]
     let private numericText (_value: float): string = nativeOnly

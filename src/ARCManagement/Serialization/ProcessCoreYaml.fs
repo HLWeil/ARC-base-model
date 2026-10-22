@@ -15,7 +15,7 @@ module internal ProcessCoreYaml =
     let private quoted (value: string) = YAMLElement.Value(YAMLContent.create(value, style = ScalarStyle.DoubleQuoted))
     let private plain (value: string) = YAMLElement.Value(YAMLContent.create(value, style = ScalarStyle.Plain))
     let private blob (value: string) = YAMLElement.Value(YAMLContent.create(value, tag = "tag:yaml.org,2002:binary", style = ScalarStyle.Plain))
-    let private reference (id: string) = Codec.mapping ["@id", Codec.text id]
+    let private reference (id: string) = Codec.mapping ["@id", Codec.scalarText id]
     let private primaryKey (property: Schema.Property) =
         match property.Wire with
         | Schema.Wire.Key(key, _) -> key
@@ -81,9 +81,9 @@ module internal ProcessCoreYaml =
             element
 
         and headPairs (kind: string) (id: string option) (atId: bool) =
-            ["type", Codec.text kind]
-            @ (match id with Some value -> ["id", Codec.text value] | None -> [])
-            @ (match id with Some value when atId -> ["@id", Codec.text value] | _ -> [])
+            ["type", Codec.scalarText kind]
+            @ (match id with Some value -> ["id", Codec.scalarText value] | None -> [])
+            @ (match id with Some value when atId -> ["@id", Codec.scalarText value] | _ -> [])
 
         and compose (pairs: (string * YAMLElement) list) (extensions: YAMLElement list) (tail: (string * YAMLElement) list) : YAMLElement =
             let mappings = (pairs @ tail) |> List.map (fun (key, value) -> YAMLElement.Mapping(YAMLContent.create(key), value))
@@ -114,15 +114,15 @@ module internal ProcessCoreYaml =
                 | _ -> [primaryKey property, Codec.sequence items]
             match cell with
             | Text v ->
-                let element = if property.Shape = Schema.Shape.TextOrNumber || property.Name = "intendedUse" then quoted v else Codec.text v
+                let element = if property.Shape = Schema.Shape.TextOrNumber || property.Name = "intendedUse" then quoted v else Codec.scalarText v
                 [primaryKey property, element]
             | Number v -> [primaryKey property, Codec.number v]
             | Texts [] | Links [] -> []
             | Texts values ->
                 match property.Wire with
                 | Schema.Wire.FirstAndAll(first, all) ->
-                    (first, Codec.text (List.head values)) :: (if List.length values > 1 then [all, Codec.sequence (List.map Codec.text values)] else [])
-                | _ -> collection (List.map Codec.text values)
+                    (first, Codec.scalarText (List.head values)) :: (if List.length values > 1 then [all, Codec.sequence (List.map Codec.scalarText values)] else [])
+                | _ -> collection (List.map Codec.scalarText values)
             | Links ids ->
                 match property.Shape with
                 | Schema.Shape.Links _ ->
@@ -143,9 +143,20 @@ module internal ProcessCoreYaml =
                 | _ -> []
             get "additionalTypes" @ get "name" @ endpoints @ get "executesRecipe" @ get "parameterValues"
 
-        and endpointPairs (members: EntityRow list) =
+        /// Writes the endpoint arrays of a group. While one member's items are written, only that member (and the
+        /// ancestors that were already in progress) counts as being written, so a sibling can appear inline.
+        and endpointPairs (keys: string list) (ancestors: string list) =
             let column name (key: string) =
-                let items = members |> List.choose (fun row -> match Map.tryFind name row.Properties with Some(Links [target]) -> Some(entity target) | _ -> None)
+                let items =
+                    keys |> List.choose (fun memberKey ->
+                        match Map.tryFind name rows[memberKey].Properties with
+                        | Some(Links [target]) ->
+                            let siblings = keys |> List.filter (fun other -> other <> memberKey && not (List.contains other ancestors))
+                            for other in siblings do inProgress.Remove other |> ignore
+                            let element = entity target
+                            for other in siblings do inProgress.Add other |> ignore
+                            Some element
+                        | _ -> None)
                 if List.isEmpty items then [] else [key, Codec.sequence items]
             column "input" "inputs" @ column "output" "outputs"
 
@@ -153,31 +164,32 @@ module internal ProcessCoreYaml =
         and processBody (keys: string list) : YAMLElement =
             let members = keys |> List.map (fun key -> rows[key])
             let first = List.head members
+            let ancestors = keys |> List.filter inProgress.Contains
             for key in keys do inProgress.Add key |> ignore
             let ids = keys |> List.map idOf
             let idPairs =
                 if List.forall Option.isSome ids then
                     match List.choose id ids with
-                    | [one] -> ["id", Codec.text one]
-                    | many -> ["id", Codec.sequence (List.map Codec.text many)]
+                    | [one] -> ["id", Codec.scalarText one]
+                    | many -> ["id", Codec.sequence (List.map Codec.scalarText many)]
                 else []
-            let pairs = ["type", Codec.text "Process"] @ idPairs @ processFields first (endpointPairs members)
+            let endpoints = endpointPairs keys ancestors
+            let pairs = ["type", Codec.scalarText "Process"] @ idPairs @ processFields first endpoints
             let element = compose pairs (extensionMappings first) []
-            for key in keys do inProgress.Remove key |> ignore
+            for key in keys do
+                if not (List.contains key ancestors) then inProgress.Remove key |> ignore
             element
 
-        and commonText (key: string) : string =
-            let row = rows[key]
-            Codec.write (compose (processFields row []) (extensionMappings row) [])
-
-        /// Consecutive processes with endpoints, one endpoint shape and equal remaining state share one entry.
+        /// Consecutive processes with endpoints, one endpoint shape and equal remaining row data share one entry.
+        /// Rows reference other entities by key, so the comparison needs no encoding.
         and groupProcesses (keys: string list) : string list list =
             let signature (key: string) =
                 let row = rows[key]
                 let hasInput, hasOutput = Map.containsKey "input" row.Properties, Map.containsKey "output" row.Properties
                 let id = idOf key
                 let ungrouped = (not hasInput && not hasOutput) || inProgress.Contains key || (match id with Some value -> colliding.Contains value | None -> false)
-                if ungrouped then None else Some(hasInput, hasOutput, Option.isSome id, commonText key)
+                let shared = row.Properties |> Map.remove "input" |> Map.remove "output"
+                if ungrouped then None else Some(hasInput, hasOutput, Option.isSome id, shared, row.Extensions)
             let result = ResizeArray<ResizeArray<string>>()
             let mutable previous = None
             for key in keys do
@@ -219,11 +231,24 @@ module internal ProcessCoreYaml =
         | Items of YAMLElement list
         | Entries of (string * YAMLElement) list
 
+    /// Comments are YAML elements of their own. The reader ignores them, as ProcessCore does.
+    let private withoutComments (items: YAMLElement list) =
+        let isComment (item: YAMLElement) = match item with YAMLElement.Comment _ -> true | _ -> false
+        // A comment between sequence items arrives as an item that holds nothing else.
+        items |> List.filter (fun item ->
+            match item with
+            | YAMLElement.Object parts -> List.isEmpty parts || not (List.forall isComment parts)
+            | _ -> not (isComment item))
+
     let private classify (element: YAMLElement) : Node =
         match element with
-        | YAMLElement.Object [YAMLElement.Value v] | YAMLElement.Value v -> Node.Scalar v
-        | YAMLElement.Object [YAMLElement.Sequence items] | YAMLElement.Sequence items -> Node.Items items
-        | YAMLElement.Object _ -> Node.Entries(Codec.fields element)
+        | YAMLElement.Value v -> Node.Scalar v
+        | YAMLElement.Sequence items -> Node.Items(withoutComments items)
+        | YAMLElement.Object parts ->
+            match withoutComments parts with
+            | [YAMLElement.Value v] -> Node.Scalar v
+            | [YAMLElement.Sequence items] -> Node.Items(withoutComments items)
+            | visible -> Node.Entries(Codec.fields (YAMLElement.Object visible))
         | YAMLElement.Alias _ -> invalidOp "YAML anchors and aliases are not supported."
         | _ -> invalidOp "Unsupported YAML structure."
 
@@ -300,8 +325,14 @@ module internal ProcessCoreYaml =
         | Some a, None -> Some a
         | None, other -> other
 
-    let private typeName (entries: (string * YAMLElement) list) : string option =
-        match find "type" entries |> Option.map (textOf "type" >> Schema.canonicalKind), find "@type" entries |> Option.map (textOf "@type" >> Schema.canonicalKind) with
+    /// An alias names a core kind only where the position accepts that kind. Elsewhere, such as in extensions,
+    /// a type like File stays the type of a generic object.
+    let private resolveType (targets: string list) (name: string) =
+        let canonical = Schema.canonicalKind name
+        if canonical <> name && not (List.contains canonical targets) then name else canonical
+
+    let private typeName (targets: string list) (entries: (string * YAMLElement) list) : string option =
+        match find "type" entries |> Option.map (textOf "type" >> resolveType targets), find "@type" entries |> Option.map (textOf "@type" >> resolveType targets) with
         | Some a, Some b -> if a <> b then invalidOp "The keys type and @type of one entity must carry the same value." else Some a
         | Some a, None -> Some a
         | None, other -> other
@@ -406,7 +437,7 @@ module internal ProcessCoreYaml =
             | _ -> decodeItem targets element
 
         and decodeEntries (targets: string list) (isRoot: bool) (entries: (string * YAMLElement) list) : string list =
-            let kind = match typeName entries with Some value -> value | None -> inferKind targets entries
+            let kind = match typeName targets entries with Some value -> value | None -> inferKind targets entries
             if kind = "Process" then decodeProcess entries
             else
                 let properties, extensions = build kind isRoot entries []
@@ -423,11 +454,14 @@ module internal ProcessCoreYaml =
             let inputs, outputs = column "inputs", column "outputs"
             let count = max 1 (max inputs.Length outputs.Length)
             let ids = processIds entries count |> List.toArray
+            // One entry is one protocol applied to several endpoint pairs, so the expanded processes share the
+            // rows decoded from the common fields, including entities that have no ID.
+            let shared, extensions = build "Process" false entries []
             let keys = ResizeArray<string>()
             for index in 0 .. count - 1 do
                 let endpoint (name: string) (items: YAMLElement[]) =
                     if index < items.Length then [name, Links [single ["Sample"; "Data"] items[index]]] else []
-                let properties, extensions = build "Process" false entries (endpoint "input" inputs @ endpoint "output" outputs)
+                let properties = (endpoint "input" inputs @ endpoint "output" outputs) |> List.fold (fun map (name, cell) -> Map.add name cell map) shared
                 keys.Add(define "Process" ids[index] properties extensions)
             List.ofSeq keys
 
@@ -495,7 +529,8 @@ module internal ProcessCoreYaml =
                     [ if any ["processes"] then "process-provenance"
                       if any ["descriptors"] then "semantic-designation"
                       if any ["title"; "description"; "license"; "datePublished"; "dateCreated"; "dateModified"; "dataFiles"; "agents"; "citations"] then "administrative" ]
-                properties.Add(("conformsTo", Texts(if List.isEmpty profiles then ["administrative"] else profiles)))
+                // Data entries in hasPart count as data files, which is only known once references resolve.
+                properties.Add(("~inferred", Texts profiles))
             if kind = "Agent" && not (has "name") then
                 let part name = properties |> Seq.tryPick (fun (key, cell) -> match cell with Text v when key = name -> Some v | _ -> None)
                 properties.Add(("name", Text((String.concat " " (List.choose id [part "givenName"; part "familyName"])).Trim())))
@@ -539,6 +574,16 @@ module internal ProcessCoreYaml =
                 for KeyValue(_, cell) in row.Extensions do
                     pending.AddRange(Model.extensionReferences cell)
         let kept = order |> Seq.filter reachable.Contains |> List.ofSeq
+        // Profiles follow from the fields of the Dataset, with Data from hasPart counted as data files.
+        let finishProfiles (key: string) =
+            let row = rows[key]
+            match Map.tryFind "~inferred" row.Properties with
+            | Some(Texts inferred) ->
+                let hasFiles = (match Map.tryFind "dataFiles" row.Properties with Some(Links files) -> not (List.isEmpty files) | _ -> false)
+                let withFiles = if hasFiles && not (List.contains "administrative" inferred) then inferred @ ["administrative"] else inferred
+                let profiles = if List.isEmpty withFiles then ["administrative"] else withFiles
+                rows[key] <- { row with Properties = row.Properties |> Map.remove "~inferred" |> Map.add "conformsTo" (Texts profiles) }
+            | _ -> ()
         for key in kept do
             let row = rows[key]
             if row.Kind = "Dataset" then
@@ -553,5 +598,6 @@ module internal ProcessCoreYaml =
                             |> Map.add "dataFiles" (Links(files @ List.filter isData targets))
                         rows[key] <- { row with Properties = properties }
                 | _ -> ()
+                finishProfiles key
         let ids = kept |> List.choose (fun key -> match supplied.TryGetValue key with | true, id -> Some(key, id) | _ -> None) |> Map.ofList
         { Root = rootKey; Entities = kept |> List.map (fun key -> rows[key]) }, ids
