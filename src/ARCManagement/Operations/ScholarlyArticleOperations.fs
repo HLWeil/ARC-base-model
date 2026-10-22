@@ -20,12 +20,9 @@ type ScholarlyArticleOperations internal (session: GraphContext) =
         session.Change(value,"authors",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"ScholarlyArticle.setAuthors")
     member _.addAuthor(value: ScholarlyArticle, target: Agent) = session.Collection(value,"authors",target,true,"ScholarlyArticle.addAuthor")
     member _.removeAuthor(value: ScholarlyArticle, target: Agent) = session.Collection(value,"authors",target,false,"ScholarlyArticle.removeAuthor")
-    member _.setCreativeWorkStatus(value: ScholarlyArticle, replacement: DefinedTerm) =
-        session.Change(value,"creativeWorkStatus",Some(Links [session.Id(replacement)]),"ScholarlyArticle.setCreativeWorkStatus")
-    member _.clearCreativeWorkStatus(value: ScholarlyArticle) = session.Change(value,"creativeWorkStatus",None,"ScholarlyArticle.clearCreativeWorkStatus")
+    member _.setCreativeWorkStatus(value: ScholarlyArticle, replacement: DefinedTerm option) =
+        session.Change(value,"creativeWorkStatus",replacement |> Option.map (fun replacement -> Links [session.Id(replacement)]),"ScholarlyArticle.setCreativeWorkStatus")
     member _.setAdditionalProperties(value: ScholarlyArticle, replacement: seq<Annotation>) =
         session.Change(value,"additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"ScholarlyArticle.setAdditionalProperties")
     member _.addAdditionalProperty(value: ScholarlyArticle, target: Annotation) = session.Collection(value,"additionalProperties",target,true,"ScholarlyArticle.addAdditionalProperty")
     member _.removeAdditionalProperty(value: ScholarlyArticle, target: Annotation) = session.Collection(value,"additionalProperties",target,false,"ScholarlyArticle.removeAdditionalProperty")
-    member _.setAdditionalTypes(value: ScholarlyArticle, replacement: seq<string>) =
-        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"ScholarlyArticle.setAdditionalTypes")

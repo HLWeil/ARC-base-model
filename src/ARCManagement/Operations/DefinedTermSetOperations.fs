@@ -14,8 +14,5 @@ type DefinedTermSetOperations internal (session: GraphContext) =
     member _.delete(value: DefinedTermSet) = session.Delete(value)
     member _.setName(value: DefinedTermSet, replacement: string) =
         session.Change(value,"name",Some(Text(Model.required "name" replacement)),"DefinedTermSet.setName")
-    member _.setIdentifier(value: DefinedTermSet, replacement: string) =
-        session.Change(value,"identifier",Some(Text(Model.required "identifier" replacement)),"DefinedTermSet.setIdentifier")
-    member _.clearIdentifier(value: DefinedTermSet) = session.Change(value,"identifier",None,"DefinedTermSet.clearIdentifier")
-    member _.setAdditionalTypes(value: DefinedTermSet, replacement: seq<string>) =
-        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"DefinedTermSet.setAdditionalTypes")
+    member _.setIdentifier(value: DefinedTermSet, replacement: string option) =
+        session.Change(value,"identifier",replacement |> Option.map (fun replacement -> Text(Model.required "identifier" replacement)),"DefinedTermSet.setIdentifier")

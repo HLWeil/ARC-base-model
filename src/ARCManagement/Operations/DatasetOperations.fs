@@ -18,24 +18,18 @@ type DatasetOperations internal (session: GraphContext) =
         session.Change(value,"conformsTo",Some(Texts(List.ofSeq replacement)),"Dataset.setConformsTo")
     member _.setIdentifiers(value: Dataset, replacement: seq<string>) =
         session.Change(value,"identifiers",Some(Texts(List.ofSeq replacement)),"Dataset.setIdentifiers")
-    member _.setTitle(value: Dataset, replacement: string) =
-        session.Change(value,"title",Some(Text(Model.required "title" replacement)),"Dataset.setTitle")
-    member _.clearTitle(value: Dataset) = session.Change(value,"title",None,"Dataset.clearTitle")
-    member _.setDescription(value: Dataset, replacement: string) =
-        session.Change(value,"description",Some(Text(Model.required "description" replacement)),"Dataset.setDescription")
-    member _.clearDescription(value: Dataset) = session.Change(value,"description",None,"Dataset.clearDescription")
-    member _.setLicense(value: Dataset, replacement: string) =
-        session.Change(value,"license",Some(Text(Model.required "license" replacement)),"Dataset.setLicense")
-    member _.clearLicense(value: Dataset) = session.Change(value,"license",None,"Dataset.clearLicense")
-    member _.setDatePublished(value: Dataset, replacement: string) =
-        session.Change(value,"datePublished",Some(Text(Model.required "datePublished" replacement)),"Dataset.setDatePublished")
-    member _.clearDatePublished(value: Dataset) = session.Change(value,"datePublished",None,"Dataset.clearDatePublished")
-    member _.setDateCreated(value: Dataset, replacement: string) =
-        session.Change(value,"dateCreated",Some(Text(Model.required "dateCreated" replacement)),"Dataset.setDateCreated")
-    member _.clearDateCreated(value: Dataset) = session.Change(value,"dateCreated",None,"Dataset.clearDateCreated")
-    member _.setDateModified(value: Dataset, replacement: string) =
-        session.Change(value,"dateModified",Some(Text(Model.required "dateModified" replacement)),"Dataset.setDateModified")
-    member _.clearDateModified(value: Dataset) = session.Change(value,"dateModified",None,"Dataset.clearDateModified")
+    member _.setTitle(value: Dataset, replacement: string option) =
+        session.Change(value,"title",replacement |> Option.map (fun replacement -> Text(Model.required "title" replacement)),"Dataset.setTitle")
+    member _.setDescription(value: Dataset, replacement: string option) =
+        session.Change(value,"description",replacement |> Option.map (fun replacement -> Text(Model.required "description" replacement)),"Dataset.setDescription")
+    member _.setLicense(value: Dataset, replacement: string option) =
+        session.Change(value,"license",replacement |> Option.map (fun replacement -> Text(Model.required "license" replacement)),"Dataset.setLicense")
+    member _.setDatePublished(value: Dataset, replacement: string option) =
+        session.Change(value,"datePublished",replacement |> Option.map (fun replacement -> Text(Model.required "datePublished" replacement)),"Dataset.setDatePublished")
+    member _.setDateCreated(value: Dataset, replacement: string option) =
+        session.Change(value,"dateCreated",replacement |> Option.map (fun replacement -> Text(Model.required "dateCreated" replacement)),"Dataset.setDateCreated")
+    member _.setDateModified(value: Dataset, replacement: string option) =
+        session.Change(value,"dateModified",replacement |> Option.map (fun replacement -> Text(Model.required "dateModified" replacement)),"Dataset.setDateModified")
     member _.setHasParts(value: Dataset, replacement: seq<Dataset>) =
         session.Change(value,"hasParts",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"Dataset.setHasParts")
     member _.addPart(value: Dataset, target: Dataset) = session.Collection(value,"hasParts",target,true,"Dataset.addPart")
@@ -64,7 +58,3 @@ type DatasetOperations internal (session: GraphContext) =
         session.Change(value,"additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"Dataset.setAdditionalProperties")
     member _.addAdditionalProperty(value: Dataset, target: Annotation) = session.Collection(value,"additionalProperties",target,true,"Dataset.addAdditionalProperty")
     member _.removeAdditionalProperty(value: Dataset, target: Annotation) = session.Collection(value,"additionalProperties",target,false,"Dataset.removeAdditionalProperty")
-    member _.setAdditionalTypes(value: Dataset, replacement: seq<string>) =
-        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"Dataset.setAdditionalTypes")
-    member _.movePart(child: Dataset, destination: Dataset) = session.Move(child,destination,"hasParts","Dataset.movePart")
-    member _.moveProcess(proc: ARCBaseModel.Process, destination: Dataset) = session.Move(proc,destination,"processes","Dataset.moveProcess")

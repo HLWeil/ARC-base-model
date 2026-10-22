@@ -26,7 +26,7 @@ let tests = testList "ARC toolbox" [
         first.Sample.upsert(Sample("first",id="sample"))
         second.Sample.upsert(Sample("second",id="sample"))
         first.Sample.setName(first.Sample.get("sample"),"changed") |> ignore
-        second.Dataset.setTitle(second.Model,"other") |> ignore
+        second.Dataset.setTitle(second.Model,Some("other")) |> ignore
         first.History.undo()
         Expect.equal (first.Sample.get("sample")).Name "first" "Independent undo"
         Expect.equal (second.Sample.get("sample")).Name "second" "Other ARC unchanged"
@@ -40,10 +40,10 @@ let tests = testList "ARC toolbox" [
         let first,second = session.createArc(root()),session.createArc(root())
         let sample = first.Sample.create("sample")
         let proc = second.Process.create("process")
-        Expect.throws (fun () -> second.Process.setInputSample(proc,sample) |> ignore) "Foreign endpoint"
+        Expect.throws (fun () -> second.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore) "Foreign endpoint"
         Expect.throws (fun () -> second.Sample.add(sample) |> ignore) "Foreign registration"
         Expect.throws (fun () -> session.createArc(first.Model) |> ignore) "Foreign root"
-        Expect.throws (fun () -> second.Entity.setObjectProperty(second.Model,"foreign",sample) |> ignore) "Foreign extension"
+        Expect.throws (fun () -> second.Entity.setProperty(second.Model, "foreign", Entity.Object(sample)) |> ignore) "Foreign extension"
         use otherSession = ARCManagement.Session.createInMemory()
         Expect.throws (fun () -> otherSession.createArc(first.Model) |> ignore) "Ownership extends across repositories"
         let other = otherSession.createArc(root())
@@ -85,8 +85,8 @@ let tests = testList "ARC toolbox" [
         let session = ARCManagement.Session.createFile(path)
         let first,second = session.createArc(root()),session.createArc(root())
         let firstId,secondId = first.ArcId,second.ArcId
-        first.Dataset.setTitle(first.Model,"first") |> ignore
-        second.Dataset.setTitle(second.Model,"second") |> ignore
+        first.Dataset.setTitle(first.Model,Some("first")) |> ignore
+        second.Dataset.setTitle(second.Model,Some("second")) |> ignore
         session.close()
         use resumed = ARCManagement.Session.openFile(path)
         Expect.equal (resumed.listArcs()).Count 2 "Metadata only"
@@ -144,7 +144,7 @@ let tests = testList "ARC toolbox" [
         Expect.isFalse (Object.ReferenceEquals(imported.Model,importedAgain.Model)) "Repeated imports have independent projections"
         Expect.equal (Seq.item 0 imported.Model.Identifiers) "root" "Imported graph"
         Expect.isFalse imported.IsDirty "Import establishes baseline"
-        imported.Dataset.setTitle(imported.Model,"native") |> ignore
+        imported.Dataset.setTitle(imported.Model,Some("native")) |> ignore
         imported.save()
         Expect.throws (fun () -> reopened.save()) "External export invalidates old binding baseline")
 
@@ -156,7 +156,7 @@ let tests = testList "ARC toolbox" [
         second.save()
         let db = sql session
         let checkpoint = (Store.metadata db first.ArcId).GetByName("saved_graph").AsText()
-        first.Dataset.setTitle(first.Model,"pending") |> ignore
+        first.Dataset.setTitle(first.Model,Some("pending")) |> ignore
         db.ExecuteScript("CREATE TRIGGER fail_checkpoint BEFORE UPDATE OF baseline ON arc WHEN NEW.arc_id='" + first.ArcId + "' BEGIN SELECT RAISE(ABORT,'injected'); END;")
         Expect.throws first.save "Checkpoint commit failure"
         Expect.equal ((Store.metadata db first.ArcId).GetByName("saved_graph").AsText()) checkpoint "Previous checkpoint retained"
@@ -166,7 +166,7 @@ let tests = testList "ARC toolbox" [
         first.recoverFolder("sql")
         first.save()
         Expect.isFalse first.IsDirty "Explicit recovery allows retry"
-        second.Dataset.setTitle(second.Model,"other") |> ignore
+        second.Dataset.setTitle(second.Model,Some("other")) |> ignore
         second.History.undo()
         Expect.isFalse second.IsDirty "Other history and checkpoint remain independent")
 
@@ -175,10 +175,10 @@ let tests = testList "ARC toolbox" [
         let path = folder()
         let first = ARC.bind(session.createArc(root()),path)
         let second = session.createArc(root())
-        first.Dataset.setTitle(first.Model,"original") |> ignore
+        first.Dataset.setTitle(first.Model,Some("original")) |> ignore
         first.save()
         first.Sample.create("standalone") |> ignore
-        second.Dataset.setTitle(second.Model,"unaffected") |> ignore
+        second.Dataset.setTitle(second.Model,Some("unaffected")) |> ignore
         let yaml = Path.readFileText(Path.combineNative path ARCtrl.Helper.Layout.ARCFileName)
         Path.writeFileText (Path.combineNative path ARCtrl.Helper.Layout.ARCFileName) (yaml.Replace("title: original","title: external"))
         Expect.throws (fun () -> first.recoverFolder("auto")) "Session-only objects block automatic reload"
@@ -216,10 +216,10 @@ let tests = testList "ARC toolbox" [
         use otherSession = ARCManagement.Session.openFile(path)
         let stale = otherSession.openArc(first.ArcId)
         let other = otherSession.openArc(second.ArcId)
-        first.Dataset.setTitle(first.Model,"first writer") |> ignore
-        Expect.throws (fun () -> stale.Dataset.setTitle(stale.Model,"stale") |> ignore) "Stale ARC rejected"
+        first.Dataset.setTitle(first.Model,Some("first writer")) |> ignore
+        Expect.throws (fun () -> stale.Dataset.setTitle(stale.Model,Some("stale")) |> ignore) "Stale ARC rejected"
         Expect.isNone stale.Model.Title "Failed stale write leaves graph intact"
-        other.Dataset.setTitle(other.Model,"independent") |> ignore
+        other.Dataset.setTitle(other.Model,Some("independent")) |> ignore
         stale.close()
         Expect.equal (otherSession.openArc(first.ArcId)).Model.Title (Some "first writer") "Explicit reopen recovers")
 
@@ -245,7 +245,7 @@ let tests = testList "ARC toolbox" [
         graph.toYaml() |> ignore
         Expect.equal ((Store.metadata db graph.ArcId).GetByName("revision").AsInteger()) revision "Text export does not advance revision"
         Expect.equal ((Store.metadata db graph.ArcId).GetByName("saved_graph").AsText()) checkpoint "Text export leaves checkpoint intact"
-        graph.Dataset.setTitle(graph.Model,"pending") |> ignore
+        graph.Dataset.setTitle(graph.Model,Some("pending")) |> ignore
         graph.toYaml() |> ignore
         Expect.isTrue workspace.IsDirty "Text export does not save pending changes"
         Expect.equal ((Store.metadata db graph.ArcId).GetByName("saved_graph").AsText()) checkpoint "Pending export leaves checkpoint intact"
@@ -319,7 +319,7 @@ let tests = testList "ARC toolbox" [
         let db = sql session
         Expect.isTrue (scalar db "SELECT count(*) FROM entity" > 180L) "Many entities stored"
         let before = scalar db "SELECT total_changes()"
-        graph.Dataset.setTitle(graph.Model,"edited") |> ignore
+        graph.Dataset.setTitle(graph.Model,Some("edited")) |> ignore
         let changed = scalar db "SELECT total_changes()" - before
         Expect.equal changed 3L "Dataset row, history row and arc row"
         Expect.equal (graph.Model.Title) (Some "edited") "Edit applied")
@@ -358,7 +358,7 @@ let tests = testList "ARC toolbox" [
         let a,b,c = graph.Sample.create("a"),graph.Sample.create("b"),graph.Sample.create("c")
         let proc = graph.Process.create("p")
         graph.Dataset.addProcess(graph.Model,proc) |> ignore
-        graph.Process.setInputSample(proc,b) |> ignore
+        graph.Process.setInput(proc, Some(EntityReference.Sample b)) |> ignore
         let db = sql session
         let names () = graph.Sample.list() |> Seq.map (fun sample -> sample.Name) |> List.ofSeq
         let linked () = scalar db ("SELECT count(*) FROM process_io WHERE sample_id='" + b.Id.Value + "'")
@@ -387,10 +387,10 @@ let tests = testList "ARC toolbox" [
         let sample = graph.Sample.create("sample")
         let proc = graph.Process.create("process")
         graph.Dataset.addProcess(graph.Model,proc) |> ignore
-        graph.Process.setInputSample(proc,sample) |> ignore
-        graph.Dataset.setTitle(graph.Model,"") |> ignore
-        graph.Entity.setNumberProperty(graph.Model,"score",0.5) |> ignore
-        graph.Entity.addTextProperty(graph.Model,"label","x") |> ignore
+        graph.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore
+        graph.Dataset.setTitle(graph.Model,Some("")) |> ignore
+        graph.Entity.setProperty(graph.Model, "score", Entity.Number(0.5)) |> ignore
+        graph.Entity.addProperty(graph.Model, "label", Entity.Text("x")) |> ignore
         graph.Sample.delete(graph.Sample.create("gone")) |> ignore
         let withoutSupplied (state: State) = { state with Entities = state.Entities |> List.map (fun row -> { row with SuppliedId = None }) }
         let expected = withoutSupplied graph.Context.State

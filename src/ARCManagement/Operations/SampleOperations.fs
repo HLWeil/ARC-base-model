@@ -18,5 +18,3 @@ type SampleOperations internal (session: GraphContext) =
         session.Change(value,"additionalProperties",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"Sample.setAdditionalProperties")
     member _.addAdditionalProperty(value: Sample, target: Annotation) = session.Collection(value,"additionalProperties",target,true,"Sample.addAdditionalProperty")
     member _.removeAdditionalProperty(value: Sample, target: Annotation) = session.Collection(value,"additionalProperties",target,false,"Sample.removeAdditionalProperty")
-    member _.setAdditionalTypes(value: Sample, replacement: seq<string>) =
-        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"Sample.setAdditionalTypes")

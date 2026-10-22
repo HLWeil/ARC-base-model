@@ -3,7 +3,7 @@ from uuid import uuid4
 import arc_management
 from arc_management import DatasetYaml, ManagedGraph, Session
 from arc_management.arctrl import ARC
-from arc_base_model import Dataset, Annotation, Sample, Data, EntityObject
+from arc_base_model import Dataset, Annotation, Sample, Data, EntityObject, EntityCollection, EntityNull, EntityBlob
 
 
 def rejects(action):
@@ -81,7 +81,7 @@ try:
     arc.Data.set_selector(fragment, "row=1")
     arc.Data.set_has_parts(data, [fragment, fragment])
     value = arc.Annotation.create("value")
-    arc.Annotation.set_value_number(value, 0)
+    arc.Annotation.set_value(value, 0)
     assert value.Value == 0 and type(value.Value) is float
     parameter = arc.FormalParameter.create("parameter")
     arc.FormalParameter.set_default_value(parameter, value)
@@ -91,11 +91,11 @@ try:
     arc.Recipe.set_components(recipe, [value, value])
     termset = arc.DefinedTermSet.create("ontology")
     term = arc.DefinedTerm.create("term")
-    arc.DefinedTerm.set_in_defined_term_set_entity(term, termset)
-    arc.Recipe.set_intended_use_term(recipe, term)
+    arc.DefinedTerm.set_in_defined_term_set(term, termset)
+    arc.Recipe.set_intended_use(recipe, term)
     proc = arc.Process.create("process")
-    arc.Process.set_input_sample(proc, sample)
-    arc.Process.set_output_data(proc, data)
+    arc.Process.set_input(proc, sample)
+    arc.Process.set_output(proc, data)
     arc.Process.set_executes_recipe(proc, recipe)
     descriptor = arc.Descriptor.create(sample)
     arc.Descriptor.set_annotations(descriptor, [value, value])
@@ -115,15 +115,15 @@ try:
     assert type(arc.Data.list()) is list
     assert data.HasParts[0] is data.HasParts[1]
     quality = arc.Entity.add(EntityObject("QualityAssessment"))
-    arc.Entity.set_number_property(quality, "score", 0)
-    arc.Entity.set_bool_property(quality, "accepted", False)
-    arc.Entity.set_null_property(quality, "missing")
-    arc.Entity.set_blob_property(quality, "bytes", "AA==")
-    arc.Entity.set_collection_property(quality, "values", [0, False, ""])
-    arc.Entity.set_object_property(arc.Model, "quality", quality)
-    assert arc.Entity.get_property(quality, "score") == 0
-    assert arc.Entity.get_property(quality, "accepted") is False
-    assert arc.Entity.has_property(quality, "missing")
+    arc.Entity.set_property(quality, "score", 0)
+    arc.Entity.set_property(quality, "accepted", False)
+    arc.Entity.set_property(quality, "missing", EntityNull())
+    arc.Entity.set_property(quality, "bytes", EntityBlob("AA=="))
+    arc.Entity.set_property(quality, "values", EntityCollection([0, False, ""]))
+    arc.Entity.set_property(arc.Model, "quality", quality)
+    assert quality.EntityProperties.Get("score") == 0
+    assert quality.EntityProperties.Get("accepted") is False
+    assert quality.EntityProperties.Contains("missing")
     replacement = EntityObject.with_id(Annotation("replaced", value=""), value.Id)
     arc.Annotation.upsert(replacement)
     assert value.Value == "" and value is not replacement
@@ -133,8 +133,8 @@ try:
     try:
         assert resumed.Model.HasParts[0] is resumed.Model.HasParts[1]
         recovered_quality = resumed.Entity.get(quality.Id)
-        assert resumed.Entity.get_property(resumed.Model, "quality") is recovered_quality
-        assert resumed.Entity.get_property(recovered_quality, "score") == 0
+        assert resumed.Model.EntityProperties.Get("quality") is recovered_quality
+        assert recovered_quality.EntityProperties.Get("score") == 0
         resumed.History.undo()
         restored = resumed.Annotation.get(value.Id)
         assert restored.Value == 0 and type(restored.Value) is float
@@ -160,13 +160,12 @@ assert first.Sample.add(sample) is sample
 other = Sample("second", id="same")
 assert second.Sample.add(other) is other
 numeric = first.Annotation.create("numeric boundary")
-first.Annotation.set_value_number(numeric, 0)
+first.Annotation.set_value(numeric, 0)
 assert type(numeric.Value) is float
-rejects(lambda: first.Annotation.set_value_number(numeric, False))
-rejects(lambda: first.Entity.set_number_property(first.Model, "bad", False))
+rejects(lambda: first.Annotation.set_value(numeric, False))
 process = first.Process.create("process")
-rejects(lambda: first.Process.set_input_sample(process, other))
-first.Process.set_input_sample(process, sample)
+rejects(lambda: first.Process.set_input(process, other))
+first.Process.set_input(process, sample)
 first.Dataset.add_process(first.Model, process)
 first.Sample.set_name(sample, "changed")
 first.History.undo()

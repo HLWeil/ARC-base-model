@@ -1,7 +1,7 @@
 import * as Management from "arc-management";
 import { DatasetYaml, ManagedGraph, Session } from "arc-management";
 import { ARC } from "arc-management/arctrl";
-import { Dataset, Annotation, Sample, Data, EntityObject } from "arc-base-model";
+import { Dataset, Annotation, Sample, Data, EntityObject, EntityCollection, EntityNull, EntityBlob } from "arc-base-model";
 
 check(!("ARC" in Management), "Workspace ARC belongs to the arctrl entrypoint");
 // Immutable values cannot form cycles, so the test decodes the cyclic fixture from anchored YAML.
@@ -106,7 +106,7 @@ try {
   arc.Data.setSelector(fragment,"row=1");
   arc.Data.setHasParts(data,[fragment,fragment]);
   const value=arc.Annotation.create("value");
-  arc.Annotation.setValueNumber(value,0);
+  arc.Annotation.setValue(value,0);
   check(value.Value===0,"Native zero is present");
   const parameter=arc.FormalParameter.create("parameter");
   arc.FormalParameter.setDefaultValue(parameter,value);
@@ -116,11 +116,11 @@ try {
   arc.Recipe.setComponents(recipe,[value,value]);
   const termset=arc.DefinedTermSet.create("ontology");
   const term=arc.DefinedTerm.create("term");
-  arc.DefinedTerm.setInDefinedTermSetEntity(term,termset);
-  arc.Recipe.setIntendedUseTerm(recipe,term);
+  arc.DefinedTerm.setInDefinedTermSet(term,termset);
+  arc.Recipe.setIntendedUse(recipe,term);
   const proc=arc.Process.create("process");
-  arc.Process.setInputSample(proc,sample);
-  arc.Process.setOutputData(proc,data);
+  arc.Process.setInput(proc,sample);
+  arc.Process.setOutput(proc,data);
   arc.Process.setExecutesRecipe(proc,recipe);
   const descriptor=arc.Descriptor.create(sample);
   arc.Descriptor.setAnnotations(descriptor,[value,value]);
@@ -140,15 +140,15 @@ try {
   check(Array.isArray(arc.Data.list()),"Native arrays");
   check(data.HasParts[0]===data.HasParts[1],"Shared duplicate target");
   const quality=arc.Entity.add(new EntityObject("QualityAssessment"));
-  arc.Entity.setNumberProperty(quality,"score",0);
-  arc.Entity.setBoolProperty(quality,"accepted",false);
-  arc.Entity.setNullProperty(quality,"missing");
-  arc.Entity.setBlobProperty(quality,"bytes","AA==");
-  arc.Entity.setCollectionProperty(quality,"values",[0,false,""]);
-  arc.Entity.setObjectProperty(arc.Model,"quality",quality);
-  check(arc.Entity.getProperty(quality,"score")===0,"Extension zero");
-  check(arc.Entity.getProperty(quality,"accepted")===false,"Extension false");
-  check(arc.Entity.hasProperty(quality,"missing"),"Explicit null is present");
+  arc.Entity.setProperty(quality,"score",0);
+  arc.Entity.setProperty(quality,"accepted",false);
+  arc.Entity.setProperty(quality,"missing",new EntityNull());
+  arc.Entity.setProperty(quality,"bytes",new EntityBlob("AA=="));
+  arc.Entity.setProperty(quality,"values",new EntityCollection([0,false,""]));
+  arc.Entity.setProperty(arc.Model,"quality",quality);
+  check(quality.EntityProperties.Get("score")===0,"Extension zero");
+  check(quality.EntityProperties.Get("accepted")===false,"Extension false");
+  check(quality.EntityProperties.Contains("missing"),"Explicit null is present");
   const replacement=EntityObject.withId(new Annotation("replaced",""),value.Id);
   arc.Annotation.upsert(replacement);
   check(value.Value==="","Native empty text is present");
@@ -159,8 +159,8 @@ try {
   try {
     check(resumed.Model.HasParts[0]===resumed.Model.HasParts[1],"Shared recovery");
     const recoveredQuality=resumed.Entity.get(quality.Id!);
-    check(resumed.Entity.getProperty(resumed.Model,"quality")===recoveredQuality,"Extension identity recovered");
-    check(resumed.Entity.getProperty(recoveredQuality,"score")===0,"Extension number recovered");
+    check(resumed.Model.EntityProperties.Get("quality")===recoveredQuality,"Extension identity recovered");
+    check(recoveredQuality.EntityProperties.Get("score")===0,"Extension number recovered");
     resumed.History.undo();
     const restored=resumed.Annotation.get(value.Id!);
     check(restored.Value===0,"Numeric before-image restored");

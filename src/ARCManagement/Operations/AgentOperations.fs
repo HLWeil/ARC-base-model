@@ -14,12 +14,10 @@ type AgentOperations internal (session: GraphContext) =
     member _.delete(value: Agent) = session.Delete(value)
     member _.setName(value: Agent, replacement: string) =
         session.Change(value,"name",Some(Text(Model.required "name" replacement)),"Agent.setName")
-    member _.setGivenName(value: Agent, replacement: string) =
-        session.Change(value,"givenName",Some(Text(Model.required "givenName" replacement)),"Agent.setGivenName")
-    member _.clearGivenName(value: Agent) = session.Change(value,"givenName",None,"Agent.clearGivenName")
-    member _.setFamilyName(value: Agent, replacement: string) =
-        session.Change(value,"familyName",Some(Text(Model.required "familyName" replacement)),"Agent.setFamilyName")
-    member _.clearFamilyName(value: Agent) = session.Change(value,"familyName",None,"Agent.clearFamilyName")
+    member _.setGivenName(value: Agent, replacement: string option) =
+        session.Change(value,"givenName",replacement |> Option.map (fun replacement -> Text(Model.required "givenName" replacement)),"Agent.setGivenName")
+    member _.setFamilyName(value: Agent, replacement: string option) =
+        session.Change(value,"familyName",replacement |> Option.map (fun replacement -> Text(Model.required "familyName" replacement)),"Agent.setFamilyName")
     member _.setEmails(value: Agent, replacement: seq<string>) =
         session.Change(value,"emails",Some(Texts(List.ofSeq replacement)),"Agent.setEmails")
     member _.setAffiliations(value: Agent, replacement: seq<Organization>) =
@@ -36,5 +34,3 @@ type AgentOperations internal (session: GraphContext) =
         session.Change(value,"jobTitles",Some(Links(replacement |> Seq.map (box >> session.Id) |> List.ofSeq)),"Agent.setJobTitles")
     member _.addJobTitle(value: Agent, target: DefinedTerm) = session.Collection(value,"jobTitles",target,true,"Agent.addJobTitle")
     member _.removeJobTitle(value: Agent, target: DefinedTerm) = session.Collection(value,"jobTitles",target,false,"Agent.removeJobTitle")
-    member _.setAdditionalTypes(value: Agent, replacement: seq<string>) =
-        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"Agent.setAdditionalTypes")

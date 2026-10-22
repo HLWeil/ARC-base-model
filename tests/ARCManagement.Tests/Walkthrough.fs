@@ -13,7 +13,7 @@ let run folder =
     let sample = arc.Sample.create("leaf")
     let proc = arc.Process.create("measurement")
     arc.Dataset.addProcess(study, proc) |> ignore
-    arc.Process.setInputSample(proc, sample) |> ignore
+    arc.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore
 
     arc.Sample.setName(sample, "edited leaf") |> ignore
     printfn "Edited: %s" sample.Name

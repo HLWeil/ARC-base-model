@@ -153,16 +153,6 @@ type internal GraphContext(repository: Repository, arcId: string, supplied: (str
                     let rec remove = function [] -> [] | head :: tail when head = targetId -> tail | head :: tail -> head :: remove tail
                     {row with Properties = Map.add key (Links(if append then values @ [targetId] else remove values)) row.Properties})
             {state with Entities = rows})
-    member this.Move(entity: obj, destination: Dataset, key: string, kind: string) =
-        let id, destinationId = this.Id(entity), this.Id(destination)
-        this.Execute(kind,fun state ->
-            let occurrences = state.Entities |> List.filter (fun row -> row.Kind = "Dataset") |> List.collect (Model.links key) |> List.filter ((=) id)
-            if occurrences.Length > 1 then invalidOp "Move requires a single membership. Use collection setters to edit shared or repeated memberships."
-            let rows = state.Entities |> List.map (fun row ->
-                if row.Kind <> "Dataset" then row else
-                    let values = Model.links key row |> List.filter ((<>) id)
-                    {row with Properties = Map.add key (Links(if row.Id = destinationId then values @ [id] else values)) row.Properties})
-            {state with Entities = rows})
     member this.Delete(entity: obj) =
         let id = this.Id(entity)
         this.Execute(Model.kind entity + ".delete",fun state ->

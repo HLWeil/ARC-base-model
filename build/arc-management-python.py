@@ -71,15 +71,14 @@ def public_annotation(node: ast.expr | None, owner: str, method: str, field: str
     if node is None:
         raise ValueError(f"Missing annotation: {owner}.{method}.{field}")
     # Restore erased alternatives, matching the corresponding F# declarations.
-    erased = "Entity" if owner == "EntityOperations" else {
-        ("ProcessOperations", "set_input"): "EntityReference",
-        ("ProcessOperations", "set_output"): "EntityReference",
-        ("DescriptorOperations", "create"): "EntityReference",
-        ("DescriptorOperations", "set_describes"): "EntityReference",
-        ("AnnotationOperations", "set_value"): "AnnotationValue",
-        ("RecipeOperations", "set_intended_use"): "RecipeIntendedUse",
-        ("DefinedTermOperations", "set_in_defined_term_set"): "DefinedTermSetReference",
-    }.get((owner, method))
+    erased = "Entity" if owner == "EntityOperations" else None
+    kind = owner.removesuffix("Operations")
+    if erased is None and method == "create" and kind == "Descriptor":
+        erased = "EntityReference"
+    elif erased is None and method.startswith("set_"):
+        # A setter takes the same alternative as the model getter it replaces.
+        erased = next((alias for (model, name), alias in compat.ERASED_FIELDS.items()
+                       if model == kind and compat.field_key(name) == compat.field_key(method[4:])), None)
     class Types(ast.NodeTransformer):
         def visit_Name(self, name: ast.Name) -> ast.expr:
             if name.id == "Any":

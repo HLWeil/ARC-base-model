@@ -14,8 +14,5 @@ type OrganizationOperations internal (session: GraphContext) =
     member _.delete(value: Organization) = session.Delete(value)
     member _.setName(value: Organization, replacement: string) =
         session.Change(value,"name",Some(Text(Model.required "name" replacement)),"Organization.setName")
-    member _.setUrl(value: Organization, replacement: string) =
-        session.Change(value,"url",Some(Text(Model.required "url" replacement)),"Organization.setUrl")
-    member _.clearUrl(value: Organization) = session.Change(value,"url",None,"Organization.clearUrl")
-    member _.setAdditionalTypes(value: Organization, replacement: seq<string>) =
-        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"Organization.setAdditionalTypes")
+    member _.setUrl(value: Organization, replacement: string option) =
+        session.Change(value,"url",replacement |> Option.map (fun replacement -> Text(Model.required "url" replacement)),"Organization.setUrl")

@@ -71,8 +71,8 @@ let tests = testList "Management prototype" [
         let sampleB = arc.Sample.create("B")
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
-        arc.Process.setInputSample(proc, sampleA) |> ignore
-        arc.Process.setInputSample(proc, sampleB) |> ignore
+        arc.Process.setInput(proc, Some(EntityReference.Sample sampleA)) |> ignore
+        arc.Process.setInput(proc, Some(EntityReference.Sample sampleB)) |> ignore
         same (input proc) sampleB
         arc.History.undo()
         same (input proc) sampleA
@@ -81,7 +81,7 @@ let tests = testList "Management prototype" [
         use sql = PolyglotSQLite.Sqlite.OpenFile(arc.DatabasePath)
         let result = sql.Query("SELECT sample_id FROM process_io WHERE direction='input'")
         Expect.equal (result[0].Get(0).AsText()) sampleB.Id.Value "SQL follows endpoint changes"
-        arc.Process.clearInput(proc) |> ignore
+        arc.Process.setInput(proc, None) |> ignore
         Expect.isNone proc.Input "Cleared endpoint"
         arc.History.undo()
         same (input proc) sampleB
@@ -92,7 +92,7 @@ let tests = testList "Management prototype" [
         let proc = arc.Process.create("measurement")
         let sample = arc.Sample.create("leaf")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
-        arc.Process.setInputSample(proc, sample) |> ignore
+        arc.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore
         arc.save()
         let yaml = Path.readFileText(Path.combineNative path ARCtrl.Helper.Layout.ARCFileName)
         Expect.isFalse (yaml.Contains("standalone")) "Only the root graph is exported"
@@ -131,7 +131,7 @@ let tests = testList "Management prototype" [
         let ds = arc.Dataset.create("standalone dataset")
         let proc = arc.Process.create("standalone process")
         let sample = arc.Sample.create("standalone sample")
-        arc.Process.setInputSample(proc, sample) |> ignore
+        arc.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore
         arc.Dataset.addProcess(ds, proc) |> ignore
         arc.save()
         let yaml = Path.readFileText(Path.combineNative path ARCtrl.Helper.Layout.ARCFileName)
@@ -145,9 +145,9 @@ let tests = testList "Management prototype" [
 
     testCase "saving preserves undo redo and starting a new branch clears redo" <| fun _ ->
         let path, arc = create()
-        arc.Dataset.setTitle(arc.Model, "first") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("first")) |> ignore
         arc.save()
-        arc.Dataset.setTitle(arc.Model, "second") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("second")) |> ignore
         arc.History.undo()
         Expect.isFalse arc.IsDirty "Undo returns to the saved graph"
         arc.close()
@@ -158,11 +158,11 @@ let tests = testList "Management prototype" [
         resumed.save()
         resumed.History.undo()
         Expect.isTrue resumed.IsDirty "Undo after save is an unsaved change"
-        resumed.Dataset.setTitle(resumed.Model, "new branch") |> ignore
+        resumed.Dataset.setTitle(resumed.Model, Some("new branch")) |> ignore
         Expect.isFalse resumed.History.CanRedo "New command replaces abandoned redo"
         Expect.equal (count "history" resumed.DatabasePath) 2L "Two commands on active branch"
 
-    testCase "ordered moves and detach are reversible" <| fun _ ->
+    testCase "ordered re-parenting and detach are reversible" <| fun _ ->
         let _, created = create()
         use arc = created
         let a = arc.Dataset.create("a")
@@ -171,9 +171,11 @@ let tests = testList "Management prototype" [
         arc.Dataset.addPart(arc.Model, a) |> ignore
         arc.Dataset.addPart(arc.Model, b) |> ignore
         arc.Dataset.addPart(a, nested) |> ignore
-        arc.Dataset.movePart(a, b) |> ignore
+        arc.Dataset.removePart(arc.Model, a) |> ignore
+        arc.Dataset.addPart(b, a) |> ignore
         same (Seq.item 0 arc.Model.HasParts) b
         same (Seq.item 0 b.HasParts) a
+        arc.History.undo()
         arc.History.undo()
         same (Seq.item 0 arc.Model.HasParts) a
         same (Seq.item 1 arc.Model.HasParts) b
@@ -182,9 +184,11 @@ let tests = testList "Management prototype" [
         let p2 = arc.Process.create("two")
         arc.Dataset.addProcess(a, p1) |> ignore
         arc.Dataset.addProcess(a, p2) |> ignore
-        arc.Dataset.moveProcess(p1, b) |> ignore
+        arc.Dataset.removeProcess(a, p1) |> ignore
+        arc.Dataset.addProcess(b, p1) |> ignore
         same (Seq.item 0 a.Processes) p2
         same (Seq.item 0 b.Processes) p1
+        arc.History.undo()
         arc.History.undo()
         same (Seq.item 0 a.Processes) p1
         same (Seq.item 1 a.Processes) p2
@@ -209,8 +213,8 @@ let tests = testList "Management prototype" [
         arc.Dataset.addPart(child, nested) |> ignore
         arc.Dataset.addProcess(nested, proc) |> ignore
         arc.Dataset.addProcess(arc.Model, outside) |> ignore
-        arc.Process.setInputSample(proc, shared) |> ignore
-        arc.Process.setOutputSample(outside, shared) |> ignore
+        arc.Process.setInput(proc, Some(EntityReference.Sample shared)) |> ignore
+        arc.Process.setOutput(outside, Some(EntityReference.Sample shared)) |> ignore
         arc.Dataset.delete(child) |> ignore
         Expect.throws (fun () -> arc.Dataset.get(nested.Id.Value) |> ignore) "Descendant is removed"
         Expect.throws (fun () -> arc.Process.get(proc.Id.Value) |> ignore) "Nested process is removed"
@@ -227,7 +231,7 @@ let tests = testList "Management prototype" [
         arc.History.undo()
         same (input proc) shared
         same (output outside) shared
-        arc.Process.clearOutput(outside) |> ignore
+        arc.Process.setOutput(outside, None) |> ignore
         Expect.isNone outside.Output "Output clear"
         arc.History.undo()
         same (output outside) shared
@@ -269,14 +273,14 @@ let tests = testList "Management prototype" [
     testCase "scalar edits clearing and invalid identifiers are reversible" <| fun _ ->
         let _, created = create()
         use arc = created
-        arc.Dataset.setTitle(arc.Model, "") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("")) |> ignore
         Expect.equal arc.Model.Title (Some "") "Empty title retained"
-        arc.Dataset.clearTitle(arc.Model) |> ignore
+        arc.Dataset.setTitle(arc.Model, None) |> ignore
         Expect.isNone arc.Model.Title "Title cleared"
         arc.History.undo()
         Expect.equal arc.Model.Title (Some "") "Empty title restored"
-        arc.Dataset.setDescription(arc.Model, "description") |> ignore
-        arc.Dataset.clearDescription(arc.Model) |> ignore
+        arc.Dataset.setDescription(arc.Model, Some("description")) |> ignore
+        arc.Dataset.setDescription(arc.Model, None) |> ignore
         arc.History.undo()
         Expect.equal arc.Model.Description (Some "description") "Description restored"
         arc.Dataset.setIdentifiers(arc.Model, ["one"; "one"; "two"]) |> ignore
@@ -296,7 +300,7 @@ let tests = testList "Management prototype" [
         let child = arc.Dataset.create("child")
         arc.Dataset.addPart(arc.Model, child) |> ignore
         let commands = count "history" arc.DatabasePath
-        Expect.throws (fun () -> arc.Process.setInputSample(proc, foreign) |> ignore) "Foreign object rejected"
+        Expect.throws (fun () -> arc.Process.setInput(proc, Some(EntityReference.Sample foreign)) |> ignore) "Foreign object rejected"
         Expect.throws (fun () -> arc.Sample.add(foreign) |> ignore) "Cross-kind ID collision rejected"
         Expect.throws (fun () -> arc.Dataset.delete(arc.Model) |> ignore) "Root cannot be deleted"
         Expect.equal (count "history" arc.DatabasePath) commands "Failed commands create no history"
@@ -340,7 +344,7 @@ let tests = testList "Management prototype" [
         Expect.throws (fun () -> arc.save()) "Direct mutation detected on save"
         Expect.throws (fun () -> arc.Sample.create("x") |> ignore) "Direct mutation detected on commands"
         arc.Model.State <- { arc.Model.State with Title = None }
-        arc.Dataset.setTitle(arc.Model, "managed") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("managed")) |> ignore
         let operations = arc.Sample
         arc.close()
         arc.close()
@@ -350,7 +354,7 @@ let tests = testList "Management prototype" [
 
     testCase "automatic selection reloads external YAML only for a clean session" <| fun _ ->
         let path, arc = create()
-        arc.Dataset.setTitle(arc.Model, "original") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("original")) |> ignore
         arc.save()
         arc.close()
         externalTitle path "external"
@@ -362,9 +366,9 @@ let tests = testList "Management prototype" [
 
     testCase "external changes conflict with pending edits and explicit SQL preserves them" <| fun _ ->
         let path, arc = create()
-        arc.Dataset.setTitle(arc.Model, "original") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("original")) |> ignore
         arc.save()
-        arc.Dataset.setTitle(arc.Model, "working") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("working")) |> ignore
         arc.close()
         externalTitle path "external"
         Expect.throws (fun () -> ARC.openFolder(path, "auto") |> ignore) "Pending edits cannot be displaced"
@@ -382,8 +386,8 @@ let tests = testList "Management prototype" [
         let path, first = create()
         use first = first
         use second = ARC.openFolder(path, "auto")
-        first.Dataset.setTitle(first.Model, "first writer") |> ignore
-        Expect.throws (fun () -> second.Dataset.setTitle(second.Model, "stale writer") |> ignore) "Stale SQL revision rejected"
+        first.Dataset.setTitle(first.Model, Some("first writer")) |> ignore
+        Expect.throws (fun () -> second.Dataset.setTitle(second.Model, Some("stale writer")) |> ignore) "Stale SQL revision rejected"
         Expect.isNone second.Model.Title "Failed stale command leaves projection unchanged"
         Expect.throws (fun () -> second.save()) "Stale save rejected"
         first.save()
@@ -405,7 +409,7 @@ let tests = testList "Management prototype" [
 
     testCase "session-only objects conflict even when the root graph is clean" <| fun _ ->
         let path, arc = create()
-        arc.Dataset.setTitle(arc.Model, "original") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("original")) |> ignore
         let sample = arc.Sample.create("standalone")
         let id = sample.Id.Value
         arc.save()
@@ -424,10 +428,10 @@ let tests = testList "Management prototype" [
 
     testCase "explicit YAML archives pending objects and histories under unique names" <| fun _ ->
         let path, arc = create()
-        arc.Dataset.setTitle(arc.Model, "original") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("original")) |> ignore
         arc.save()
         arc.Sample.create("retained in archive") |> ignore
-        arc.Dataset.setTitle(arc.Model, "unsaved") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("unsaved")) |> ignore
         arc.close()
         externalTitle path "external"
         let reloaded = ARC.openFolder(path, "yml")
@@ -453,11 +457,11 @@ let tests = testList "Management prototype" [
     testCase "failed saves do not advance checkpoints or discard pending edits" <| fun _ ->
         let path, created = create()
         use arc = created
-        arc.Dataset.setTitle(arc.Model, "original") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("original")) |> ignore
         arc.save()
         let yaml = Path.combineNative path ARCtrl.Helper.Layout.ARCFileName
         let baseline = Path.readFileText(yaml)
-        arc.Dataset.setTitle(arc.Model, "edited") |> ignore
+        arc.Dataset.setTitle(arc.Model, Some("edited")) |> ignore
         withSql arc.DatabasePath (fun sql ->
             sql.ExecuteScript("CREATE TRIGGER fail_save BEFORE UPDATE OF baseline ON arc BEGIN SELECT RAISE(ABORT,'injected save failure'); END;"))
         Expect.throws (fun () -> arc.save()) "Injected SQL checkpoint failure"
@@ -518,8 +522,8 @@ let tests = testList "Management prototype" [
         arc.Sample.upsert(canonical)
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
-        arc.Process.setInputSample(proc, canonical) |> ignore
-        arc.Process.setOutputSample(proc, canonical) |> ignore
+        arc.Process.setInput(proc, Some(EntityReference.Sample canonical)) |> ignore
+        arc.Process.setOutput(proc, Some(EntityReference.Sample canonical)) |> ignore
         let types = canonical.AdditionalTypes
         let replacement = Sample("updated", id = "sample-1", additionalTypes = ["new"; "new"; "other"])
         let commands = count "history" arc.DatabasePath
@@ -557,7 +561,7 @@ let tests = testList "Management prototype" [
         arc.Sample.upsert(sample)
         let proc = arc.Process.create("measurement")
         arc.Dataset.addProcess(arc.Model, proc) |> ignore
-        arc.Process.setInputSample(proc, sample) |> ignore
+        arc.Process.setInput(proc, Some(EntityReference.Sample sample)) |> ignore
         arc.save()
         arc.Sample.upsert(Sample("updated", id = "sample-1", additionalTypes = ["custom"; "custom"]))
         Expect.isTrue arc.IsDirty "Linked sample replacement awaits filesystem export"

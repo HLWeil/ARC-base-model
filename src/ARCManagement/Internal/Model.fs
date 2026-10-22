@@ -33,7 +33,7 @@ module internal Model =
                 if ancestors |> List.exists (fun existing -> obj.ReferenceEquals(existing, v)) then
                     invalidOp "Collections cannot contain themselves; use typed objects for cyclic references."
                 ExtensionCollection([for i in 0 .. v.Count - 1 -> capture (v :: ancestors) (v.Get(i))])
-            | Entity.Number v -> ExtensionNumber v
+            | Entity.Number v -> ExtensionNumber(number v)
             | Entity.Text v -> ExtensionText(required "value" v)
             | Entity.Bool v -> ExtensionBool v
             | Entity.Null _ -> ExtensionNull
@@ -57,7 +57,7 @@ module internal Model =
         let strings key values = [key, Texts(List.ofSeq values)]
         let links key values = [key, Links(values |> Seq.map (box >> reference) |> List.ofSeq)]
         let link key value = [key, Links [reference (box value)]]
-        let annotation = function AnnotationValue.Text v -> Text(required "value" v) | AnnotationValue.Number v -> Number v
+        let annotation = function AnnotationValue.Text v -> Text(required "value" v) | AnnotationValue.Number v -> Number(number v)
         let intended = function RecipeIntendedUse.Text v -> Text(required "intendedUse" v) | RecipeIntendedUse.Term v -> Links [reference (box v)]
         let termset = function DefinedTermSetReference.Url v -> Text(required "inDefinedTermSet" v) | DefinedTermSetReference.TermSet v -> Links [reference (box v)]
         let endpointCell v = Links [reference (endpoint v)]

@@ -14,16 +14,9 @@ type DefinedTermOperations internal (session: GraphContext) =
     member _.delete(value: DefinedTerm) = session.Delete(value)
     member _.setName(value: DefinedTerm, replacement: string) =
         session.Change(value,"name",Some(Text(Model.required "name" replacement)),"DefinedTerm.setName")
-    member _.setIdentifier(value: DefinedTerm, replacement: string) =
-        session.Change(value,"identifier",Some(Text(Model.required "identifier" replacement)),"DefinedTerm.setIdentifier")
-    member _.clearIdentifier(value: DefinedTerm) = session.Change(value,"identifier",None,"DefinedTerm.clearIdentifier")
-    member _.setTAN(value: DefinedTerm, replacement: string) =
-        session.Change(value,"tan",Some(Text(Model.required "tan" replacement)),"DefinedTerm.setTAN")
-    member _.clearTAN(value: DefinedTerm) = session.Change(value,"tan",None,"DefinedTerm.clearTAN")
-    member _.setInDefinedTermSet(value: DefinedTerm, replacement: DefinedTermSetReference) =
-        session.Change(value,"inDefinedTermSet",Some(match replacement with DefinedTermSetReference.Url v -> Text(Model.required "inDefinedTermSet" v) | DefinedTermSetReference.TermSet v -> Links [session.Id(v)]),"DefinedTerm.setInDefinedTermSet")
-    member _.clearInDefinedTermSet(value: DefinedTerm) = session.Change(value,"inDefinedTermSet",None,"DefinedTerm.clearInDefinedTermSet")
-    member _.setAdditionalTypes(value: DefinedTerm, replacement: seq<string>) =
-        session.Change(value,"additionalTypes",Some(Texts(List.ofSeq replacement)),"DefinedTerm.setAdditionalTypes")
-    member _.setInDefinedTermSetUrl(value: DefinedTerm, replacement: string) = session.Change(value,"inDefinedTermSet",Some(Text(Model.required "url" replacement)),"DefinedTerm.setInDefinedTermSetUrl")
-    member _.setInDefinedTermSetEntity(value: DefinedTerm, replacement: DefinedTermSet) = session.Change(value,"inDefinedTermSet",Some(Links [session.Id(replacement)]),"DefinedTerm.setInDefinedTermSetEntity")
+    member _.setIdentifier(value: DefinedTerm, replacement: string option) =
+        session.Change(value,"identifier",replacement |> Option.map (fun replacement -> Text(Model.required "identifier" replacement)),"DefinedTerm.setIdentifier")
+    member _.setTAN(value: DefinedTerm, replacement: string option) =
+        session.Change(value,"tan",replacement |> Option.map (fun replacement -> Text(Model.required "tan" replacement)),"DefinedTerm.setTAN")
+    member _.setInDefinedTermSet(value: DefinedTerm, replacement: DefinedTermSetReference option) =
+        session.Change(value,"inDefinedTermSet",replacement |> Option.map (fun replacement -> match replacement with DefinedTermSetReference.Url v -> Text(Model.required "inDefinedTermSet" v) | DefinedTermSetReference.TermSet v -> Links [session.Id(v)]),"DefinedTerm.setInDefinedTermSet")
