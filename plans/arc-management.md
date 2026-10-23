@@ -86,7 +86,7 @@ session.close()
 ### Entity operations and identity
 
 All thirteen model entity types have operation groups, alongside generic
-`Entity` and `History`, about 199 members in all. Entity groups expose `create`,
+`Entity` and `History`, 201 members in all. Entity groups expose `create`,
 `add`, `upsert(value, ?recursive)`, `get`, `list`, and `delete`, one
 `set<Property>` per property (an option clears), and `add<Item>`/`remove<Item>`
 per entity collection. The `Entity` group has CRUD, `setAdditionalTypes`, and
@@ -125,7 +125,9 @@ Python.
   `EntityReference` and accept absence. Other alternatives distinguish
   text/numbers and entity/URL values, including absence, empty text, zero, and
   fractional numbers. Native numbers supplied for Number values become native
-  floats at the management boundary, and Booleans are rejected.
+  floats at the management boundary, and Booleans are rejected. A Boolean or other
+  non-string in a text alternative fails with a domain error at the management
+  boundary and in the detached codec.
 - Root deletion is rejected. Dataset deletion cascades only to descendants and
   processes without surviving owners. Required Descriptor targets and surviving
   extension references prevent target deletion; undo restores affected links.
@@ -134,8 +136,9 @@ Python.
 core classes. Extension values go through `setProperty`, `addProperty`, and
 `removeProperty` with Layer 1 value classes: text, finite binary64 numbers,
 Boolean, null, canonical base64 blobs, object references, and nested ordered
-collections. Missing properties, explicit null, and empty collections remain
-distinct. Removing a missing property changes nothing and writes no history.
+collections. Missing properties, explicit null (`EntityNull`), and empty collections
+remain distinct. `setProperty` and `addProperty` reject an absent value (`null`,
+`undefined` or `None`). Removing a missing property changes nothing and writes no history.
 Object cycles are supported; self-containing collection containers are rejected.
 Core property names are reserved. Extension changes use the same command,
 validation, SQL, and history pipeline as core edits.
@@ -143,7 +146,9 @@ validation, SQL, and history pipeline as core edits.
 ### Commands, history, and consistency
 
 A write runs in one outermost transaction whose first statement is
-`UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc RETURNING revision`.
+`UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc`. A second statement,
+`SELECT revision FROM arc WHERE arc_id=$arc`, reads the new revision in the same
+transaction (`run` in `Runtime/Session.fs`).
 If the cached revision is older, the transaction reloads the state first. The command is a pure state transform. An unchanged result rolls back
 without changing revision, history, or redo. A changed result is validated,
 written as a diff with one history row, committed, and then published to the
@@ -230,8 +235,12 @@ Folder operations are independent of repository opening:
 - `save` requires a binding, checks external file changes,
   and exports only the graph rooted at `arc.Model`. Standalone objects and all
   history remain in SQLite. `IsDirty` and `HasSessionOnlyObjects` track different
-  aspects of working state.
-- `recoverFolder("auto")` resumes SQL when the file matches its baseline. If IO
+  aspects of working state. `IsDirty` compares the decoded saved graph structurally
+  with the stored state (same IDs, same root, equal rows with ID-based target
+  identity). It does not compare YAML text, so runtimes that write different text for
+  the same state agree.
+- `recoverFolder("auto")` resumes SQL when the file matches its baseline. The decision
+  compares the current `arc.yml` text with the stored baseline text. If IO
   changed, automatic reload is allowed only without pending edits or standalone
   objects; otherwise it reports a conflict. Explicit `"sql"` accepts retained
   working state and the observed baseline; `"yml"` replaces the entry from IO.
@@ -256,9 +265,14 @@ Managed root export uses the inline mode of the ProcessCore-shaped codec. It wri
 the managed ID of every entity, repeats an entity with all its fields at each
 occurrence, and writes a cycle as an `{"@id": id}` reference. It preserves
 extensions and numeric/text distinctions. It quotes Annotation values, extension text,
-`intendedUse` text and ambiguous extension keys, quotes core text scalars (IDs
-included) that are empty, read as a null or Boolean word of YAML 1.1 or 1.2, or start
-like a number, and uses
+`intendedUse` text and ambiguous extension keys. It double-quotes core text scalars (IDs
+included) that would otherwise not round-trip: implicit scalars (empty text, null and
+Boolean words of YAML 1.1 or 1.2, number-like text), YAML indicator characters at the
+start, leading or trailing whitespace, `---` or `...`, control characters including CR
+and TAB, U+2028, U+2029, U+FEFF, and `: ` or ` #` inside. Numbers have one canonical
+text on every runtime: positional notation when the decimal exponent of the leading
+digit is in [-7, 21), no `.0` on integral values, otherwise `d.ddde+N` or `d.ddde-N`
+with a lowercase e (`37`, `0.25`, `1e+21`, `1.5e-8`). The codec uses
 the standard binary tag URI. This codec contract does not change normative YAML
 schemas.
 
@@ -327,7 +341,7 @@ Keep platform adapters explicit and preserve the pinned toolchain.
 |---|---|---|
 | Repository, full-model operations, extensions, reversible history, and prototype folder IO | Implemented | Preserve the contracts above and their shared/native regression coverage. |
 | Separate generic management and workspace APIs | Implemented and verified | Renamed project, tests, targets, and packages; verified exact graph delegation, ownership, both native entrypoints, and class identity. |
-| Detached YAML and public text workflows | Implemented and verified | ProcessCore-shaped codec with inline and indexed modes: IDs, shared and cyclic entities, grouped processes, one-or-many keys, type aliases, extensions, ProcessCore and example documents, conflicts, managed adoption, and checkpoint-free export. |
+| Detached YAML and public text workflows | Implemented and verified | ProcessCore-shaped codec with inline and indexed modes: IDs, shared and cyclic entities, grouped processes, one-or-many keys, type aliases, extensions, ProcessCore and example documents, conflicts, managed adoption, and checkpoint-free export. Verified by the shared YAML tests, including the test "documents written by the ProcessCore encoder decode" over the committed ProcessCore fixtures `processcore-dataset.yml` and `processcore-dataset-indexed.yml`. The reverse direction (ProcessCore's lenient parser reading this codec's output) was a one-time scratch check on 2026-10-22 and no test guards it. |
 | Verify the current public API | Passed | `TestARCManagement` and `TestBaseModel`, including declarations and staged/packed consumers. |
 | Repository-wide verification | Passed | `BuildSolution` and `RunTests` completed after the solution-path repair; existing ignored/disabled legacy cases are recorded below. |
 | Immutable model and simplified management | Implemented | Immutable Layer 1, the core-shaped schema version 5 with delta history, the cached-state runtime with the revision protocol, the trimmed operation groups, the ProcessCore-shaped YAML codec and the cross-runtime database test are done. See the [immutable redesign](mutation_safety_immutable.md). |
@@ -369,7 +383,7 @@ Storage verification (2026-10-22, after the review fixes): `RunTests` passed wit
 
 Runtime and API verification (2026-10-22): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 156/156 shared tests on each of .NET, JavaScript and Python, plus the native and packed checks. `TestBaseModel` ran 27/27 per runtime.
 
-YAML verification (2026-10-22): `TestARCManagement` passed with FAKE `Status: Ok`. It ran 178/178 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The YAML tests read the example documents and the ProcessCore-generated fixtures from the repository root on all three runtimes. `TestBaseModel` ran 27/27 per runtime with native and packed checks, and `TestCoreSQL` passed 178/178 on the .NET target. `RunTests` then passed with FAKE `Status: Ok`, including PolyglotSQLite, Core SQL on Node and Python, and ProcessCore (659 JavaScript and 660 .NET cases, two ignored on each).
+YAML verification (2026-10-22): `TestARCManagement` passed with FAKE `Status: Ok`. It ran 178/178 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The YAML tests read the example documents and the ProcessCore-generated fixtures from the repository root on all three runtimes. `TestBaseModel` ran 27/27 per runtime with native and packed checks. `TestCoreSQL` ran its 63 core SQL cases on Node and Python and reused the .NET target. `RunTests` then passed with FAKE `Status: Ok`, including PolyglotSQLite, Core SQL on Node and Python, and ProcessCore (659 JavaScript and 660 .NET cases, two ignored on each).
 
 Close-out verification (2026-10-22): `RunTests` passed with FAKE `Status: Ok`. `TestARCManagement` ran 178/178 shared tests on each of .NET, JavaScript and Python, plus the handwritten native consumers and the locally packed npm and Python artifacts. The new `TestARCManagementInterop` wrote one version 5 fixture per runtime and read each with all three runtimes (nine combinations), checking both entries, their history flags and a redo and undo on a copy. `TestBaseModel` ran 27/27 per runtime, `TestCoreSQL` passed 63 cases each on Node and Python, and ProcessCore passed 659 JavaScript and 660 .NET cases with two ignored on each. `BuildDocs` passed.
 
@@ -390,11 +404,13 @@ Use the existing targets:
 ```
 
 `TestARCManagement` aggregates `TestARCManagementDotNet`, `TestARCManagementJS`,
-`TestARCManagementPy`, and `TestARCManagementNative`; it is included in `RunTests`.
+`TestARCManagementPy`, `TestARCManagementNative`, and `TestARCManagementInterop`. It is
+included in `RunTests`.
 `TestCoreSQL` depends on `TestARCManagementDotNet`; the duplicate
 `TestManagementPrototype` target is removed. The consolidated
 [shared tests](../tests/ARCManagement.Tests/Main.fs) cover helpers,
-behavior, core SQL, full-model operations, and the multi-ARC toolbox. Only the
+behavior, core SQL, full-model operations, the multi-ARC toolbox, and YAML. The interop
+test covers the cross-runtime database files and a saved workspace per runtime. Only the
 demo walkthrough is .NET-only. Compilation or skipped execution is not a pass.
 
 For implementation changes, retain coverage for:

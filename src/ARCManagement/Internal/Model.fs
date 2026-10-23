@@ -20,6 +20,12 @@ module internal Model =
     let number value = value
 #endif
     let required name value = if isNull (box value) then nullArg name else value
+    /// A text cell must hold a string at run time. Native callers can pass a Boolean or another value through an
+    /// erased text alternative, and a type test on the boxed value sees it on every target.
+    let requiredText name (value: string) : string =
+        if isNull (box value) then nullArg name
+        elif not (box value :? string) then invalidArg name ("Expected text for " + name + ".")
+        else value
     let entityId value = value |> Option.defaultWith (fun () -> invalidOp "Entity has no ID; add it through ARC operations first.")
     let kind (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Type
     let id (entity: obj) = (unbox<EntityObject> (required "entity" entity)).Id
@@ -54,11 +60,22 @@ module internal Model =
         | ExtensionBlob v -> Entity.Blob(EntityBlob(v))
     let endpoint reference = match reference with EntityReference.Sample v -> box v | EntityReference.Data v -> box v
     let capture sessionId (reference: obj -> string) (entity: obj) =
+        // Every value that passes through here becomes a text cell, so it must be a string.
+        let required name (value: string) = requiredText name value
         let optional key wrap value = value |> Option.map (fun v -> key, wrap v) |> Option.toList
-        let strings key values = [key, Texts(List.ofSeq values)]
+        let strings key (values: seq<string>) =
+            let items = List.ofSeq values
+            for item in items do requiredText key item |> ignore
+            [key, Texts items]
         let links key values = [key, Links(values |> Seq.map (box >> reference) |> List.ofSeq)]
         let link key value = [key, Links [reference (box value)]]
-        let annotation = function AnnotationValue.Text v -> Text(required "value" v) | AnnotationValue.Number v -> Number(number v)
+        let annotation (value: AnnotationValue) =
+            match value with
+            | AnnotationValue.Text v ->
+                // Python routes a Boolean to this case, and JavaScript hands over whatever the caller supplied.
+                if not (isNull (box v)) && not (box v :? string) then invalidArg "value" "Expected text or a number for value."
+                Text(required "value" v)
+            | AnnotationValue.Number v -> Number(number v)
         let intended = function RecipeIntendedUse.Text v -> Text(required "intendedUse" v) | RecipeIntendedUse.Term v -> Links [reference (box v)]
         let termset = function DefinedTermSetReference.Url v -> Text(required "inDefinedTermSet" v) | DefinedTermSetReference.TermSet v -> Links [reference (box v)]
         let endpointCell v = Links [reference (endpoint v)]
@@ -324,11 +341,11 @@ module internal Model =
                 let valid =
                     match cell with
                     | Text v ->
-                        required key v |> ignore
+                        requiredText key v |> ignore
                         (match shape with Schema.Shape.Text | Schema.Shape.TextOrNumber | Schema.Shape.TextOrLink _ -> true | _ -> false)
                     | Number v -> not (Double.IsNaN v || Double.IsInfinity v) && shape = Schema.Shape.TextOrNumber
                     | Texts vs ->
-                        for v in vs do required key v |> ignore
+                        for v in vs do requiredText key v |> ignore
                         shape = Schema.Shape.Texts
                     | Links vs ->
                         for id in vs do

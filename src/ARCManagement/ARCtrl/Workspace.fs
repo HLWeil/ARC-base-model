@@ -53,7 +53,7 @@ module internal Workspace =
             context.Reload(fun previous ->
                 let current = Path.readFileTextOptional rootPath
                 if current = previous.Baseline then None
-                elif previous.SavedGraph <> Some(ProcessCoreYaml.encodeState previous.State) || Model.sessionOnly previous.State then
+                elif not (ProcessCoreYaml.matchesSaved previous.SavedGraph previous.State) || Model.sessionOnly previous.State then
                     invalidOp "Both persistent YAML and retained session state changed. Choose 'sql' or 'yml' explicitly."
                 else Some(replacement current))
         | _ -> invalidArg "source" "Use 'auto', 'sql', or 'yml'."

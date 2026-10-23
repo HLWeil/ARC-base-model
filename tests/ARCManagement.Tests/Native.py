@@ -185,6 +185,24 @@ annotation_b = probe.Annotation.create("b")
 rejects(lambda: probe.Process.set_parameter_values(probe_process, once([annotation_a, Sample("wrong", id=annotation_b.Id)])))
 assert len(probe.Process.get(probe_process.Id).ParameterValues) == 0
 assert len(probe.Process.set_parameter_values(probe_process, once([annotation_a, annotation_b])).ParameterValues) == 2
+# A missing replacement is rejected and leaves the property in place, because it must not read as a removal.
+holder = probe.Entity.add(EntityObject("Holder"))
+probe.Entity.set_property(holder, "score", 1)
+rejects(lambda: probe.Entity.set_property(holder, "score", None))
+rejects(lambda: probe.Entity.add_property(holder, "other", None))
+assert probe.Entity.get(holder.Id).EntityProperties.Get("score") == 1
+assert not probe.Entity.get(holder.Id).EntityProperties.Contains("other")
+# A Boolean is neither text nor a number, so it fails with a domain error before it reaches storage or the YAML writer.
+def rejects_flag(action):
+    try:
+        action()
+    except Exception as error:
+        assert "Expected text or a number for value" in str(error), str(error)
+        return
+    raise AssertionError("Expected rejection")
+rejects_flag(lambda: probe.Annotation.add(Annotation("flag", True)))
+assert not any(entry.Name == "flag" for entry in probe.Annotation.list())
+rejects_flag(lambda: DatasetYaml.encode(Dataset.with_additional_properties(root(), [Annotation("flag", True)])))
 probe_session.close()
 assert session.open_arc(first.ArcId) is first
 assert len(session.list_arcs()) == 2

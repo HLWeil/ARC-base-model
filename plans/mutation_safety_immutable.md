@@ -255,9 +255,15 @@ points:
 - the name of the Agent index section, since Dataset already uses `agents`
 
 Interop checks decode `examples/process_core/minimal.yml`, `examples/administrative/`
-and `examples/datamap/`. A .NET test with a test-only ProcessCore reference checks that
-ProcessCore's lenient parser reads this codec's output and that this codec reads
-ProcessCore's output.
+and `examples/datamap/`. The plan asked for a .NET test with a test-only ProcessCore
+reference that checks both directions. That test does not exist. Fable transpiles
+`tests/ARCManagement.Tests` to JavaScript and Python, and the project does not
+reference `src/ProcessCore`. The delivered coverage is two committed fixtures that
+ProcessCore's own encoder generated
+(`tests/ARCManagement.Tests/fixtures/processcore-dataset.yml` and
+`processcore-dataset-indexed.yml`), which every runtime decodes. The reverse direction
+(ProcessCore's lenient parser reading this codec's output) was a one-time scratch check
+on 2026-10-22 and no test guards it.
 
 ## Workspace
 

@@ -4,7 +4,7 @@ import { mkdirSync, existsSync } from "node:fs";
 import * as Management from "arc-management";
 import { DatasetYaml, ManagedGraph, Session } from "arc-management";
 import { ARC } from "arc-management/arctrl";
-import { Dataset, EntityObject, Sample } from "arc-base-model";
+import { Annotation, Dataset, EntityObject, Sample } from "arc-base-model";
 
 const folder = `build/out/arc-management/native-js-${randomUUID()}`;
 mkdirSync(folder, { recursive: true });
@@ -72,6 +72,20 @@ const annotationB = probe.Annotation.create("b");
 assert.throws(() => probe.Process.setParameterValues(probeProcess, once([annotationA, new Sample("wrong", undefined, annotationB.Id)])));
 assert.equal(probe.Process.get(probeProcess.Id).ParameterValues.length, 0);
 assert.equal(probe.Process.setParameterValues(probeProcess, once([annotationA, annotationB])).ParameterValues.length, 2);
+// A missing replacement is rejected and leaves the property in place, because it must not read as a removal.
+const holder = probe.Entity.add(new EntityObject("Holder"));
+probe.Entity.setProperty(holder, "score", 1);
+for (const missing of [undefined, null]) {
+  assert.throws(() => probe.Entity.setProperty(holder, "score", missing));
+  assert.throws(() => probe.Entity.addProperty(holder, "other", missing));
+}
+assert.equal(probe.Entity.get(holder.Id).EntityProperties.Get("score"), 1);
+assert.equal(probe.Entity.get(holder.Id).EntityProperties.Contains("other"), false);
+// A Boolean is neither text nor a number, so it fails with a domain error before it reaches storage or the YAML writer.
+const flagMessage = /Expected text or a number for value/;
+assert.throws(() => probe.Annotation.add(new Annotation("flag", true)), flagMessage);
+assert.equal(probe.Annotation.list().some((entry) => entry.Name === "flag"), false);
+assert.throws(() => DatasetYaml.encode(Dataset.withAdditionalProperties(root(), [new Annotation("flag", true)])), flagMessage);
 probeSession.close();
 assert.equal(session.openArc(first.ArcId), first);
 assert.equal(session.listArcs().length, 3);

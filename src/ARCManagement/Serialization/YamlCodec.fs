@@ -20,9 +20,44 @@ module internal Codec =
             let start = if value.[0] = '+' || value.[0] = '-' then 1 else 0
             let isDigit (index: int) = index < value.Length && value.[index] >= '0' && value.[index] <= '9'
             isDigit start || (start < value.Length && value.[start] = '.' && isDigit (start + 1))
-    /// Text that stays a string for every YAML reader: quoted when a plain scalar would be typed implicitly.
+    let private hex4 (code: int) =
+        let digits = "0123456789abcdef"
+        string digits.[(code >>> 12) &&& 15] + string digits.[(code >>> 8) &&& 15] + string digits.[(code >>> 4) &&& 15] + string digits.[code &&& 15]
+    /// Characters that need an escape in a double-quoted scalar: controls, line and paragraph separators, byte order mark.
+    let private needsEscape (c: char) =
+        let code = int c
+        code < 0x20 || (code >= 0x7F && code <= 0x9F) || code = 0x2028 || code = 0x2029 || code = 0xFEFF
+    /// The text between the quotes of a double-quoted scalar. YAMLicious escapes only some control characters, so the
+    /// escapes are written here and the result goes out verbatim.
+    let private escapeQuoted (value: string) =
+        let builder = System.Text.StringBuilder()
+        for c in value do
+            if c = '\\' then builder.Append("\\\\") |> ignore
+            elif c = '"' then builder.Append("\\\"") |> ignore
+            elif c = '\n' then builder.Append("\\n") |> ignore
+            elif c = '\r' then builder.Append("\\r") |> ignore
+            elif c = '\t' then builder.Append("\\t") |> ignore
+            elif needsEscape c then builder.Append("\\u").Append(hex4 (int c)) |> ignore
+            else builder.Append(c) |> ignore
+        builder.ToString()
+    let private isSpace (c: char) =
+        let code = int c
+        c = ' ' || (code >= 0x09 && code <= 0x0D) || code = 0x85 || code = 0xA0 || code = 0x1680 || (code >= 0x2000 && code <= 0x200A)
+        || code = 0x2028 || code = 0x2029 || code = 0x202F || code = 0x205F || code = 0x3000
+    /// True when a plain scalar with this text would be misread or altered by a YAML reader. The checks use plain
+    /// character tests, so every runtime decides alike. Line feeds alone do not count, because multi-line text
+    /// goes out as a block scalar.
+    let needsQuotes (value: string) =
+        if implicitScalar value then true
+        elif "-?:,[]{}#&*!|>'\"%@`".IndexOf(value.[0]) >= 0 then true
+        elif isSpace value.[0] || isSpace value.[value.Length - 1] then true
+        elif value.StartsWith("---") || value.StartsWith("...") then true
+        elif value.Contains(": ") || value.Contains(" #") then true
+        else value |> Seq.exists (fun c -> c <> '\n' && (c = '\t' || c = '\r' || needsEscape c))
+    /// Text that stays a string for every YAML reader: quoted when a plain scalar would change meaning or text.
     let scalarText (value: string) =
-        if implicitScalar value then YAMLElement.Value(YAMLContent.create(value, style = ScalarStyle.DoubleQuoted)) else text value
+        if needsQuotes value then YAMLElement.Value(YAMLContent.create("\"" + escapeQuoted value + "\"", style = ScalarStyle.Plain))
+        else text value
     let extensionMappings pairs =
         let keyContent (key: string) =
             // '$' introduces YAMLicious array syntax; '['/'{' also interfere with its key parser.
@@ -73,7 +108,44 @@ module internal Codec =
     let private numericText (value: float) = value.ToString("R", CultureInfo.InvariantCulture)
 #endif
 #endif
-    let number (v: float) = YAMLElement.Value(YAMLContent.create(numericText v, style = ScalarStyle.Plain))
+    /// Rewrites the shortest round-trip text of a finite number into one form for every runtime. The runtimes agree
+    /// on the digits and differ on the layout (3 or 3.0, E+21 or e+21, 1E-07 or 1e-7). Plain notation covers decimal
+    /// exponents from -7 up to 20. Outside that range the text is d.ddde+N or d.ddde-N. Negative zero becomes 0.
+    /// Text that is not a plain decimal number (NaN, Infinity) comes back unchanged.
+    let canonicalNumber (text: string) : string =
+        let negative = text.StartsWith("-")
+        let body = if negative || text.StartsWith("+") then text.Substring(1) else text
+        let lower, upper = body.IndexOf('e'), body.IndexOf('E')
+        let marker = if lower >= 0 then lower else upper
+        let mantissa = if marker >= 0 then body.Substring(0, marker) else body
+        let exponentText = if marker >= 0 then body.Substring(marker + 1) else "0"
+        let dot = mantissa.IndexOf('.')
+        let whole = if dot >= 0 then mantissa.Substring(0, dot) else mantissa
+        let fraction = if dot >= 0 then mantissa.Substring(dot + 1) else ""
+        let isDigits (value: string) = value |> Seq.forall (fun c -> c >= '0' && c <= '9')
+        let exponentDigits = if exponentText.StartsWith("-") || exponentText.StartsWith("+") then exponentText.Substring(1) else exponentText
+        if whole.Length + fraction.Length = 0 || not (isDigits whole) || not (isDigits fraction) || exponentDigits.Length = 0 || not (isDigits exponentDigits) then text
+        else
+            let all = whole + fraction
+            let significant = all.TrimStart('0')
+            let digits = significant.TrimEnd('0')
+            if digits.Length = 0 then "0"
+            else
+                // The value is 0.<all> * 10^(whole.Length + exponent), so the leading digit has this decimal exponent.
+                let leading = whole.Length + int exponentText - (all.Length - significant.Length) - 1
+                let sign = if negative then "-" else ""
+                if leading >= -7 && leading < 21 then
+                    if leading >= 0 then
+                        let integer = if digits.Length <= leading + 1 then digits + String.replicate (leading + 1 - digits.Length) "0" else digits.Substring(0, leading + 1)
+                        let rest = if digits.Length > leading + 1 then "." + digits.Substring(leading + 1) else ""
+                        sign + integer + rest
+                    else sign + "0." + String.replicate (-leading - 1) "0" + digits
+                else
+                    let tail = if digits.Length > 1 then "." + digits.Substring(1) else ""
+                    sign + digits.Substring(0, 1) + tail + "e" + (if leading < 0 then "-" else "+") + string (abs leading)
+    /// The canonical text that the codecs write for a number.
+    let numberText (v: float) : string = canonicalNumber (numericText v)
+    let number (v: float) = YAMLElement.Value(YAMLContent.create(numberText v, style = ScalarStyle.Plain))
     let rec extensionElement cell =
         let scalar kind v = mapping ["storage", text kind; "value", v]
         match cell with

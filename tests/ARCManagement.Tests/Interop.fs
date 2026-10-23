@@ -3,6 +3,8 @@ module ARCManagement.Tests.Interop
 open ARCBaseModel
 open ARCManagement
 open ARCManagement.Helper
+open ARCtrl
+open PolyglotSQLite
 open Fable.Pyxpecto
 
 // Every runtime writes this fixture and every runtime reads every fixture. The expected content is built by the same
@@ -49,7 +51,7 @@ let private graph (sampleName: string) (title: string) =
     let child = Dataset(["semantic-designation"], ["child"], descriptors = [sampleDescriptor; dataDescriptor], id = "child-id")
     let root = Dataset(["administrative"; "process-provenance"], ["root"; "root"], title = title, description = "Description", license = "CC-BY-4.0", datePublished = "2026-01-02", dateCreated = "2026-01-01", dateModified = "2026-01-03", hasParts = [child; child], dataFiles = [raw; part; raw], agents = [agent; agent], citations = [article], processes = [first; second], additionalProperties = [temperature; zero; note; blank; absent; temperature; looped], id = "root-id", additionalTypes = ["Investigation"; "Investigation"])
     // The object reaches the root through an extension, which closes a second cycle.
-    let custom = EntityObject("Custom", id = "custom-1")
+    let custom = EntityObject("Custom", id = "custom-1", additionalTypes = ["Tagged"; "Tagged"])
     setProperty custom "owner" (Entity.Object root)
     setProperty root "text" (Entity.Text "0")
     setProperty root "score" (Entity.Number 0.5)
@@ -62,21 +64,50 @@ let private graph (sampleName: string) (title: string) =
     setProperty leaf "custom" (Entity.Object custom)
     root
 
-// Entry 0 undoes its only edit. Entry 1 keeps the first edit and undoes the second.
+// Both entries start with the stand-alone add, which stays in history. Entry 0 then undoes its only edit.
+// Entry 1 keeps the first edit and undoes the second.
 let private stored index = if index = 0 then graph "leaf" "Title" else graph "edited leaf" "Title"
 let private redone index = if index = 0 then graph "edited leaf" "Title" else graph "edited leaf" "Edited title"
-let private canUndo index = index = 1
+
+/// Not reachable from the root, so it stays in the registry as a session-only entity.
+let private standalone () = Sample("standalone", id = "standalone-1")
+
+/// The entity IDs in registry order that every runtime must have stored for both entries.
+let private expectedEntityIds () =
+    use session = Session.createInMemory()
+    let arc = session.createArc(graph "leaf" "Title")
+    arc.Sample.add(standalone ()) |> ignore
+    let ids = arc.Entity.list() |> Seq.map (fun entity -> entity.Id.Value) |> List.ofSeq
+    session.close()
+    ids
+
+let private workspaceTitle = "Workspace title"
+let private workspaceNumbers = [37.0; 0.25; 1e21; 1e-7]
+
+/// Numbers whose text differs between runtimes, as Annotation values and as extension numbers.
+let private workspaceGraph () =
+    let annotations = workspaceNumbers |> List.mapi (fun index value -> Annotation("n" + string index, value = AnnotationValue.Number value, id = "wa" + string index))
+    let root = Dataset(["administrative"], ["workspace"], title = workspaceTitle, additionalProperties = annotations, id = "workspace-root")
+    workspaceNumbers |> List.iteri (fun index value -> setProperty root ("x" + string index) (Entity.Number value))
+    root
 
 let write (path: string) =
     use session = Session.createFile path
     let first = session.createArc(graph "leaf" "Title")
+    first.Sample.add(standalone ()) |> ignore
     first.Sample.setName(first.Sample.get("s1"), "edited leaf") |> ignore
     first.History.undo()
     let second = session.createArc(graph "leaf" "Title")
+    second.Sample.add(standalone ()) |> ignore
     second.Sample.setName(second.Sample.get("s1"), "edited leaf") |> ignore
     second.Dataset.setTitle(second.Model, Some "Edited title") |> ignore
     second.History.undo()
     session.close()
+    let workspacePath = path + ".workspace"
+    if Path.pathExists workspacePath then Path.deleteDirectory workspacePath
+    let arc = ARC.create(workspacePath, workspaceGraph ())
+    arc.save()
+    arc.close()
 
 /// Checks sharing, cycles, alternatives and number types that the encoded text alone would not pin down.
 let private verify (root: Dataset) =
@@ -149,6 +180,7 @@ let private verify (root: Dataset) =
     match property root "bytes" with Entity.Blob v -> Expect.equal v.Base64 "AAE=" "Extension blob" | _ -> failwith "Expected a blob"
     let custom = match property root "custom" with Entity.Object v -> v | _ -> failwith "Expected an object"
     Expect.equal custom.Id (Some "custom-1") "Extension object ID"
+    Expect.equal (Seq.toList custom.AdditionalTypes) ["Tagged"; "Tagged"] "Generic object types"
     match property custom "owner" with Entity.Object v -> same v root | _ -> failwith "Expected the root"
     match property leaf "custom" with Entity.Object v -> same v custom | _ -> failwith "Expected the shared object"
     match property root "list" with
@@ -170,6 +202,7 @@ let private inspect path =
     use session = Session.openFile path
     let entries = session.listArcs() |> Seq.toList
     Expect.equal entries.Length 2 "Two ARC entries"
+    let expectedIds = expectedEntityIds ()
     Expect.isFalse ((List.item 0 entries).ArcId = (List.item 1 entries).ArcId) "Distinct entry IDs"
     for index, info in List.indexed entries do
         Expect.isFalse (System.String.IsNullOrEmpty info.ArcId) "Entry ID"
@@ -177,7 +210,9 @@ let private inspect path =
         Expect.isNone info.Folder "No bound folder"
         let graph = session.openArc(info.ArcId)
         compare "Stored model" (stored index) graph.Model
-        Expect.equal graph.History.CanUndo (canUndo index) "CanUndo"
+        Expect.equal (graph.Entity.list() |> Seq.map (fun entity -> entity.Id.Value) |> List.ofSeq) expectedIds "Entity registry order"
+        Expect.isTrue graph.HasSessionOnlyObjects "The stand-alone entity is session-only"
+        Expect.isTrue graph.History.CanUndo "The stand-alone add can be undone"
         Expect.isTrue graph.History.CanRedo "The undone command leaves a redo branch"
     session.close()
 
@@ -199,9 +234,50 @@ let private edit path =
     session.close()
     Path.deleteFile copy
 
+let rec private copyFolder (source: string) (destination: string) =
+    Path.createDirectory destination
+    for file in Path.getSubFiles source do
+        Path.writeFileBinary (Path.combineNative destination (Array.last (Path.split file))) (Path.readFileBinary file)
+    for directory in Path.getSubDirectories source do
+        copyFolder directory (Path.combineNative destination (Array.last (Path.split directory)))
+
+let private checkWorkspaceNumbers (root: Dataset) =
+    let values = root.AdditionalProperties |> Seq.map (fun a -> match a.Value with Some(AnnotationValue.Number v) -> v | _ -> nan) |> List.ofSeq
+    Expect.equal values workspaceNumbers "Annotation numbers"
+    let extensions = workspaceNumbers |> List.mapi (fun index _ -> match property root ("x" + string index) with Entity.Number v -> v | _ -> nan)
+    Expect.equal extensions workspaceNumbers "Extension numbers"
+
+// The copy is bound to a new folder, so the binding in its database follows. Opening it with "auto" then
+// decides from the stored saved graph, which another runtime wrote.
+let private inspectWorkspace (path: string) =
+    let copy = Helpers.folder "interop"
+    copyFolder (path + ".workspace") copy
+    let database = ARCtrl.Internal.Workspace.path copy
+    let rebound = Session.openFile database
+    rebound.Repository.Connection.WithTransaction(fun () ->
+        rebound.Repository.Connection.Execute("UPDATE arc SET folder=$folder", [SqlParameter("folder", SqlValue.Text copy)])) |> ignore
+    rebound.close()
+    let arc = ARC.openFolder(copy, "auto")
+    Expect.isFalse arc.IsDirty "A foreign save is not an edit"
+    Expect.isFalse arc.HasSessionOnlyObjects "Nothing is session-only"
+    Expect.equal arc.Model.Title (Some workspaceTitle) "Saved title"
+    checkWorkspaceNumbers arc.Model
+    arc.close()
+    let file = Path.combineNative copy ARCtrl.Helper.Layout.ARCFileName
+    let original = Path.readFileText file
+    let edited = original.Replace("title: " + workspaceTitle, "title: Edited " + workspaceTitle)
+    Expect.notEqual edited original "The title line is edited"
+    Path.writeFileText file edited
+    let reopened = ARC.openFolder(copy, "auto")
+    Expect.equal reopened.Model.Title (Some("Edited " + workspaceTitle)) "The edited file is adopted"
+    checkWorkspaceNumbers reopened.Model
+    reopened.close()
+    Path.deleteDirectory copy
+
 let read (path: string) =
     inspect path
     edit path
+    inspectWorkspace path
 
 let tryRun (arguments: string array) =
     match arguments with

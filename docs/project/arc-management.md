@@ -136,7 +136,9 @@ persisted copies. ID assignment belongs to management, never Layer 1.
 Identity is not inferred from names, paths, or equal values. Values read from
 another ARC are accepted and resolve by ID in the destination. Native numbers
 supplied for Number values become native floats at the management boundary, and
-Booleans are rejected there.
+Booleans are rejected there. A Boolean or other non-string in a text alternative
+(an Annotation value or `intendedUse`, for example) fails with a domain error at the
+management boundary and in the detached codec.
 
 Collection edits preserve order, duplicates, and shared references. `removePart`
 and its siblings delete one occurrence without unregistering the target.
@@ -147,7 +149,9 @@ fractional numbers remain distinguishable.
 
 Each command is a pure transform of the stored state, run in one outermost
 transaction. Its first statement is
-`UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc RETURNING revision`.
+`UPDATE arc SET revision = revision + 1 WHERE arc_id=$arc`, which takes the write
+lock. The next statement, `SELECT revision FROM arc WHERE arc_id=$arc` in the same
+transaction, reads the new revision.
 If the cached revision is older, the transaction reloads the state first. A
 command whose result equals the current state rolls back, so revision, history,
 and redo stay unchanged. A changed result is validated, written as a row-level
@@ -234,7 +238,7 @@ Absent optional values and empty collections write nothing.
 | Data | `hasParts` | `hasPart` | sequence of Data | |
 | Data | `additionalProperties` | `additionalProperty` | sequence of Annotations | |
 | Annotation | `name`, `unit`, `nameTAN`, `valueTAN`, `unitTAN` | same names | text | |
-| Annotation | `value` | `value` | text always quoted, numbers plain | |
+| Annotation | `value` | `value` | text always quoted, numbers plain in canonical number text (see [Extensions](#extensions)) | |
 | Annotation | `instanceOf` | `instanceOf` | FormalParameter | |
 | FormalParameter | `name`, `nameTAN` | same names | text | |
 | FormalParameter | `defaultValue` | `defaultValue` | Annotation | |
@@ -325,7 +329,11 @@ written.
 
 Extension properties are keys next to the wire keys of their entity. Text is quoted,
 numbers, `true`, `false` and `null` are plain, a blob is a `!!binary` scalar holding
-the base64 text, and collections are sequences. A typed object is written inline with
+the base64 text, and collections are sequences. Every runtime writes a number in one
+canonical text, here and in Annotation values. The text uses positional notation when
+the decimal exponent of the leading digit is in [-7, 21) and has no `.0` on integral
+values. Any other number is written as `d.ddde+N` or `d.ddde-N` with a lowercase e.
+Examples are `37`, `0.25`, `1e+21` and `1.5e-8`. A typed object is written inline with
 `type` and `id`, or as `{"@id": id}` under the rules above. The decoder restores the
 alternative from the style and tag: quoted text is text, a plain finite number is a
 number, `true` and `false` are Booleans, `null` and `~` are null, `!!binary` is a
@@ -356,18 +364,30 @@ The decoder accepts what ProcessCore documents contain.
   kind everywhere.
 - A plain scalar that looks like a finite YAML number is a number only in
   `Annotation.value` and in extension values. Every other text property stays text.
-  The encoder quotes core text scalars and extension keys, IDs included, when a YAML 1.1
-  or 1.2 reader could type them implicitly: empty text, the null and Boolean words
-  (`null`, `~`, `true`, `false`, `yes`, `no`, `on`, `off`, `y`, `n`, `.inf`, `.nan` in any
-  case), and any text that starts like a number (an optional sign, then a digit, or a dot
-  and a digit). This over-quotes `0x10`, `1_000` and `2026-01-02` on purpose, and the check
-  uses character tests, so every runtime writes the same text.
+  The encoder writes core text scalars and extension keys, IDs included, in double
+  quotes when they would otherwise not round-trip. That covers text that a YAML 1.1 or
+  1.2 reader could type implicitly: empty text, the null and Boolean words (`null`, `~`,
+  `true`, `false`, `yes`, `no`, `on`, `off`, `y`, `n`, `.inf`, `.nan` in any case), and any
+  text that starts like a number (an optional sign, then a digit, or a dot and a digit).
+  It also covers text that starts with a YAML indicator character, has leading or
+  trailing whitespace, has the document markers `---` or `...`, contains a control
+  character (CR and TAB included), U+2028, U+2029 or U+FEFF, or contains `: ` or ` #`. The rules
+  over-quote `0x10`, `1_000` and `2026-01-02` on purpose. The checks use character
+  tests, so every runtime writes the same text.
 - A Dataset needs at least one identifier, as in the model.
 
 #### ProcessCore interoperability
 
-ProcessCore's lenient parser (`Dataset.fromYamlString false`) reads both output modes.
-It keeps `identifier` (the first item), the scalar Dataset fields, processes with their
+Two committed fixtures that ProcessCore's own encoder generated
+(`tests/ARCManagement.Tests/fixtures/processcore-dataset.yml` and
+`processcore-dataset-indexed.yml`) are decoded on every runtime by the test "documents
+written by the ProcessCore encoder decode". The reverse direction is ProcessCore's
+parser reading this codec's output. The description below of what that parser keeps and
+drops comes from a one-time scratch check on 2026-10-22. No test covers it, and the
+tests do not reference `src/ProcessCore`.
+
+ProcessCore's lenient parser (`Dataset.fromYamlString false`) read both output modes in
+that check. It keeps `identifier` (the first item), the scalar Dataset fields, processes with their
 endpoints, recipes, parameter values, data files, citations, agents (inline mode),
 `additionalProperty` and nested `hasPart` Datasets. It treats `id`, `conformsTo`,
 `identifiers` and extension keys as overflow properties of the Dataset, and it drops
@@ -383,7 +403,9 @@ name of an inline Annotation and drops a reference.
 values go through `setProperty`, `addProperty`, and `removeProperty` and use
 Layer 1 value classes: text, finite binary64 numbers, Boolean, null, canonical
 padded base64 blobs, object references, and nested ordered collections. Missing
-properties, explicit null, and empty collections are distinct. Core property
+properties, explicit null, and empty collections are distinct. Explicit null is
+`EntityNull`. `setProperty` and `addProperty` reject an absent value (`null`,
+`undefined` or `None`). Core property
 names are reserved and comparisons are case-sensitive. Set replaces or inserts,
 and add rejects duplicate properties. Removing a missing property changes nothing
 and writes no history. Property enumeration has no guaranteed order.
@@ -483,8 +505,14 @@ model with a graph that it builds with the same code, by encoding both with
 `DatasetYaml.encode` and comparing the text. It then checks number types and sharing
 explicitly. The reader then copies the file, redoes and undoes the edit on the
 copy, and compares the model after each step. The fixture stays unchanged for the next
-reader. The
-[shared tests](../../tests/ARCManagement.Tests/Main.fs) are portable; only the
+reader.
+
+The test also saves a bound workspace on each runtime. Every runtime opens it with
+`"auto"` and checks that `IsDirty` is false, then reloads it after an outside edit of
+the title in `arc.yml`. Further cases cover a stand-alone entity, a generic object with
+`additionalTypes`, and the order of `Entity.list()`.
+
+The [shared tests](../../tests/ARCManagement.Tests/Main.fs) are portable. Only the
 [demo walkthrough](../../tests/ARCManagement.Tests/Walkthrough.fs) is .NET-only.
 See the [plan](../../plans/arc-management.md) for actual results. Compilation and
 skipped execution are not passing runtime evidence.

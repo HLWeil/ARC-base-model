@@ -53,8 +53,11 @@ reconciling filesystem changes.
 immutable snapshots of the graph and never change afterwards.
 `ArcId`, `DatabasePath`, and `HasSessionOnlyObjects` also forward to it. Workspace
 properties `FolderBinding`, `Folder`, and `IsDirty` describe the binding and save
-baseline. `IsDirty` is true when the stored state exports differently from the
-saved graph. `HasSessionOnlyObjects` reports stored objects outside the root graph.
+baseline. `IsDirty` is true when the stored state differs from the decoded saved
+graph. The comparison is structural: it needs the same IDs, the same root and equal
+rows, with entity targets identified by ID. It does not compare YAML text, so runtimes
+that write different text for the same state agree.
+`HasSessionOnlyObjects` reports stored objects outside the root graph.
 
 Closing a workspace closes its graph and invalidates every wrapper sharing it.
 A borrowed session and sibling graphs remain usable. Closing the session
@@ -99,7 +102,10 @@ to read it. A folder that still has its `.arc/arc.sqlite` can be recovered: call
 `ARC.openFolder(folder, "sql")`, which takes the file text as the baseline and keeps the
 stored graph, then call `save()`, which rewrites `arc.yml` in the new format.
 
-The baseline compares observed `arc.yml` text, including absence. Save stages a
+The baseline compares observed `arc.yml` text, including absence. The `"auto"`
+recovery decision compares the current `arc.yml` text with the stored baseline text to
+detect file changes. Whether edits are pending (`IsDirty`) is a separate structural
+comparison, as described above. Save stages a
 replacement file and advances the SQL checkpoint only after publication. Failed
 saves retain the last successful checkpoint and pending status. Filesystem
 publication and SQLite commit cannot be atomic together: if publication succeeds

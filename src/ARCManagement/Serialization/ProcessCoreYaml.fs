@@ -613,3 +613,28 @@ module internal ProcessCoreYaml =
                 finishProfiles key
         let ids = kept |> List.choose (fun key -> match supplied.TryGetValue key with | true, id -> Some(key, id) | _ -> None) |> Map.ofList
         { Root = rootKey; Entities = kept |> List.map (fun key -> rows[key]) }, ids
+
+    /// True when the saved graph text describes the same entities as the state. The comparison is structural, so
+    /// the way a runtime lays out numbers or quotes text does not matter. The state side counts the entities that
+    /// the root reaches, because the export holds only those. Both sides identify targets by ID.
+    let matchesSaved (saved: string option) (state: State) : bool =
+        match saved with
+        | None -> false
+        | Some text ->
+            let decoded, ids = decode text
+            let reachable = Model.reachable state
+            // An empty collection is not written, so it is the same as an absent one.
+            let normalize (row: EntityRow) =
+                { row with Properties = row.Properties |> Map.filter (fun _ cell -> match cell with Texts [] | Links [] -> false | _ -> true) }
+            let current = state.Entities |> List.filter (fun row -> Set.contains row.Id reachable) |> List.map (fun row -> row.Id, normalize row) |> Map.ofList
+            let written = decoded.Entities |> List.map (fun row -> row.Id, normalize row) |> Map.ofList
+            let idOfSaved (key: string) = Map.tryFind key ids
+            let identified = decoded.Entities |> List.forall (fun row -> (idOfSaved row.Id).IsSome)
+            if not identified || decoded.Entities.Length <> current.Count || idOfSaved decoded.Root <> Some state.Root then false
+            else
+                let describeCurrent (row: EntityRow) = fingerprint (fun key -> current[key]) Some row
+                let describeSaved (row: EntityRow) = fingerprint (fun key -> written[key]) idOfSaved row
+                decoded.Entities |> List.forall (fun row ->
+                    match Map.tryFind (idOfSaved row.Id).Value current with
+                    | Some other -> describeSaved written[row.Id] = describeCurrent other
+                    | None -> false)

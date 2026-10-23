@@ -15,6 +15,7 @@ type EntityOperations internal (session: GraphContext) =
     member _.delete(value: EntityObject) = session.Delete(value, None)
     member _.setAdditionalTypes(value: EntityObject, replacement: seq<string>) =
         session.Change<EntityObject>(value, None, "additionalTypes", Some(Texts(List.ofSeq replacement)), [], value.Type + ".setAdditionalTypes")
-    member _.setProperty(value: EntityObject, key: string, replacement: Entity) = session.Extension<EntityObject>(value, key, Some replacement, false)
-    member _.addProperty(value: EntityObject, key: string, replacement: Entity) = session.Extension<EntityObject>(value, key, Some replacement, true)
+    // Some(undefined) and Some(null) become None on the native targets, which would remove the property.
+    member _.setProperty(value: EntityObject, key: string, replacement: Entity) = session.Extension<EntityObject>(value, key, Some(Model.required "replacement" replacement), false)
+    member _.addProperty(value: EntityObject, key: string, replacement: Entity) = session.Extension<EntityObject>(value, key, Some(Model.required "replacement" replacement), true)
     member _.removeProperty(value: EntityObject, key: string) = session.Extension<EntityObject>(value, key, None, false)

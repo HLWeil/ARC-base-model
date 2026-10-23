@@ -154,7 +154,10 @@ ARCBaseModel and PolyglotSQLite. Track implementation and actual verification in
   rolls back, so revision, history, and redo stay unchanged. There are no
   caller revision tokens, stale-handle errors, ownership registry, or
   direct-mutation detection. Native numbers for Number values become floats at
-  the management boundary, and Booleans are rejected.
+  the management boundary, and Booleans are rejected. A Boolean or other non-string
+  in a text alternative fails with a domain error there and in the detached codec.
+  `Entity.setProperty` and `addProperty` reject an absent value (null, undefined or
+  None). Explicit null is `EntityNull`.
 - `ARCManagement.DatasetYaml.encode/encodeIndexed/decode` are detached codecs
   for the ProcessCore-shaped YAML in `Serialization/ProcessCoreYaml.fs`. The wire
   names live in the typed property table, and the

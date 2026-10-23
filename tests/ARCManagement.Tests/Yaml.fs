@@ -704,4 +704,57 @@ processes:
 
     testCase "history rows written with a suppliedId key still decode" (fun _ ->
         Expect.equal (Legacy.decodeWithSuppliedId ()) "s" "The obsolete key is ignored")
+
+    testCase "numbers are written in one canonical form on every runtime" (fun _ ->
+        let parse (text: string) = System.Double.Parse(text, System.Globalization.CultureInfo.InvariantCulture)
+        let values =
+            [ 0.0, "0"; -0.0, "0"; 3.0, "3"; 37.0, "37"; 0.25, "0.25"; 1e21, "1e+21"; 1e-7, "0.0000001"; 1e-8, "1e-8"
+              123456789012345680.0, "123456789012345680"; 1.5e300, "1.5e+300"; -2.5e-10, "-2.5e-10"; -12.5, "-12.5"; 1e20, "100000000000000000000" ]
+        for value, expected in values do
+            let text = ARCManagement.Internal.Codec.numberText value
+            Expect.equal text expected ("Canonical text of " + expected)
+            Expect.equal (parse text) value ("Decoding gives back " + expected)
+        // The layouts that each runtime produces for the same digits.
+        let layouts =
+            [ "3.0", "3"; "3", "3"; "1E+21", "1e+21"; "1e+21", "1e+21"; "1E-07", "0.0000001"; "1e-7", "0.0000001"; "1e-07", "0.0000001"
+              "1.2345678901234568E+17", "123456789012345680"; "1.2345678901234568e+17", "123456789012345680"; "-0", "0"; "-0.0", "0"
+              "100.0", "100"; "1E+02", "100"; "0.5E-1", "0.05"; "1.5E-08", "1.5e-8" ]
+        for layout, expected in layouts do
+            Expect.equal (ARCManagement.Internal.Codec.canonicalNumber layout) expected ("Layout " + layout)
+        let source = Dataset.withAdditionalProperties(idRoot (), [37.0; 0.25; 1e21; 1e-7] |> List.map (fun v -> Annotation("n", value = AnnotationValue.Number v)))
+        let yaml = DatasetYaml.encode source
+        let lines = yaml.Replace("\r", "").Split('\n') |> Array.map (fun line -> line.Trim())
+        for line in ["value: 37"; "value: 0.25"; "value: 1e+21"; "value: 0.0000001"] do
+            Expect.isTrue (Array.contains line lines) ("Written: " + line)
+        let numbers = (DatasetYaml.decode yaml).AdditionalProperties |> Seq.map (fun a -> match a.Value with Some(AnnotationValue.Number v) -> v | _ -> nan) |> List.ofSeq
+        Expect.equal numbers [37.0; 0.25; 1e21; 1e-7] "Numbers read back")
+
+    testCase "awkward text survives detached encoding and a managed save" (fun _ ->
+        let punctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~" |> Seq.map string |> List.ofSeq
+        let values =
+            punctuation @ (punctuation |> List.map (fun p -> p + "x"))
+            @ ["..."; "---"; "?q"; "???"; "- a"; "a: b"; "a #b"; " lead"; "trail "; "a\r\nb"; "a\tb"; "a\u0085b"; "a\u2028b"; "a\u0001b\u007Fc\uFEFFd"; "\U0001F600"; "a\\b\"c"]
+        let build (items: string list) =
+            let children = items |> List.mapi (fun index value -> Dataset(["administrative"], ["c" + string index], title = value, id = "d" + string index))
+            let processes =
+                items |> List.mapi (fun index value ->
+                    ARCBaseModel.Process("p" + string index, input = EntityReference.Sample(Sample(value, id = "s" + string index)), id = "p" + string index))
+            Dataset(["administrative"; "process-provenance"], ["root"], title = "root", hasParts = children, processes = processes, id = "root-id")
+        let check (label: string) (items: string list) (result: Dataset) =
+            Expect.equal (result.HasParts |> Seq.map (fun d -> d.Title) |> List.ofSeq) (List.map Some items) (label + ": titles")
+            Expect.equal (result.Processes |> Seq.map (fun p -> (sample p).Name) |> List.ofSeq) items (label + ": sample names")
+        // One value per document names the failing value.
+        for value in values do
+            let single = [value]
+            check ("Detached " + String.Join(",", [for c in value -> string (int c)])) single (DatasetYaml.decode(DatasetYaml.encode(build single)))
+        check "Detached" values (DatasetYaml.decode(DatasetYaml.encode(build values)))
+        let path = Helpers.folder "yaml"
+        let arc = ARC.create(path, build values)
+        arc.save()
+        Expect.isFalse arc.IsDirty "Saved"
+        arc.close()
+        use memory = ARCManagement.Session.createInMemory()
+        let imported = ARC.importFolder(memory, path)
+        check "Managed" values imported.Model
+        imported.close())
 ]

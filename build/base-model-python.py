@@ -316,8 +316,8 @@ def class_stub(class_node: ast.ClassDef) -> str:
             continue
         if member.name == "__init__":
             if class_node.name == "EntityPropertyBag":
-                # Only the model creates property bags. The emitted parameter is an internal F# map.
-                lines.append("    def __init__(self, values: object) -> None: ...")
+                # Only the model creates property bags, so the stub hides the internal F# map parameter.
+                lines.append("    def __init__(self, _internal: Never) -> None: ...")
                 continue
             lines.append(constructor_stub(class_node, member))
             continue
@@ -400,7 +400,7 @@ def module_stub(module: str, parsed: ast.Module) -> str:
     imports = ["from __future__ import annotations"]
     if "Iterable" in names:
         imports.append("from collections.abc import Iterable")
-    typing_names = sorted(names & {"Literal", "TypeAlias", "TypeVar"})
+    typing_names = sorted(names & {"Literal", "Never", "TypeAlias", "TypeVar"})
     if typing_names:
         imports.append(f"from typing import {', '.join(typing_names)}")
     for other_module, other_classes in MODULE_CLASSES.items():

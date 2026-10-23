@@ -42,9 +42,12 @@ type internal GraphContext(repository: Repository, arcId: string) =
     let mutable closed = false
     // The exported graph text of the current revision. IsDirty and toYaml share it.
     let mutable exported : string option = None
+    // Whether the current revision differs from the saved graph. It is decided structurally, once per revision.
+    let mutable dirty : bool option = None
     let publish (next: Stored) =
         stored <- next
         exported <- None
+        dirty <- None
         index.Clear()
         for row in next.State.Entities do index[row.Id] <- row
         cache.Clear()
@@ -157,7 +160,14 @@ type internal GraphContext(repository: Repository, arcId: string) =
     member _.Folder = read (fun () -> stored.Folder)
     member _.Baseline = read (fun () -> stored.Baseline)
     member _.Revision = read (fun () -> stored.Revision)
-    member _.IsDirty = read (fun () -> stored.SavedGraph <> Some(exportedGraph ()))
+    member _.IsDirty =
+        read (fun () ->
+            match dirty with
+            | Some value -> value
+            | None ->
+                let value = not (ProcessCoreYaml.matchesSaved stored.SavedGraph stored.State)
+                dirty <- Some value
+                value)
     member _.HasSessionOnlyObjects = read (fun () -> Model.sessionOnly stored.State)
     member _.CanUndo = read (fun () -> stored.Cursor > 0)
     member _.CanRedo =
